@@ -18,6 +18,11 @@ npm install
 npm run dev
 ```
 
+## API no localhost (proxy Vite)
+- O frontend chama `/api-check-user` e `/api-bet-user-inf`.
+- No `npm run dev`, o Vite faz proxy para o ORDS via `VITE_ORDS_BASE_URL`.
+- Se precisar trocar o endpoint, copie `.env.example` para `.env` e ajuste `VITE_ORDS_BASE_URL`.
+
 
 ## Build
 ```bash

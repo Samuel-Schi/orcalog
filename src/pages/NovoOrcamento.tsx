@@ -1,4 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
+import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 
 type Item = {
   id: string;
@@ -37,7 +38,7 @@ const NovoOrcamento = () => {
     setProtocolo(prot);
     setDataEntrada(now.toISOString().slice(0, 10));
 
-    const profileRaw = localStorage.getItem('ravenna_user_profile');
+    const profileRaw = localStorage.getItem('gat_user_profile');
     if (profileRaw) {
       try {
         const profile = JSON.parse(profileRaw) as {
@@ -55,16 +56,22 @@ const NovoOrcamento = () => {
 
     const loadUserInfo = async () => {
       try {
-        const usuario = localStorage.getItem('ravenna_user') || '';
-        const baseUrl = '/api-bet-user-inf';
-        const url = usuario
-          ? `${baseUrl}?usuario=${encodeURIComponent(usuario)}`
-          : baseUrl;
+        const usuario = (localStorage.getItem('gat_user') || '').toLowerCase();
+        const res = await oracleApi.get(ORACLE_ENDPOINTS.betUserInf, {
+          responseType: 'arraybuffer'
+        });
+        const data = parseMaybeJson(res.data);
+        const list: any[] = Array.isArray(data?.items)
+          ? data.items
+          : Array.isArray(data)
+            ? data
+            : [];
 
-        const res = await fetch(url, { method: 'GET' });
-        if (!res.ok) return;
-        const data = await res.json().catch(() => null);
-        const item = data?.items?.[0] ?? data ?? {};
+        const item =
+          list.find((row) => (row?.usuario || row?.USUARIO || '').toLowerCase() === usuario) ??
+          list[0] ??
+          data ??
+          {};
 
         const fetchedCnpj = item.cnpj ?? item.CNPJ ?? '';
         const fetchedRazao = item.razao_social ?? item.RAZAO_SOCIAL ?? '';
@@ -107,7 +114,7 @@ const NovoOrcamento = () => {
       <div className="card">
         <div className="grid-form">
           <div className="span-2"><label>Protocolo</label><input type="text" value={protocolo} readOnly /></div>
-          <div className="span-3"><label>P.A.</label><input type="text" value={localStorage.getItem('ravenna_user') || ''} readOnly /></div>
+          <div className="span-3"><label>P.A.</label><input type="text" value={localStorage.getItem('gat_user') || ''} readOnly /></div>
           <div className="span-2"><label>CNPJ</label><input type="text" value={formatCnpj(cnpj)} readOnly /></div>
           <div className="span-2"><label>Razão Social</label><input type="text" value={razaoSocial} readOnly /></div>
           <div className="span-3"><label>Email Retorno</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
@@ -184,3 +191,6 @@ const NovoOrcamento = () => {
 };
 
 export default NovoOrcamento;
+
+
+

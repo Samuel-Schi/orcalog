@@ -1,7 +1,7 @@
 ﻿import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-
-const CHECK_URL = '/api-check-user';
+import axios from 'axios';
+import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 
 const toBase64 = (buffer: ArrayBuffer) => {
   const bytes = new Uint8Array(buffer);
@@ -10,15 +10,15 @@ const toBase64 = (buffer: ArrayBuffer) => {
   return btoa(binary);
 };
 
-  const hashSenha = async (senha: string) => {
-    if (!window.crypto?.subtle) {
-      throw new Error('Navegador sem suporte a criptografia. Use HTTPS ou localhost.');
-    }
-    const encoder = new TextEncoder();
-    const data = encoder.encode(senha);
-    const digest = await crypto.subtle.digest('SHA-256', data);
-    return toBase64(digest);
-  };
+const hashSenha = async (senha: string) => {
+  if (!window.crypto?.subtle) {
+    throw new Error('Navegador sem suporte a criptografia. Use HTTPS ou localhost.');
+  }
+  const encoder = new TextEncoder();
+  const data = encoder.encode(senha);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return toBase64(digest);
+};
 
 const Login = () => {
   const [user, setUser] = useState('');
@@ -38,60 +38,75 @@ const Login = () => {
     try {
       setLoading(true);
       const senha_hash = await hashSenha(pass);
-      const res = await fetch(CHECK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ usuario: user, senha_hash })
+      const payload = { usuario: user, senha_hash };
+
+      const res = await oracleApi.get(ORACLE_ENDPOINTS.checkUser, {
+        params: { ...payload, _ts: Date.now() },
+        responseType: 'arraybuffer',
+        headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+        validateStatus: (status) => status >= 200 && status < 400
       });
 
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || 'Login inválido.');
-      }
-
-      const rawText = await res.text();
-      const extractFirstJson = (text: string) => {
-        const start = text.indexOf('{');
-        if (start === -1) return null;
-        let depth = 0;
-        for (let i = start; i < text.length; i += 1) {
-          const ch = text[i];
-          if (ch === '{') depth += 1;
-          if (ch === '}') depth -= 1;
-          if (depth === 0) {
-            return text.slice(start, i + 1);
+      const tryParseText = (raw: ArrayBuffer | string | null) => {
+        if (!raw) return null;
+        const tryDecode = (encoding: string) => {
+          try {
+            const decoder = new TextDecoder(encoding);
+            return decoder.decode(typeof raw === 'string' ? new TextEncoder().encode(raw) : new Uint8Array(raw));
+          } catch {
+            return null;
           }
-        }
-        return null;
+        };
+
+        const utf8 = tryDecode('utf-8');
+        const latin1 = tryDecode('iso-8859-1') || tryDecode('windows-1252');
+        const text = (utf8 && !utf8.includes('\uFFFD') ? utf8 : latin1 || utf8 || '')
+          .replace(/^\uFEFF/, '')
+          .trim();
+        if (!text) return null;
+        try { return JSON.parse(text); } catch { return null; }
       };
 
-      let data: any = null;
-      if (rawText) {
+      const data = parseMaybeJson(res.data) ?? tryParseText(res.data as any);
+      const rawItems = data?.items ?? data;
+      let items: any[] = [];
+      if (Array.isArray(rawItems)) {
+        items = rawItems;
+      } else if (typeof rawItems === 'string') {
         try {
-          data = JSON.parse(rawText);
+          const parsed = JSON.parse(rawItems);
+          if (Array.isArray(parsed)) items = parsed;
         } catch {
-          const sliced = extractFirstJson(rawText);
-          if (sliced) {
-            try {
-              data = JSON.parse(sliced);
-            } catch {
-              data = null;
-            }
-          }
+          // ignore
         }
       }
 
-      const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+      const countValue = Number(data?.count);
       const hasValidUser =
-        items.length > 0 || (typeof data?.count === 'number' && data.count > 0) || !!data?.usuario;
+        items.length > 0 ||
+        (!Number.isNaN(countValue) && countValue > 0) ||
+        !!data?.usuario ||
+        !!data?.USUARIO;
 
       if (!hasValidUser) {
         throw new Error('Usuário ou senha inválidos.');
       }
 
-      localStorage.setItem('gat_user', user.toUpperCase());
+      const first = items[0] || (Array.isArray(data?.items) ? data.items[0] : null) || data || {};
+      const usuarioResp = (first?.usuario || first?.USUARIO || user).toString();
+      localStorage.setItem('gat_user', usuarioResp.toUpperCase());
+      if (first?.nome || first?.NOME) {
+        localStorage.setItem('gat_user_nome', String(first?.nome ?? first?.NOME));
+      }
+      if (first?.email || first?.EMAIL) {
+        localStorage.setItem('gat_user_email', String(first?.email ?? first?.EMAIL));
+      }
       navigate('/novo-orcamento');
     } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 405) {
+        setError('Método não permitido (405). O endpoint exige GET em vez de POST.');
+        return;
+      }
       const msg = err instanceof Error ? err.message : 'Erro ao autenticar.';
       setError(msg);
     } finally {
@@ -172,3 +187,10 @@ const Login = () => {
 };
 
 export default Login;
+
+
+
+
+
+
+
