@@ -49,8 +49,43 @@ const Login = () => {
         throw new Error(text || 'Login inválido.');
       }
 
-      const data = await res.json().catch(() => null);
-      if (!data || !data.items || data.items.length === 0) {
+      const rawText = await res.text();
+      const extractFirstJson = (text: string) => {
+        const start = text.indexOf('{');
+        if (start === -1) return null;
+        let depth = 0;
+        for (let i = start; i < text.length; i += 1) {
+          const ch = text[i];
+          if (ch === '{') depth += 1;
+          if (ch === '}') depth -= 1;
+          if (depth === 0) {
+            return text.slice(start, i + 1);
+          }
+        }
+        return null;
+      };
+
+      let data: any = null;
+      if (rawText) {
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          const sliced = extractFirstJson(rawText);
+          if (sliced) {
+            try {
+              data = JSON.parse(sliced);
+            } catch {
+              data = null;
+            }
+          }
+        }
+      }
+
+      const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+      const hasValidUser =
+        items.length > 0 || (typeof data?.count === 'number' && data.count > 0) || !!data?.usuario;
+
+      if (!hasValidUser) {
         throw new Error('Usuário ou senha inválidos.');
       }
 
