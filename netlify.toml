@@ -16,12 +16,6 @@
   force = true
 
 [[redirects]]
-  from = "/api-cnpj/*"
-  to = "/.netlify/functions/cnpj-empresa/:splat"
-  status = 200
-  force = true
-
-[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

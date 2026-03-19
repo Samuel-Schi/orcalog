@@ -18,16 +18,6 @@ npm install
 npm run dev
 ```
 
-## CNPJ (Serpro)
-Para consulta automática do CNPJ, use o proxy via Netlify Functions:
-
-1. Crie `.env` a partir de `.env.example`
-2. Rode:
-```bash
-netlify dev
-```
-
-A consulta usa `/api-cnpj/{cnpj}`.
 
 ## Build
 ```bash
