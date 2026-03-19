@@ -50,16 +50,28 @@ const Login = () => {
       }
 
       const rawText = await res.text();
+      const extractFirstJson = (text: string) => {
+        const start = text.indexOf('{');
+        if (start === -1) return null;
+        let depth = 0;
+        for (let i = start; i < text.length; i += 1) {
+          const ch = text[i];
+          if (ch === '{') depth += 1;
+          if (ch === '}') depth -= 1;
+          if (depth === 0) {
+            return text.slice(start, i + 1);
+          }
+        }
+        return null;
+      };
       let data: any = null;
       if (rawText) {
         try {
           data = JSON.parse(rawText);
         } catch {
           // tenta extrair o primeiro JSON válido caso a resposta venha "colada"
-          const first = rawText.indexOf('{');
-          const last = rawText.lastIndexOf('}');
-          if (first !== -1 && last !== -1 && last > first) {
-            const sliced = rawText.slice(first, last + 1);
+          const sliced = extractFirstJson(rawText);
+          if (sliced) {
             try {
               data = JSON.parse(sliced);
             } catch {
