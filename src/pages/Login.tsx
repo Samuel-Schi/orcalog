@@ -182,6 +182,10 @@ const Login = () => {
           </div>
         </div>
       </section>
+      <footer className="fixed-footer">
+        <div className="footer-stripe"></div>
+        <div className="footer-text">© 2026 Gestão Assistência Técnica — Sistema de gestão de envio de orçamentos.</div>
+      </footer>
     </div>
   );
 };

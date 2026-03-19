@@ -48,17 +48,24 @@ body {
 .sidebar-header {
   padding: 20px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
-  font-size: 1.2rem;
+  font-size: 1.1rem;
   font-weight: bold;
   border-bottom: 1px solid rgba(255,255,255,0.1);
 }
 
-.logo-area { display: flex; align-items: center; gap: 10px; }
-.logo-text { letter-spacing: 1px; }
+.logo-area { display: flex; align-items: flex-start; gap: 10px; }
+.logo-text {
+  display: flex;
+  flex-direction: column;
+  letter-spacing: 0.5px;
+  line-height: 1.05;
+  font-size: 1.02rem;
+}
+.logo-text span { display: block; }
 
-.header-actions { margin-left: auto; display: flex; gap: 6px; }
+.header-actions { margin-left: auto; display: flex; gap: 6px; align-items: center; }
 
 .user-profile {
   padding: 20px;
@@ -198,13 +205,15 @@ input[readonly] { background-color: #f1f3f5; color: #555; }
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 5px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
   border-radius: 50%;
   transition: 0.2s;
 }
 
 .btn-header-icon:hover { background-color: rgba(255,255,255,0.1); color: white; }
-.btn-header-icon i { font-size: 20px; }
+.btn-header-icon i { font-size: 20px; line-height: 1; }
 
 body.sidebar-closed { --sidebar-width: 70px; }
 body.sidebar-closed .logo-text,
@@ -559,4 +568,76 @@ body.dark-mode .sidebar {
   .login-hero { display: none; }
   .login-panel { padding: 24px; }
   .login-box { padding: 24px; }
+}
+
+.qr-input-group {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.qr-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 16px;
+}
+
+.qr-modal-content {
+  background: #fff;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 420px;
+  padding: 16px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+}
+
+.qr-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.qr-close {
+  background: transparent;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.qr-video-wrap {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: #111;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.qr-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.qr-error {
+  margin-top: 8px;
+  color: #b00020;
+  font-size: 0.9rem;
+}
+
+.qr-help {
+  margin-top: 8px;
+  color: #555;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 768px) {
+  .qr-input-group { flex-direction: column; align-items: stretch; }
+  .qr-input-group button { width: 100%; }
 }

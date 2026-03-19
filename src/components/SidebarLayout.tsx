@@ -3,22 +3,22 @@ import { useEffect, useState } from 'react';
 
 const SidebarLayout = () => {
   const navigate = useNavigate();
-  const [isDark, setIsDark] = useState(() => localStorage.getItem('ravennaTheme') === 'dark');
-  const [isClosed, setIsClosed] = useState(() => localStorage.getItem('ravennaSidebar') === 'closed');
-  const [userName, setUserName] = useState(() => localStorage.getItem('ravenna_user') || 'Usuário');
+  const [isDark, setIsDark] = useState(() => localStorage.getItem('gatTheme') === 'dark');
+  const [isClosed, setIsClosed] = useState(() => localStorage.getItem('gatSidebar') === 'closed');
+  const [userName, setUserName] = useState(() => localStorage.getItem('gat_user') || 'Usuário');
 
   useEffect(() => {
     document.body.classList.toggle('dark-mode', isDark);
-    localStorage.setItem('ravennaTheme', isDark ? 'dark' : 'light');
+    localStorage.setItem('gatTheme', isDark ? 'dark' : 'light');
   }, [isDark]);
 
   useEffect(() => {
     document.body.classList.toggle('sidebar-closed', isClosed);
-    localStorage.setItem('ravennaSidebar', isClosed ? 'closed' : 'open');
+    localStorage.setItem('gatSidebar', isClosed ? 'closed' : 'open');
   }, [isClosed]);
 
   const logout = () => {
-    localStorage.removeItem('ravenna_user');
+    localStorage.removeItem('gat_user');
     navigate('/login');
   };
 
@@ -28,7 +28,11 @@ const SidebarLayout = () => {
         <div className="sidebar-header">
           <div className="logo-area">
             <i className="material-icons">dns</i>
-            <span className="logo-text">ORÇALOG</span>
+            <span className="logo-text">
+              <span>GESTÃO</span>
+              <span>ASSISTÊNCIA</span>
+              <span>TÉCNICA</span>
+            </span>
           </div>
           <div className="header-actions">
             <button className="btn-header-icon" onClick={() => setIsClosed((v) => !v)} title="Recolher Menu">
@@ -66,10 +70,6 @@ const SidebarLayout = () => {
 
       <main className="content-body">
         <Outlet />
-        <footer className="fixed-footer">
-          <div className="footer-stripe"></div>
-          <div className="footer-text">© 2026 Orçalog — Sistema de gestão de envio de orçamentos.</div>
-        </footer>
       </main>
     </div>
   );

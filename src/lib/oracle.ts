@@ -7,7 +7,9 @@ export const ORDS_BASE_URL =
 // Use sempre o proxy das Functions para evitar CORS no browser
 export const ORACLE_ENDPOINTS = {
   checkUser: '/api-check-user',
-  betUserInf: '/api-bet-user-inf'
+  betUserInf: '/api-bet-user-inf',
+  getUserInf: '/api-get-user-inf',
+  getProdutoCadastro: '/api-get-produto-cadastro'
 };
 
 export const oracleApi = axios.create({

@@ -24,6 +24,18 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: true,
           rewrite: (path) => path.replace(/^\/api-bet-user-inf/, '/bet_user_inf')
+        },
+        '/api-get-user-inf': {
+          target: ORDS_BASE_URL,
+          changeOrigin: true,
+          secure: true,
+          rewrite: (path) => path.replace(/^\/api-get-user-inf/, '/get_user_inf')
+        },
+        '/api-get-produto-cadastro': {
+          target: ORDS_BASE_URL,
+          changeOrigin: true,
+          secure: true,
+          rewrite: (path) => path.replace(/^\/api-get-produto-cadastro/, '/get_produto_cadastro')
         }
       }
     }
