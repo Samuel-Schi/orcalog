@@ -1,20 +1,67 @@
 ﻿import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+
+const CHECK_URL = 'https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/check_user';
+
+const toBase64 = (buffer: ArrayBuffer) => {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  bytes.forEach((b) => (binary += String.fromCharCode(b)));
+  return btoa(binary);
+};
+
+  const hashSenha = async (senha: string) => {
+    if (!window.crypto?.subtle) {
+      throw new Error('Navegador sem suporte a criptografia. Use HTTPS ou localhost.');
+    }
+    const encoder = new TextEncoder();
+    const data = encoder.encode(senha);
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    return toBase64(digest);
+  };
+
 const Login = () => {
   const [user, setUser] = useState('');
   const [pass, setPass] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  const onSubmit = (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     if (!user || !pass) {
       setError('Preencha usuário e senha.');
       return;
     }
-    localStorage.setItem('ravenna_user', user.toUpperCase());
-    navigate('/novo-orcamento');
+
+    try {
+      setLoading(true);
+      const senha_hash = await hashSenha(pass);
+      const res = await fetch(CHECK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usuario: user, senha_hash })
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || 'Login inválido.');
+      }
+
+      const data = await res.json().catch(() => null);
+      if (!data || !data.items || data.items.length === 0) {
+        throw new Error('Usuário ou senha inválidos.');
+      }
+
+      localStorage.setItem('ravenna_user', user.toUpperCase());
+      navigate('/novo-orcamento');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Erro ao autenticar.';
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -72,8 +119,8 @@ const Login = () => {
               Lembrar de mim
             </label>
 
-            <button className="login-submit" type="submit">
-              Entrar
+            <button className="login-submit" type="submit" disabled={loading}>
+              {loading ? 'Entrando...' : 'Entrar'}
             </button>
           </form>
 
