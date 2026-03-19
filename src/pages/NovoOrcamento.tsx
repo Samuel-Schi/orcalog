@@ -11,7 +11,8 @@ type Item = {
 
 const NovoOrcamento = () => {
   const [protocolo, setProtocolo] = useState('');
-  const [unidade, setUnidade] = useState('');
+  const [razaoSocial, setRazaoSocial] = useState('');
+  const [cnpj, setCnpj] = useState('');
   const [email, setEmail] = useState('');
   const [nfRemessa, setNfRemessa] = useState('');
   const [dataEntrada, setDataEntrada] = useState('');
@@ -24,11 +25,61 @@ const NovoOrcamento = () => {
   const [valHig, setValHig] = useState(0);
   const [itens, setItens] = useState<Item[]>([]);
 
+  const formatCnpj = (value: string) => {
+    const digits = value.replace(/\D/g, '');
+    if (digits.length !== 14) return value;
+    return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12)}`;
+  };
+
   useEffect(() => {
     const now = new Date();
     const prot = `P${now.getDate()}${now.getMonth() + 1}-${Math.floor(Math.random() * 9000) + 1000}`;
     setProtocolo(prot);
     setDataEntrada(now.toISOString().slice(0, 10));
+
+    const profileRaw = localStorage.getItem('ravenna_user_profile');
+    if (profileRaw) {
+      try {
+        const profile = JSON.parse(profileRaw) as {
+          cnpj?: string;
+          razao_social?: string;
+          email?: string;
+        };
+        if (profile.cnpj) setCnpj(profile.cnpj);
+        if (profile.razao_social) setRazaoSocial(profile.razao_social);
+        if (profile.email) setEmail(profile.email);
+      } catch {
+        // ignore malformed profile
+      }
+    }
+
+    const loadUserInfo = async () => {
+      try {
+        const usuario = localStorage.getItem('ravenna_user') || '';
+        const baseUrl =
+          'https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/bet_user_inf';
+        const url = usuario
+          ? `${baseUrl}?usuario=${encodeURIComponent(usuario)}`
+          : baseUrl;
+
+        const res = await fetch(url, { method: 'GET' });
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        const item = data?.items?.[0] ?? data ?? {};
+
+        const fetchedCnpj = item.cnpj ?? item.CNPJ ?? '';
+        const fetchedRazao = item.razao_social ?? item.RAZAO_SOCIAL ?? '';
+        const fetchedEmail = item.email ?? item.EMAIL ?? '';
+
+        if (fetchedCnpj) setCnpj(fetchedCnpj);
+        if (fetchedRazao) setRazaoSocial(fetchedRazao);
+        if (fetchedEmail) setEmail(fetchedEmail);
+      } catch {
+        // silencioso: mantém valores locais
+      }
+    };
+
+    loadUserInfo();
   }, []);
 
   const total = useMemo(() => valPecas + valAcess + valMaoObra + valEmb + valHig, [valPecas, valAcess, valMaoObra, valEmb, valHig]);
@@ -58,8 +109,8 @@ const NovoOrcamento = () => {
         <div className="grid-form">
           <div className="span-2"><label>Protocolo</label><input type="text" value={protocolo} readOnly /></div>
           <div className="span-3"><label>P.A.</label><input type="text" value={localStorage.getItem('ravenna_user') || ''} readOnly /></div>
-          <div className="span-2"><label>CNPJ</label><input type="text" value="00.000.000/0000-00" readOnly /></div>
-          <div className="span-2"><label>Unidade</label><input type="text" value={unidade} onChange={(e) => setUnidade(e.target.value)} /></div>
+          <div className="span-2"><label>CNPJ</label><input type="text" value={formatCnpj(cnpj)} readOnly /></div>
+          <div className="span-2"><label>Razão Social</label><input type="text" value={razaoSocial} readOnly /></div>
           <div className="span-3"><label>Email Retorno</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
         </div>
       </div>

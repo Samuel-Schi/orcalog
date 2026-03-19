@@ -141,7 +141,7 @@ const Cadastro = () => {
               <i className="material-icons">apartment</i>
               <input
                 type="text"
-                placeholder="Nome da empresa"
+                placeholder="Razão social"
                 value={razao}
                 onChange={(e) => setRazao(e.target.value)}
               />
