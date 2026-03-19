@@ -59,10 +59,11 @@ const Cadastro = () => {
       setLoading(true);
       const senha_hash = await hashSenha(senha);
 
+      const cnpjDigits = cnpj.replace(/\D/g, '');
       const payload = {
         usuario,
         senha_hash,
-        cnpj,
+        cnpj: cnpjDigits,
         razao_social: razao,
         telefone,
         email,
@@ -76,9 +77,14 @@ const Cadastro = () => {
         body: JSON.stringify(payload)
       });
 
+      const contentType = res.headers.get('content-type') || '';
+      const rawBody = contentType.includes('application/json')
+        ? JSON.stringify(await res.json())
+        : await res.text();
+
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || 'Erro ao registrar.');
+        console.error('Erro ORDS:', res.status, rawBody);
+        throw new Error(rawBody || `Erro ao registrar (HTTP ${res.status}).`);
       }
 
       setSuccess('Cadastro enviado com sucesso! Você já pode fazer login.');
