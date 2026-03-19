@@ -16,6 +16,12 @@
   force = true
 
 [[redirects]]
+  from = "/api-check-user"
+  to = "/.netlify/functions/check-user"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

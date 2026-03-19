@@ -1,7 +1,7 @@
 ﻿import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-const CHECK_URL = 'https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/check_user';
+const CHECK_URL = '/api-check-user';
 
 const toBase64 = (buffer: ArrayBuffer) => {
   const bytes = new Uint8Array(buffer);
