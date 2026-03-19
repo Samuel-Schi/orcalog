@@ -56,8 +56,7 @@ const NovoOrcamento = () => {
     const loadUserInfo = async () => {
       try {
         const usuario = localStorage.getItem('ravenna_user') || '';
-        const baseUrl =
-          'https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/bet_user_inf';
+        const baseUrl = '/api-bet-user-inf';
         const url = usuario
           ? `${baseUrl}?usuario=${encodeURIComponent(usuario)}`
           : baseUrl;

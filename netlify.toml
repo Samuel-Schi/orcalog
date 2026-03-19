@@ -22,6 +22,12 @@
   force = true
 
 [[redirects]]
+  from = "/api-bet-user-inf"
+  to = "/.netlify/functions/bet-user-inf"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
