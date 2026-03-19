@@ -29,29 +29,7 @@ const Cadastro = () => {
   const [posto, setPosto] = useState<'INTERNO' | 'EXTERNO' | ''>('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [cnpjLoading, setCnpjLoading] = useState(false);
-  const [cnpjError, setCnpjError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [cnpjTimer, setCnpjTimer] = useState<number | null>(null);
-  const [lastCnpj, setLastCnpj] = useState('');
-
-  const getCnpjCache = (cnpjDigits: string) => {
-    try {
-      const raw = localStorage.getItem(`cnpj_cache_${cnpjDigits}`);
-      if (!raw) return null;
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
-  };
-
-  const setCnpjCache = (cnpjDigits: string, data: unknown) => {
-    try {
-      localStorage.setItem(`cnpj_cache_${cnpjDigits}`, JSON.stringify(data));
-    } catch {
-      // ignore cache errors
-    }
-  };
 
   const formatCnpj = (value: string) => {
     const digits = value.replace(/\D/g, '').slice(0, 14);
@@ -62,66 +40,9 @@ const Cadastro = () => {
       .replace(/^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/, '$1.$2.$3/$4-$5');
   };
 
-  const buscarCnpj = async (cnpjValue: string) => {
-    setCnpjError('');
-    const cnpjDigits = cnpjValue.replace(/\D/g, '');
-    if (cnpjDigits.length !== 14) return;
-    if (cnpjDigits === lastCnpj) return;
-
-    const cached = getCnpjCache(cnpjDigits);
-    if (cached?.nomeEmpresarial) {
-      setLastCnpj(cnpjDigits);
-      setRazao(cached.nomeEmpresarial);
-      if (cached?.correioEletronico && !email) setEmail(cached.correioEletronico);
-      if (cached?.telefone?.length && !telefone) {
-        const tel = cached.telefone[0];
-        const numero = tel?.numero ? `${tel.ddd || ''}${tel.numero}` : '';
-        if (numero) setTelefone(numero);
-      }
-      return;
-    }
-
-    try {
-      setCnpjLoading(true);
-      const res = await fetch(`/api-cnpj/${cnpjDigits}`);
-      if (!res.ok) {
-        setCnpjError('CNPJ não encontrado.');
-        return;
-      }
-      const data = await res.json();
-      setCnpjCache(cnpjDigits, data);
-      if (data?.nomeEmpresarial) {
-        setRazao(data.nomeEmpresarial);
-        setLastCnpj(cnpjDigits);
-      } else {
-        setCnpjError('CNPJ não encontrado.');
-      }
-      if (data?.correioEletronico && !email) {
-        setEmail(data.correioEletronico);
-      }
-      if (data?.telefone?.length && !telefone) {
-        const tel = data.telefone[0];
-        const numero = tel?.numero ? `${tel.ddd || ''}${tel.numero}` : '';
-        if (numero) setTelefone(numero);
-      }
-    } catch {
-      setCnpjError('Não foi possível consultar o CNPJ.');
-    } finally {
-      setCnpjLoading(false);
-    }
-  };
-
   const onChangeCnpj = (value: string) => {
     const masked = formatCnpj(value);
     setCnpj(masked);
-    setCnpjError('');
-
-    if (cnpjTimer) window.clearTimeout(cnpjTimer);
-    const timer = window.setTimeout(() => {
-      const digits = masked.replace(/\D/g, '');
-      if (digits.length === 14) buscarCnpj(masked);
-    }, 800);
-    setCnpjTimer(timer);
   };
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -209,13 +130,6 @@ const Cadastro = () => {
                 onChange={(e) => onChangeCnpj(e.target.value)}
               />
             </div>
-            {cnpjLoading && (
-              <div className="login-hint">Consultando CNPJ...</div>
-            )}
-            {cnpjError && (
-              <div className="login-error-inline">{cnpjError}</div>
-            )}
-
             <label className="login-label">Razão Social</label>
             <div className="login-input">
               <i className="material-icons">apartment</i>
