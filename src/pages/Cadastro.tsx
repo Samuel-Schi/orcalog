@@ -1,7 +1,6 @@
 ﻿import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-
-const REGISTER_URL = 'https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/register_posto';
+import { oracleApi, ORACLE_ENDPOINTS } from '../lib/oracle';
 
 const toBase64 = (buffer: ArrayBuffer) => {
   const bytes = new Uint8Array(buffer);
@@ -71,23 +70,16 @@ const Cadastro = () => {
         posto
       };
 
-      const res = await fetch(REGISTER_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+      const res = await oracleApi.post(ORACLE_ENDPOINTS.registerPosto, payload, {
+        headers: { 'Content-Type': 'application/json' }
       });
 
-      const contentType = res.headers.get('content-type') || '';
-      const rawBody = contentType.includes('application/json')
-        ? JSON.stringify(await res.json())
-        : await res.text();
-
-      if (!res.ok) {
-        console.error('Erro ORDS:', res.status, rawBody);
-        throw new Error(rawBody || `Erro ao registrar (HTTP ${res.status}).`);
+      if (res.status >= 400) {
+        console.error('Erro ORDS:', res.status, res.data);
+        throw new Error(res.data || `Erro ao registrar (HTTP ${res.status}).`);
       }
 
-      setSuccess('Cadastro enviado com sucesso! Você já pode fazer login.');
+      setSuccess('Cadastro enviado com sucesso! Voc� j� pode fazer login.');
       setTimeout(() => navigate('/login'), 1200);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Erro ao cadastrar.';
@@ -101,14 +93,14 @@ const Cadastro = () => {
     <div className="login-shell">
       <section className="login-hero">
         <div className="hero-brand">
-          <div className="orcalog-wordmark" aria-label="Gestão Assistência Técnica">
-            <span className="orca">GESTÃO</span>
-            <span className="log">ASSISTÊNCIA TÉCNICA</span>
+          <div className="orcalog-wordmark" aria-label="Gest�o Assist�ncia T�cnica">
+            <span className="orca">GEST�O</span>
+            <span className="log">ASSIST�NCIA T�CNICA</span>
           </div>
-          <p>Sistema de gestão de envio de orçamentos</p>
+          <p>Sistema de gest�o de envio de or�amentos</p>
         </div>
         <div className="hero-description">
-          Cadastre sua unidade e libere o acesso para envio de orçamentos.
+          Cadastre sua unidade e libere o acesso para envio de or�amentos.
         </div>
         <div className="hero-cloud cloud-1" />
         <div className="hero-cloud cloud-2" />
@@ -136,23 +128,23 @@ const Cadastro = () => {
                 onChange={(e) => onChangeCnpj(e.target.value)}
               />
             </div>
-            <label className="login-label">Razão Social</label>
+            <label className="login-label">Raz�o Social</label>
             <div className="login-input">
               <i className="material-icons">apartment</i>
               <input
                 type="text"
-                placeholder="Razão social"
+                placeholder="Raz�o social"
                 value={razao}
                 onChange={(e) => setRazao(e.target.value)}
               />
             </div>
 
-            <label className="login-label">Nome do responsável</label>
+            <label className="login-label">Nome do respons�vel</label>
             <div className="login-input">
               <i className="material-icons">person</i>
               <input
                 type="text"
-                placeholder="Nome do responsável"
+                placeholder="Nome do respons�vel"
                 value={nome}
                 onChange={(e) => setNome(e.target.value)}
               />
@@ -200,12 +192,12 @@ const Cadastro = () => {
               </label>
             </div>
 
-            <label className="login-label">Usuário</label>
+            <label className="login-label">Usu�rio</label>
             <div className="login-input">
               <i className="material-icons">badge</i>
               <input
                 type="text"
-                placeholder="Usuário de acesso"
+                placeholder="Usu�rio de acesso"
                 value={usuario}
                 onChange={(e) => setUsuario(e.target.value)}
               />
@@ -228,7 +220,7 @@ const Cadastro = () => {
           </form>
 
           <div className="login-footer">
-            Já possui cadastro?{' '}
+            J� possui cadastro?{' '}
             <button type="button" className="login-link" onClick={() => navigate('/login')}>
               Voltar para login
             </button>
@@ -240,3 +232,7 @@ const Cadastro = () => {
 };
 
 export default Cadastro;
+
+
+
+

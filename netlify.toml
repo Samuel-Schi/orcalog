@@ -35,6 +35,36 @@
   force = true
 
 [[redirects]]
+  from = "/get_user_inf"
+  to = "/.netlify/functions/get-user-inf"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/get_produto_cadastro"
+  to = "/.netlify/functions/get-produto-cadastro"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/salvar-orcamento"
+  to = "/.netlify/functions/salvar-orcamento"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/get_orcamentos_analise"
+  to = "/.netlify/functions/get-orcamentos-analise"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/register_posto"
+  to = "/.netlify/functions/register-posto"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
