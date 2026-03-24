@@ -4,34 +4,43 @@ const CHECK_URL = 'https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecl
 
 export const handler: Handler = async (event) => {
   try {
-    if (event.httpMethod !== 'POST') {
+    if (event.httpMethod !== 'POST' && event.httpMethod !== 'GET') {
       return { statusCode: 405, body: 'Method Not Allowed' };
     }
 
-    const payload = event.body ? JSON.parse(event.body) : null;
-    if (!payload) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'Body vazio.' }) };
-    }
-
-    const res = await fetch(CHECK_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    // Fallback: se o ORDS não aceita POST (405), tenta GET com querystring
-    let response = res;
-    if (res.status === 405) {
-      const params = new URLSearchParams();
-      Object.entries(payload).forEach(([key, value]) => {
-        if (value !== undefined && value !== null) {
-          params.append(key, String(value));
-        }
-      });
+    let response: Response;
+    if (event.httpMethod === 'GET') {
+      const params = new URLSearchParams(event.queryStringParameters || {});
       response = await fetch(`${CHECK_URL}?${params.toString()}`, {
         method: 'GET',
         headers: { 'Accept': 'application/json' }
       });
+    } else {
+      const payload = event.body ? JSON.parse(event.body) : null;
+      if (!payload) {
+        return { statusCode: 400, body: JSON.stringify({ error: 'Body vazio.' }) };
+      }
+
+      const res = await fetch(CHECK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      // Fallback: se o ORDS não aceita POST (405), tenta GET com querystring
+      response = res;
+      if (res.status === 405) {
+        const params = new URLSearchParams();
+        Object.entries(payload).forEach(([key, value]) => {
+          if (value !== undefined && value !== null) {
+            params.append(key, String(value));
+          }
+        });
+        response = await fetch(`${CHECK_URL}?${params.toString()}`, {
+          method: 'GET',
+          headers: { 'Accept': 'application/json' }
+        });
+      }
     }
 
     const text = await response.text();
