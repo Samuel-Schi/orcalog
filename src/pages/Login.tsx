@@ -40,10 +40,9 @@ const Login = () => {
       const senha_hash = await hashSenha(pass);
       const payload = { usuario: user, senha_hash };
 
-      const res = await oracleApi.get(ORACLE_ENDPOINTS.checkUser, {
-        params: { ...payload, _ts: Date.now() },
+      const res = await oracleApi.post(ORACLE_ENDPOINTS.checkUser, payload, {
         responseType: 'arraybuffer',
-        headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
         validateStatus: (status) => status >= 200 && status < 400
       });
 
@@ -191,7 +190,6 @@ const Login = () => {
 };
 
 export default Login;
-
 
 
 

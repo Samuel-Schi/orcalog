@@ -15,10 +15,7 @@ const App = () => {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/cadastro" element={<Cadastro />} />
-      <Route
-        path="/"
-        element={isAuthenticated() ? <Navigate to="/novo-orcamento" replace /> : <Navigate to="/login" replace />} 
-      />
+      <Route path="/" element={<Navigate to="/login" replace />} />
       <Route
         element={isAuthenticated() ? <SidebarLayout /> : <Navigate to="/login" replace />} 
       >
