@@ -54,6 +54,10 @@ const SidebarLayout = () => {
             <i className="material-icons">add_circle</i>
             <span>Novo Orçamento</span>
           </NavLink>
+          <NavLink to="/lancar-orcamentos" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <i className="material-icons">assignment</i>
+            <span>Lançar Orçamentos</span>
+          </NavLink>
           <NavLink to="/meus-envios" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <i className="material-icons">list_alt</i>
             <span>Meus Envios</span>

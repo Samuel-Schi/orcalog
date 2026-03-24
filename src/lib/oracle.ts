@@ -8,11 +8,14 @@ export const ORDS_BASE_URL =
 export const ORACLE_ENDPOINTS = {
   checkUser: '/api-check-user',
   betUserInf: '/api-bet-user-inf',
-  getUserInf: '/api-get-user-inf',
-  getProdutoCadastro: '/api-get-produto-cadastro'
+  getUserInf: '/get_user_inf',
+  getProdutoCadastro: '/get_produto_cadastro',
+  saveOrcamento: '/salvar-orcamento',
+  getOrcamentosAnalise: '/get_orcamentos_analise'
 };
 
 export const oracleApi = axios.create({
+  baseURL: ORDS_BASE_URL,
   timeout: 15000
 });
 

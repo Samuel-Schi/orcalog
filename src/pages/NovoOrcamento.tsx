@@ -3,11 +3,15 @@ import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 
 type Item = {
   id: string;
-  nf: string;
-  data: string;
+  protocolo: string;
+  uuid: string;
+  ean: string;
   codGemco: string;
   descricao: string;
-  total: number;
+  fornecedor: string;
+  linha: string;
+  serial: string;
+  status: number;
 };
 
 const NovoOrcamento = () => {
@@ -15,20 +19,27 @@ const NovoOrcamento = () => {
   const [razaoSocial, setRazaoSocial] = useState('');
   const [cnpj, setCnpj] = useState('');
   const [email, setEmail] = useState('');
-  const [nfRemessa, setNfRemessa] = useState('');
-  const [dataEntrada, setDataEntrada] = useState('');
+  const [unidade, setUnidade] = useState('');
+  const [uuid, setUuid] = useState('');
+  const [ean, setEan] = useState('');
   const [codGemco, setCodGemco] = useState('');
   const [descProd, setDescProd] = useState('');
-  const [valPecas, setValPecas] = useState(0);
-  const [valAcess, setValAcess] = useState(0);
-  const [valMaoObra, setValMaoObra] = useState(0);
-  const [valEmb, setValEmb] = useState(0);
-  const [valHig, setValHig] = useState(0);
+  const [fornecedor, setFornecedor] = useState('');
+  const [linha, setLinha] = useState('');
+  const [serial, setSerial] = useState('');
   const [itens, setItens] = useState<Item[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const [qrError, setQrError] = useState('');
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const requestSeqRef = useRef(0);
+
+  const gerarProtocolo = () => {
+    const now = new Date();
+    return `P${now.getDate()}${now.getMonth() + 1}-${Math.floor(Math.random() * 9000) + 1000}`;
+  };
 
   const formatCnpj = (value: string) => {
     const digits = value.replace(/\D/g, '');
@@ -37,26 +48,7 @@ const NovoOrcamento = () => {
   };
 
   useEffect(() => {
-    const now = new Date();
-    const prot = `P${now.getDate()}${now.getMonth() + 1}-${Math.floor(Math.random() * 9000) + 1000}`;
-    setProtocolo(prot);
-    setDataEntrada(now.toISOString().slice(0, 10));
-
-    const profileRaw = localStorage.getItem('gat_user_profile');
-    if (profileRaw) {
-      try {
-        const profile = JSON.parse(profileRaw) as {
-          cnpj?: string;
-          razao_social?: string;
-          email?: string;
-        };
-        if (profile.cnpj) setCnpj(profile.cnpj);
-        if (profile.razao_social) setRazaoSocial(profile.razao_social);
-        if (profile.email) setEmail(profile.email);
-      } catch {
-        // ignore malformed profile
-      }
-    }
+    setProtocolo(gerarProtocolo());
 
     const loadUserInfo = async () => {
       try {
@@ -78,13 +70,28 @@ const NovoOrcamento = () => {
 
         const item = list[0] ?? data ?? {};
 
-        const fetchedCnpj = item.cnpj ?? item.CNPJ ?? '';
-        const fetchedRazao = item.razao_social ?? item.RAZAO_SOCIAL ?? '';
-        const fetchedEmail = item.email ?? item.EMAIL ?? '';
+        const getField = (source: any, keys: string[]) => {
+          if (!source || typeof source !== 'object') return '';
+          const lowerMap = new Map<string, string>();
+          Object.keys(source).forEach((k) => lowerMap.set(k.toLowerCase(), k));
+          for (const key of keys) {
+            const realKey = lowerMap.get(key.toLowerCase());
+            if (realKey && source[realKey] !== null && source[realKey] !== undefined && source[realKey] !== '') {
+              return String(source[realKey]);
+            }
+          }
+          return '';
+        };
+
+        const fetchedCnpj = getField(item, ['cnpj', 'cpf_cnpj', 'documento']);
+        const fetchedRazao = getField(item, ['razao_social', 'razao', 'nome', 'nome_fantasia']);
+        const fetchedEmail = getField(item, ['email', 'e_mail', 'mail']);
+        const fetchedUnidade = getField(item, ['unidade', 'cd_unidade', 'codigo_unidade']);
 
         if (fetchedCnpj) setCnpj(fetchedCnpj);
         if (fetchedRazao) setRazaoSocial(fetchedRazao);
         if (fetchedEmail) setEmail(fetchedEmail);
+        if (fetchedUnidade) setUnidade(fetchedUnidade);
       } catch {
         // silencioso: mantém valores locais
       }
@@ -150,40 +157,112 @@ const NovoOrcamento = () => {
     };
   }, [showQr]);
 
+  useEffect(() => {
+    if (!toast) return;
+    const handle = setTimeout(() => setToast(null), 3500);
+    return () => clearTimeout(handle);
+  }, [toast]);
+
+  useEffect(() => {
+    if (!codGemco) return;
+    if (codGemco.trim().startsWith('{')) return;
+    const handle = setTimeout(() => {
+      buscarProdutoCadastro();
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [codGemco]);
+
   const parseQrPayload = (raw: string) => {
     const trimmed = raw.trim();
     if (!trimmed) return null;
     try {
       const data = JSON.parse(trimmed);
+      const uuid = data?.uuid ?? data?.UUID ?? data?.Uuid;
       const legacyId = data?.legacyId ?? data?.LEGACYID ?? data?.legacy_id;
-      const description = data?.description ?? data?.DESCRICAO ?? data?.descricao;
-      const ean = data?.ean ?? data?.EAN ?? data?.codigo_barra;
+      const eanValue = data?.ean ?? data?.EAN ?? data?.codigo_barra ?? data?.cod_barra ?? data?.codBarra;
       return {
+        uuid: uuid ? String(uuid) : '',
         legacyId: legacyId ? String(legacyId) : '',
-        description: description ? String(description) : '',
-        ean: ean ? String(ean) : ''
+        ean: eanValue ? String(eanValue) : '',
+        raw: data
       };
     } catch {
       return null;
     }
   };
 
+  const normalizeCode = (value: string) => value.replace(/-/g, '').trim();
+
   const handleQrInput = (raw: string) => {
     const parsed = parseQrPayload(raw);
     if (!parsed) return;
-    if (parsed.legacyId) setCodGemco(parsed.legacyId);
-    if (parsed.description) setDescProd(parsed.description);
+    if (parsed.uuid) setUuid(parsed.uuid);
+    if (parsed.ean) setEan(normalizeCode(parsed.ean));
+    if (parsed.legacyId) setCodGemco(normalizeCode(parsed.legacyId));
   };
 
   const abrirLeitorQr = () => { setShowQr(true); };
 
+  const adicionarItem = (override?: {
+    uuid?: string;
+    ean?: string;
+    codGemco?: string;
+    descricao?: string;
+    fornecedor?: string;
+    linha?: string;
+    serial?: string;
+  }) => {
+    const finalUuid = override?.uuid ?? uuid;
+    const finalEan = override?.ean ?? ean;
+    const finalCodGemco = override?.codGemco ?? codGemco;
+    const finalDesc = override?.descricao ?? descProd;
+    const finalFornecedor = override?.fornecedor ?? fornecedor;
+    const finalLinha = override?.linha ?? linha;
+    const finalSerial = override?.serial ?? serial;
+
+    if (!finalCodGemco || !finalDesc) return;
+    const item: Item = {
+      id: criarId(),
+      protocolo,
+      uuid: finalUuid || '-',
+      ean: finalEan || '-',
+      codGemco: finalCodGemco || '-',
+      descricao: finalDesc || 'Sem descrição',
+      fornecedor: finalFornecedor || '-',
+      linha: finalLinha || '-',
+      serial: finalSerial || '-',
+      status: 1
+    };
+    setItens((prev) => [...prev, item]);
+    try {
+      const saved = localStorage.getItem('gat_orc_pendentes');
+      const parsed = saved ? JSON.parse(saved) as Item[] : [];
+      localStorage.setItem('gat_orc_pendentes', JSON.stringify([...parsed, item]));
+    } catch {
+      // ignore storage errors
+    }
+    setCodGemco('');
+    setUuid('');
+    setEan('');
+    setDescProd('');
+    setFornecedor('');
+    setLinha('');
+    setSerial('');
+  };
+
   const buscarProdutoCadastro = async () => {
     try {
       if (!codGemco) return;
+      const requestId = ++requestSeqRef.current;
+      setDescProd('');
+      setFornecedor('');
+      setLinha('');
+      const lookupItem = normalizeCode(codGemco);
+      const lookupEan = normalizeCode(ean || codGemco);
       const res = await oracleApi.get(ORACLE_ENDPOINTS.getProdutoCadastro, {
         params: {
-          item: codGemco,
-          codigo_barra: codGemco,
+          item: lookupItem,
+          codigo_barra: lookupEan,
           _ts: Date.now()
         },
         responseType: 'arraybuffer',
@@ -198,45 +277,111 @@ const NovoOrcamento = () => {
           ? data
           : [];
 
+      if (requestId !== requestSeqRef.current) return;
+
       const item = list[0] ?? data ?? {};
-      const descricao = item.descricao ?? item.DESCRICAO ?? item.ds_produto ?? item.DS_PRODUTO ?? '';
+      const getField = (source: any, keys: string[]) => {
+        if (!source || typeof source !== 'object') return '';
+        const lowerMap = new Map<string, string>();
+        Object.keys(source).forEach((k) => lowerMap.set(k.toLowerCase(), k));
+        for (const key of keys) {
+          const realKey = lowerMap.get(key.toLowerCase());
+          if (realKey && source[realKey] !== null && source[realKey] !== undefined && source[realKey] !== '') {
+            return String(source[realKey]);
+          }
+        }
+        return '';
+      };
+
+      const descricao = getField(item, ['descricao', 'ds_produto', 'descricao_produto', 'produto']);
+      const fornecedorApi = getField(item, ['fornecedor', 'ds_fornecedor', 'desc_fornecedor', 'fornecedor_desc', 'nome_fornecedor']);
+      const linhaApi = getField(item, ['linha', 'ds_linha', 'desc_linha', 'linha_desc', 'nome_linha']);
+      const familiaApi = item.familia ?? item.FAMILIA ?? '';
+      const voltagemApi = item.voltagem ?? item.VOLTAGEM ?? '';
+      const volumesApi = item.volumes ?? item.VOLUMES ?? '';
       if (descricao) setDescProd(descricao);
+      if (fornecedorApi) setFornecedor(String(fornecedorApi));
+      if (linhaApi) setLinha(String(linhaApi));
+      if (familiaApi) setFamilia(String(familiaApi));
+      if (voltagemApi) setVoltagem(String(voltagemApi));
+      if (volumesApi) setVolumes(String(volumesApi));
+
+      if (descricao) {
+        adicionarItem({
+          uuid,
+          ean: lookupEan,
+          codGemco: lookupItem,
+          descricao,
+          fornecedor: fornecedorApi || '',
+          linha: linhaApi || '',
+          serial
+        });
+      }
     } catch {
       // silencioso
     }
   };
 
-  const parseCurrency = (raw: string) => {
-    const onlyDigits = raw.replace(/\D/g, '');
-    const asNumber = Number(onlyDigits) / 100;
-    return Number.isNaN(asNumber) ? 0 : asNumber;
-  };
-
-  const formatCurrency = (v: number) =>
-    v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-
-  const total = useMemo(() => valPecas + valAcess + valMaoObra + valEmb + valHig, [valPecas, valAcess, valMaoObra, valEmb, valHig]);
-
   const criarId = () =>
     (typeof crypto !== 'undefined' && 'randomUUID' in crypto && crypto.randomUUID())
       || `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 
-  const adicionarItem = () => {
-    if (total <= 0) return;
-    const item: Item = {
-      id: criarId(),
-      nf: nfRemessa || '-',
-      data: dataEntrada || new Date().toISOString().slice(0, 10),
-      codGemco: codGemco || '-',
-      descricao: descProd || 'Sem descrição',
-      total
-    };
-    setItens((prev) => [...prev, item]);
-    setCodGemco('');
-    setDescProd('');
-  };
+  const removerItem = (id: string) => setItens((prev) => prev.filter((item) => item.id !== id));
 
-  const totalFormatado = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const finalizarEnvio = async () => {
+    if (itens.length === 0 || isSaving) return;
+    setIsSaving(true);
+    try {
+      const payload = {
+        protocolo,
+        paUsuario: localStorage.getItem('gat_user') || '',
+        cnpj,
+        razaoSocial,
+        unidade,
+        emailRetorno: email,
+        itens: itens.map((item) => ({
+          protocolo: item.protocolo,
+          uuid: item.uuid,
+          ean: item.ean,
+          codBarras: item.ean,
+          codGemco: item.codGemco,
+          descricao: item.descricao,
+          fornecedor: item.fornecedor,
+          linha: item.linha,
+          serial: item.serial,
+          status: item.status
+        }))
+      };
+
+      await oracleApi.post(ORACLE_ENDPOINTS.saveOrcamento, payload, {
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      setToast({ type: 'success', message: 'Envio realizado com sucesso.' });
+      const protocoloAnterior = protocolo;
+      setItens([]);
+      setCodGemco('');
+      setUuid('');
+      setEan('');
+      setDescProd('');
+      setFornecedor('');
+      setLinha('');
+      setSerial('');
+      setProtocolo(gerarProtocolo());
+      try {
+        const saved = localStorage.getItem('gat_orc_pendentes');
+        const parsed = saved ? JSON.parse(saved) as Item[] : [];
+        const filtered = parsed.filter((item) => item.protocolo !== protocoloAnterior);
+        localStorage.setItem('gat_orc_pendentes', JSON.stringify(filtered));
+      } catch {
+        // ignore storage errors
+      }
+    } catch (err) {
+      setToast({ type: 'error', message: 'Não foi possível enviar. Tente novamente.' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <div id="viewNovoOrcamento" className="view-section">
@@ -250,20 +395,36 @@ const NovoOrcamento = () => {
           <div className="span-2"><label>Razão Social</label><input type="text" value={razaoSocial} readOnly /></div>
           <div className="span-3"><label>Email Retorno</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
         </div>
+        <div className="grid-form" style={{ marginTop: 10 }}>
+          <div className="span-3"><label>Unidade</label><input type="text" value={unidade} onChange={(e) => setUnidade(e.target.value)} /></div>
+        </div>
       </div>
 
       <div className="card">
         <div className="section-title">Dados do Produto</div>
         <div className="grid-form">
-          <div className="span-2"><label>NF Remessa</label><input type="text" value={nfRemessa} onChange={(e) => setNfRemessa(e.target.value)} /></div>
-          <div className="span-2"><label>Data NF</label><input type="date" value={dataEntrada} onChange={(e) => setDataEntrada(e.target.value)} /></div>
           <div className="span-2">
-            <label>Código (Item ou Barras)</label>
+            <label>Código</label>
             <div className="qr-input-group">
               <input
                 type="text"
                 value={codGemco}
-                onChange={(e) => setCodGemco(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setCodGemco(value);
+                  const trimmed = value.trim();
+                  if (trimmed.startsWith('{') || trimmed.includes('"legacyId"') || trimmed.includes('"uuid"') || trimmed.includes('"ean"')) {
+                    handleQrInput(value);
+                  } else {
+                    const normalized = normalizeCode(value);
+                    setCodGemco(normalized);
+                    if (normalized.length >= 8) {
+                      setEan(normalized);
+                    } else {
+                      setEan('');
+                    }
+                  }
+                }}
                 onBlur={(e) => handleQrInput(e.target.value)}
               />
               <button
@@ -277,58 +438,55 @@ const NovoOrcamento = () => {
               </button>
             </div>
           </div>
-          <div className="span-6"><label>Descrição</label><input type="text" value={descProd} onChange={(e) => setDescProd(e.target.value)} /></div>
-          <div className="span-12" style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button className="btn btn-secondary btn-sm" type="button" onClick={buscarProdutoCadastro}>
-              <i className="material-icons">search</i> BUSCAR PRODUTO
-            </button>
-          </div>
+          <div className="span-2"><label>UUID</label><input type="text" value={uuid} readOnly /></div>
+          <div className="span-2"><label>Código de Barras</label><input type="text" value={ean} readOnly /></div>
+          <div className="span-6"><label>Descrição</label><input type="text" value={descProd} readOnly /></div>
+          <div className="span-2"><label>Fornecedor</label><input type="text" value={fornecedor} readOnly /></div>
+          <div className="span-2"><label>Linha</label><input type="text" value={linha} readOnly /></div>
+          <div className="span-2"><label>Serial</label><input type="text" value={serial} onChange={(e) => setSerial(e.target.value)} /></div>
         </div>
       </div>
 
       <div className="card">
-        <div className="section-title">Valores</div>
-        <div className="grid-form">
-          <div className="span-3"><label>Valor Peças</label><input type="text" inputMode="decimal" value={formatCurrency(valPecas)} onChange={(e) => setValPecas(parseCurrency(e.target.value))} /></div>
-          <div className="span-3"><label>Valor Acessórios</label><input type="text" inputMode="decimal" value={formatCurrency(valAcess)} onChange={(e) => setValAcess(parseCurrency(e.target.value))} /></div>
-          <div className="span-2"><label>Mão de Obra</label><input type="text" inputMode="decimal" value={formatCurrency(valMaoObra)} onChange={(e) => setValMaoObra(parseCurrency(e.target.value))} /></div>
-          <div className="span-2"><label>Embalagem</label><input type="text" inputMode="decimal" value={formatCurrency(valEmb)} onChange={(e) => setValEmb(parseCurrency(e.target.value))} /></div>
-          <div className="span-2"><label>Higienização</label><input type="text" inputMode="decimal" value={formatCurrency(valHig)} onChange={(e) => setValHig(parseCurrency(e.target.value))} /></div>
-          <div className="span-6"><label>Total do Orçamento</label><input type="text" readOnly value={totalFormatado(total)} className="total-display" /></div>
-        </div>
-        <div className="action-bar">
-          <button className="btn btn-secondary btn-sm" onClick={adicionarItem}>
-            <i className="material-icons">save_as</i> ADICIONAR ITEM
-          </button>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="section-title">Itens neste Protocolo</div>
+      <div className="section-title">Itens neste Protocolo</div>
         <div className="table-scroll">
           <table className="tabela-horizontal">
             <thead>
               <tr>
-                <th>NF Remessa</th>
-                <th>Data NF</th>
+                <th>Protocolo</th>
+                <th>UUID</th>
+                <th>Cód. Barras</th>
                 <th>Cód. GEMCO</th>
                 <th>Descrição</th>
-                <th>Total Orçamento</th>
+                <th>Fornecedor</th>
+                <th>Linha</th>
+                <th>Serial</th>
+                <th>Status</th>
+                <th style={{ textAlign: 'center' }}>Ação</th>
               </tr>
             </thead>
             <tbody>
               {itens.length === 0 && (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: 'center', color: '#999' }}>Nenhum item adicionado.</td>
+                  <td colSpan={10} style={{ textAlign: 'center', color: '#999' }}>Nenhum item adicionado.</td>
                 </tr>
               )}
               {itens.map((item) => (
                 <tr key={item.id}>
-                  <td>{item.nf}</td>
-                  <td>{item.data}</td>
+                  <td>{protocolo}</td>
+                  <td>{item.uuid}</td>
+                  <td>{item.ean}</td>
                   <td><strong>{item.codGemco}</strong></td>
                   <td>{item.descricao}</td>
-                  <td style={{ fontWeight: 'bold', background: '#fff3cd' }}>{totalFormatado(item.total)}</td>
+                  <td>{item.fornecedor}</td>
+                  <td>{item.linha}</td>
+                  <td>{item.serial}</td>
+                  <td>{item.status}</td>
+                  <td style={{ textAlign: 'center' }}>
+                    <button className="btn btn-danger btn-sm" type="button" onClick={() => removerItem(item.id)}>
+                      <i className="material-icons">delete</i>
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -336,7 +494,7 @@ const NovoOrcamento = () => {
         </div>
 
         <div className="action-bar" style={{ marginTop: 20 }}>
-          <button className="btn btn-success btn-sm" type="button">
+          <button className="btn btn-success btn-sm" type="button" onClick={finalizarEnvio} disabled={isSaving}>
             <i className="material-icons">send</i> FINALIZAR ENVIO
           </button>
         </div>
@@ -354,6 +512,15 @@ const NovoOrcamento = () => {
             </div>
             {qrError && <div className="qr-error">{qrError}</div>}
             <div className="qr-help">Aponte a câmera para o QR. Se não funcionar, cole o JSON no campo.</div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className="toast-container">
+          <div className={`toast ${toast.type === 'success' ? 'toast-success' : 'toast-error'}`}>
+            <div className="toast-title">{toast.type === 'success' ? 'Sucesso' : 'Erro'}</div>
+            <div className="toast-message">{toast.message}</div>
           </div>
         </div>
       )}

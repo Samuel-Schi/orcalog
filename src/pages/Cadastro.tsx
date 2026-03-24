@@ -101,9 +101,9 @@ const Cadastro = () => {
     <div className="login-shell">
       <section className="login-hero">
         <div className="hero-brand">
-          <div className="orcalog-wordmark" aria-label="Orçalog">
-            <span className="orca">ORÇA</span>
-            <span className="log">LOG</span>
+          <div className="orcalog-wordmark" aria-label="Gestão Assistência Técnica">
+            <span className="orca">GESTÃO</span>
+            <span className="log">ASSISTÊNCIA TÉCNICA</span>
           </div>
           <p>Sistema de gestão de envio de orçamentos</p>
         </div>
