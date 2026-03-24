@@ -191,6 +191,16 @@ input[readonly] { background-color: #f1f3f5; color: #555; }
   font-weight: 500;
 }
 
+.login-footnote {
+  position: absolute;
+  right: 40px;
+  bottom: 18px;
+  font-size: 11px;
+  color: #7a7a7a;
+  font-weight: 500;
+  text-align: right;
+}
+
 .btn-header-icon {
   background: transparent;
   border: none;

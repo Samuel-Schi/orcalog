@@ -40,9 +40,10 @@ const Login = () => {
       const senha_hash = await hashSenha(pass);
       const payload = { usuario: user, senha_hash };
 
-      const res = await oracleApi.post(ORACLE_ENDPOINTS.checkUser, payload, {
+      const res = await oracleApi.get(ORACLE_ENDPOINTS.checkUser, {
+        params: { ...payload, _ts: Date.now() },
         responseType: 'arraybuffer',
-        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+        headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
         validateStatus: (status) => status >= 200 && status < 400
       });
 
@@ -181,16 +182,12 @@ const Login = () => {
           </div>
         </div>
       </section>
-      <footer className="fixed-footer">
-        <div className="footer-stripe"></div>
-        <div className="footer-text">© 2026 Gestão Assistência Técnica — Sistema de gestão de envio de orçamentos.</div>
-      </footer>
+      <div className="login-footnote">© 2026 Gestão Assistência Técnica — Sistema de gestão de envio de orçamentos.</div>
     </div>
   );
 };
 
 export default Login;
-
 
 
 
