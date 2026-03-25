@@ -61,7 +61,7 @@ const Cadastro = () => {
       const cnpjDigits = cnpj.replace(/\D/g, '');
       const payload = {
         usuario,
-        senha_hash,
+        senha: senha_hash,
         cnpj: cnpjDigits,
         razao_social: razao,
         telefone,
@@ -79,7 +79,7 @@ const Cadastro = () => {
         throw new Error(res.data || `Erro ao registrar (HTTP ${res.status}).`);
       }
 
-      setSuccess('Cadastro enviado com sucesso! Voc� j� pode fazer login.');
+      setSuccess('Cadastro enviado com sucesso! Você já pode fazer login.');
       setTimeout(() => navigate('/login'), 1200);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Erro ao cadastrar.';
@@ -93,14 +93,14 @@ const Cadastro = () => {
     <div className="login-shell">
       <section className="login-hero">
         <div className="hero-brand">
-          <div className="orcalog-wordmark" aria-label="Gest�o Assist�ncia T�cnica">
-            <span className="orca">GEST�O</span>
-            <span className="log">ASSIST�NCIA T�CNICA</span>
+          <div className="orcalog-wordmark" aria-label="Gestão Assistência Técnica">
+            <span className="orca">GESTÃO</span>
+            <span className="log">ASSISTÊNCIA TÉCNICA</span>
           </div>
-          <p>Sistema de gest�o de envio de or�amentos</p>
+          <p>Sistema de gestão de envio de orçamentos</p>
         </div>
         <div className="hero-description">
-          Cadastre sua unidade e libere o acesso para envio de or�amentos.
+          Cadastre sua unidade e libere o acesso para envio de orçamentos.
         </div>
         <div className="hero-cloud cloud-1" />
         <div className="hero-cloud cloud-2" />
@@ -128,23 +128,23 @@ const Cadastro = () => {
                 onChange={(e) => onChangeCnpj(e.target.value)}
               />
             </div>
-            <label className="login-label">Raz�o Social</label>
+            <label className="login-label">Razão Social</label>
             <div className="login-input">
               <i className="material-icons">apartment</i>
               <input
                 type="text"
-                placeholder="Raz�o social"
+                placeholder="Razão social"
                 value={razao}
                 onChange={(e) => setRazao(e.target.value)}
               />
             </div>
 
-            <label className="login-label">Nome do respons�vel</label>
+            <label className="login-label">Nome do responsável</label>
             <div className="login-input">
               <i className="material-icons">person</i>
               <input
                 type="text"
-                placeholder="Nome do respons�vel"
+                placeholder="Nome do responsável"
                 value={nome}
                 onChange={(e) => setNome(e.target.value)}
               />
@@ -192,12 +192,12 @@ const Cadastro = () => {
               </label>
             </div>
 
-            <label className="login-label">Usu�rio</label>
+            <label className="login-label">Usuário</label>
             <div className="login-input">
               <i className="material-icons">badge</i>
               <input
                 type="text"
-                placeholder="Usu�rio de acesso"
+                placeholder="Usuário de acesso"
                 value={usuario}
                 onChange={(e) => setUsuario(e.target.value)}
               />
@@ -220,7 +220,7 @@ const Cadastro = () => {
           </form>
 
           <div className="login-footer">
-            J� possui cadastro?{' '}
+            Já possui cadastro?{' '}
             <button type="button" className="login-link" onClick={() => navigate('/login')}>
               Voltar para login
             </button>
