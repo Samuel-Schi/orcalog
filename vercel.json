@@ -1,0 +1,44 @@
+{
+  "rewrites": [
+    {
+      "source": "/api-check-user",
+      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/check_user"
+    },
+    {
+      "source": "/api-bet-user-inf",
+      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/bet_user_inf"
+    },
+    {
+      "source": "/get_user_inf",
+      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/get_user_inf"
+    },
+    {
+      "source": "/get_produto_cadastro",
+      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/get_produto_cadastro"
+    },
+    {
+      "source": "/salvar-orcamento",
+      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/salvar_orcamento"
+    },
+    {
+      "source": "/get_orcamentos_analise",
+      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/get_orcamentos_analise"
+    },
+    {
+      "source": "/register_posto",
+      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/register_posto"
+    },
+    {
+      "source": "/post_orcamento_final",
+      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/post_orcamento_final"
+    },
+    {
+      "source": "/get_envios",
+      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/get_envios"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/"
+    }
+  ]
+}
