@@ -59,8 +59,9 @@ const Cadastro = () => {
       const senha_hash = await hashSenha(senha);
 
       const cnpjDigits = cnpj.replace(/\D/g, '');
+      const usuarioUpper = usuario.trim().toUpperCase();
       const payload = {
-        usuario,
+        usuario: usuarioUpper,
         senha: senha_hash,
         cnpj: cnpjDigits,
         razao_social: razao,
@@ -199,7 +200,7 @@ const Cadastro = () => {
                 type="text"
                 placeholder="Usuário de acesso"
                 value={usuario}
-                onChange={(e) => setUsuario(e.target.value)}
+                onChange={(e) => setUsuario(e.target.value.toUpperCase())}
               />
             </div>
 

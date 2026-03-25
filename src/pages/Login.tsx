@@ -38,7 +38,8 @@ const Login = () => {
     try {
       setLoading(true);
       const senha_hash = await hashSenha(pass);
-      const payload = { usuario: user, senha_hash };
+      const usuarioUpper = user.trim().toUpperCase();
+      const payload = { usuario: usuarioUpper, senha_hash };
 
       const res = await oracleApi.get(ORACLE_ENDPOINTS.checkUser, {
         params: { ...payload, _ts: Date.now() },
@@ -157,7 +158,7 @@ const Login = () => {
                 type="text"
                 placeholder="Digite seu usuário"
                 value={user}
-                onChange={(e) => setUser(e.target.value)}
+                onChange={(e) => setUser(e.target.value.toUpperCase())}
               />
             </div>
 
@@ -196,5 +197,4 @@ const Login = () => {
 };
 
 export default Login;
-
 

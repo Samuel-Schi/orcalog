@@ -9,6 +9,14 @@
       "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/bet_user_inf"
     },
     {
+      "source": "/api-get-user-inf",
+      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/get_user_inf"
+    },
+    {
+      "source": "/api-get-produto-cadastro",
+      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/get_produto_cadastro"
+    },
+    {
       "source": "/get_user_inf",
       "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/get_user_inf"
     },
@@ -17,7 +25,19 @@
       "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/get_produto_cadastro"
     },
     {
+      "source": "/api-redash/(.*)",
+      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/$1"
+    },
+    {
+      "source": "/api-recebimento/product",
+      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/recebimento-product"
+    },
+    {
       "source": "/salvar-orcamento",
+      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/salvar-orcamento"
+    },
+    {
+      "source": "/salvar_orcamento",
       "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/salvar_orcamento"
     },
     {
