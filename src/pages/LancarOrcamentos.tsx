@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
+import axios from 'axios';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 import { getStatusLabel } from '../lib/statusMap';
 
 type OrcamentoItem = {
   id: string;
   protocolo: string;
+  cnpj?: string;
+  razaoSocial?: string;
+  unidade?: string;
+  emailRetorno?: string;
+  uuid?: string;
   codBarras?: string;
   ean?: string;
   codGemco: string;
@@ -22,6 +28,9 @@ type OrcamentoItem = {
   valEmb?: number;
   valHig?: number;
   fotoNome?: string;
+  defeitoFuncional?: string;
+  garantia?: string;
+  tipoOrc?: string;
 };
 
 const loadPendentes = () => {
@@ -68,6 +77,7 @@ const LancarOrcamentos = () => {
   const [defeitoFuncional, setDefeitoFuncional] = useState('');
   const [garantia, setGarantia] = useState('');
   const [tipoOrc, setTipoOrc] = useState('');
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const selected = useMemo(
     () => items.find((item) => item.id === selectedId) || null,
@@ -94,6 +104,12 @@ const LancarOrcamentos = () => {
   );
   const totalPecasAcess = useMemo(() => valPecas + valAcess, [valPecas, valAcess]);
   const precisaFoto = useMemo(() => /AVARIA/i.test(defeitoEncontrado), [defeitoEncontrado]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const handle = setTimeout(() => setToast(null), 3500);
+    return () => clearTimeout(handle);
+  }, [toast]);
 
   useEffect(() => {
     const loadFromApi = async () => {
@@ -148,6 +164,11 @@ const LancarOrcamentos = () => {
         const normalized = list.map((row, index) => ({
           id: String(row.id ?? row.ID ?? `${row.protocolo ?? row.PROTOCOLO ?? 'p'}-${index}`),
           protocolo: String(row.protocolo ?? row.PROTOCOLO ?? ''),
+          cnpj: String(row.cnpj ?? row.CNPJ ?? ''),
+          razaoSocial: String(row.razao_social ?? row.RAZAO_SOCIAL ?? row.razaoSocial ?? ''),
+          unidade: String(row.unidade ?? row.UNIDADE ?? ''),
+          emailRetorno: String(row.email_retorno ?? row.EMAIL_RETORNO ?? row.emailRetorno ?? ''),
+          uuid: String(row.uuid ?? row.UUID ?? ''),
           codBarras: row.cod_barras ?? row.COD_BARRAS ?? row.codBarras ?? row.cod_barras,
           ean: row.ean ?? row.EAN ?? row.cod_barras ?? row.COD_BARRAS ?? row.codBarras,
           codGemco: String(row.cod_gemco ?? row.COD_GEMCO ?? row.codGemco ?? ''),
@@ -194,26 +215,119 @@ const LancarOrcamentos = () => {
     setTipoOrc('');
   };
 
-  const salvarOrcamento = () => {
+  const salvarOrcamento = async () => {
     if (!selected) return;
-    const updated = items.map((item) => {
-      if (item.id !== selected.id) return item;
-      return {
-        ...item,
-        defeitoEncontrado,
-        pecasDesc,
-        valPecas,
-        acessDesc,
-        valAcess,
-        valMaoObra,
-        valEmb,
-        valHig,
-        fotoNome: foto?.name || item.fotoNome,
-        status: 2
+    try {
+      const totalOrcamento = valPecas + valAcess + valMaoObra + valEmb + valHig;
+      let cnpj = selected.cnpj || '';
+      let razaoSocial = selected.razaoSocial || '';
+      let unidade = selected.unidade || '';
+      let emailRetorno = selected.emailRetorno || '';
+
+      try {
+        const profileRaw = localStorage.getItem('gat_user_profile');
+        if (profileRaw) {
+          const profile = JSON.parse(profileRaw) as {
+            cnpj?: string;
+            razao_social?: string;
+            email?: string;
+            unidade?: string;
+          };
+          if (!cnpj && profile.cnpj) cnpj = profile.cnpj;
+          if (!razaoSocial && profile.razao_social) razaoSocial = profile.razao_social;
+          if (!emailRetorno && profile.email) emailRetorno = profile.email;
+          if (!unidade && profile.unidade) unidade = profile.unidade;
+        }
+      } catch {
+        // ignore profile parsing
+      }
+
+      const payload = {
+        protocolo: selected.protocolo,
+        paUsuario: localStorage.getItem('gat_user') || '',
+        cnpj,
+        razaoSocial,
+        unidade,
+        emailRetorno,
+        itens: [
+          {
+            protocolo: selected.protocolo,
+            uuid: selected.uuid,
+            codBarras: getCodigoBarras(selected),
+            codGemco: selected.codGemco,
+            descricao: selected.descricao,
+            fornecedor: selected.fornecedor,
+            linha: selected.linha,
+            serial: selected.serial,
+            defeitoEncontrado,
+            fotoNome: foto?.name || selected.fotoNome || '',
+            pecasDesc,
+            valPecas,
+            acessDesc,
+            valAcess,
+            valMaoObra,
+            valEmb,
+            valHig,
+            totalOrcamento,
+            defeitoFuncional,
+            garantia,
+            tipoOrc,
+            status: 2
+          }
+        ]
       };
-    });
-    setItems(updated);
-    savePendentes(updated);
+
+      await oracleApi.post(ORACLE_ENDPOINTS.postOrcamentoFinal, payload, {
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const updated = items.map((item) => {
+        if (item.id !== selected.id) return item;
+        return {
+          ...item,
+          defeitoEncontrado,
+          pecasDesc,
+          valPecas,
+          acessDesc,
+          valAcess,
+          valMaoObra,
+          valEmb,
+          valHig,
+          fotoNome: foto?.name || item.fotoNome,
+          defeitoFuncional,
+          garantia,
+          tipoOrc,
+          status: 2
+        };
+      });
+      setItems(updated);
+      savePendentes(updated);
+      // limpa o formul�rio ap�s envio
+      setSelectedId(null);
+      setDefeitoEncontrado('');
+      setPecasDesc('');
+      setValPecas(0);
+      setAcessDesc('');
+      setValAcess(0);
+      setValMaoObra(0);
+      setValEmb(0);
+      setValHig(0);
+      setFoto(null);
+      setDefeitoFuncional('');
+      setGarantia('');
+      setTipoOrc('');
+      setToast({ type: 'success', message: 'Orçamento enviado com sucesso.' });
+    } catch (err) {
+      if (axios.isAxiosError(err)) {
+        const status = err.response?.status;
+        const data = err.response?.data;
+        setToast({ type: 'error', message: `Erro ao enviar (${status ?? 'sem status'}).` });
+        console.error('Erro ao enviar orçamento final:', status, data);
+      } else {
+        setToast({ type: 'error', message: 'Erro ao enviar orçamento final.' });
+        console.error('Erro ao enviar orçamento final:', err);
+      }
+    }
   };
 
   return (
@@ -361,9 +475,19 @@ const LancarOrcamentos = () => {
           </div>
         )}
       </div>
+
+      {toast && (
+        <div className="toast-container">
+          <div className={`toast ${toast.type === 'success' ? 'toast-success' : 'toast-error'}`}>
+            <div className="toast-title">{toast.type === 'success' ? 'Sucesso' : 'Erro'}</div>
+            <div className="toast-message">{toast.message}</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 export default LancarOrcamentos;
+
 

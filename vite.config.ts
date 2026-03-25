@@ -36,6 +36,41 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: true,
           rewrite: (path) => path.replace(/^\/api-get-produto-cadastro/, '/get_produto_cadastro')
+        },
+        '/get_user_inf': {
+          target: ORDS_BASE_URL,
+          changeOrigin: true,
+          secure: true
+        },
+        '/get_produto_cadastro': {
+          target: ORDS_BASE_URL,
+          changeOrigin: true,
+          secure: true
+        },
+        '/salvar-orcamento': {
+          target: ORDS_BASE_URL,
+          changeOrigin: true,
+          secure: true
+        },
+        '/get_orcamentos_analise': {
+          target: ORDS_BASE_URL,
+          changeOrigin: true,
+          secure: true
+        },
+        '/register_posto': {
+          target: ORDS_BASE_URL,
+          changeOrigin: true,
+          secure: true
+        },
+        '/post_orcamento_final': {
+          target: ORDS_BASE_URL,
+          changeOrigin: true,
+          secure: true
+        },
+        '/get_envios': {
+          target: ORDS_BASE_URL,
+          changeOrigin: true,
+          secure: true
         }
       }
     }

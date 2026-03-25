@@ -65,6 +65,18 @@
   force = true
 
 [[redirects]]
+  from = "/post_orcamento_final"
+  to = "/.netlify/functions/post-orcamento-final"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/get_envios"
+  to = "/.netlify/functions/get-envios"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

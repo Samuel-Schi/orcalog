@@ -293,6 +293,7 @@ const NovoOrcamento = () => {
         return '';
       };
 
+      const fetchedItem = getField(item, ['item', 'cod_gemco', 'codigo', 'cod_item', 'item_codigo']);
       const descricao = getField(item, ['descricao', 'ds_produto', 'descricao_produto', 'produto']);
       const fornecedorApi = getField(item, ['fornecedor', 'ds_fornecedor', 'desc_fornecedor', 'fornecedor_desc', 'nome_fornecedor']);
       const linhaApi = getField(item, ['linha', 'ds_linha', 'desc_linha', 'linha_desc', 'nome_linha']);
@@ -300,6 +301,7 @@ const NovoOrcamento = () => {
       const voltagemApi = item.voltagem ?? item.VOLTAGEM ?? '';
       const volumesApi = item.volumes ?? item.VOLUMES ?? '';
       if (descricao) setDescProd(descricao);
+      if (fetchedItem) setCodGemco(String(fetchedItem));
       if (fornecedorApi) setFornecedor(String(fornecedorApi));
       if (linhaApi) setLinha(String(linhaApi));
       if (familiaApi) setFamilia(String(familiaApi));
@@ -310,7 +312,7 @@ const NovoOrcamento = () => {
         adicionarItem({
           uuid,
           ean: lookupEan,
-          codGemco: lookupItem,
+          codGemco: fetchedItem || lookupItem,
           descricao,
           fornecedor: fornecedorApi || '',
           linha: linhaApi || '',
@@ -330,6 +332,10 @@ const NovoOrcamento = () => {
 
   const finalizarEnvio = async () => {
     if (itens.length === 0 || isSaving) return;
+    if (!unidade.trim()) {
+      setToast({ type: 'error', message: 'Preencha a filial (unidade) para enviar.' });
+      return;
+    }
     setIsSaving(true);
     try {
       const payload = {

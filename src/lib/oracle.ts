@@ -1,9 +1,6 @@
 ﻿import axios from 'axios';
 
-export const ORDS_BASE_URL = import.meta.env.PROD
-  ? ''
-  : (import.meta.env.VITE_ORDS_BASE_URL
-    || 'https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1');
+export const ORDS_BASE_URL = '';
 
 // Use sempre o proxy das Functions para evitar CORS no browser
 export const ORACLE_ENDPOINTS = {
@@ -13,7 +10,9 @@ export const ORACLE_ENDPOINTS = {
   getProdutoCadastro: '/get_produto_cadastro',
   saveOrcamento: '/salvar-orcamento',
   getOrcamentosAnalise: '/get_orcamentos_analise',
-  registerPosto: '/register_posto'
+  registerPosto: '/register_posto',
+  postOrcamentoFinal: '/post_orcamento_final',
+  getEnvios: '/get_envios'
 };
 
 export const oracleApi = axios.create({

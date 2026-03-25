@@ -95,18 +95,26 @@ const Login = () => {
       const first = items[0] || (Array.isArray(data?.items) ? data.items[0] : null) || data || {};
       const usuarioResp = (first?.usuario || first?.USUARIO || user).toString();
       localStorage.setItem('gat_user', usuarioResp.toUpperCase());
+      localStorage.setItem('gat_user_profile', JSON.stringify({
+        cnpj: first?.cnpj ?? first?.CNPJ ?? '',
+        razao_social: first?.razao_social ?? first?.RAZAO_SOCIAL ?? '',
+        email: first?.email ?? first?.EMAIL ?? '',
+        nome: first?.nome ?? first?.NOME ?? '',
+        posto: first?.posto ?? first?.POSTO ?? ''
+      }));
       if (first?.nome || first?.NOME) {
         localStorage.setItem('gat_user_nome', String(first?.nome ?? first?.NOME));
       }
       if (first?.email || first?.EMAIL) {
         localStorage.setItem('gat_user_email', String(first?.email ?? first?.EMAIL));
       }
-      navigate('/novo-orcamento');
+      navigate('/novo-orcamento', { replace: true });
+      setTimeout(() => {
+        if (window.location.pathname === '/login') {
+          window.location.assign('/novo-orcamento');
+        }
+      }, 50);
     } catch (err) {
-      if (axios.isAxiosError(err) && err.response?.status === 405) {
-        setError('Método não permitido (405). O endpoint exige GET em vez de POST.');
-        return;
-      }
       const msg = err instanceof Error ? err.message : 'Erro ao autenticar.';
       setError(msg);
     } finally {
@@ -188,8 +196,5 @@ const Login = () => {
 };
 
 export default Login;
-
-
-
 
 
