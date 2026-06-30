@@ -1,0 +1,38 @@
+{
+  "id": 1,
+  "itemId": 1,
+  "protocolo": "P256-4564",
+  "paUsuario": "SAMU",
+  "cnpj": "00000000000000",
+  "razaoSocial": "SAMUCA",
+  "unidade": "299",
+  "emailRetorno": "samuel.schiavo@magazineluiza.com.br",
+  "itens": [
+    {
+      "id": 1,
+      "itemId": 1,
+      "uuid": "161...",
+      "codBarras": "78998649481...",
+      "ean": "78998649481...",
+      "codGemco": "7723452",
+      "descricao": "NOTE DELL ...",
+      "fornecedor": "DELL ...",
+      "linha": "IN - INF...",
+      "serial": "-",
+      "defeitoEncontrado": "DEFEITO FUNCIONAL",
+      "fotoNome": "",
+      "pecasDesc": "Peca X",
+      "valPecas": 10,
+      "acessDesc": "Acessorio Y",
+      "valAcess": 5,
+      "valMaoObra": 20,
+      "valEmb": 3,
+      "valHig": 2,
+      "totalOrcamento": 40,
+      "defeitoFuncional": "SIM",
+      "garantia": "NAO",
+      "tipoOrc": "NOVO",
+      "status": 2
+    }
+  ]
+}

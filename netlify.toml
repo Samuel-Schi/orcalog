@@ -6,7 +6,7 @@
     HUSKY = "0"
 
 [dev]
-  command = "npm run dev"
+  command = "node ./node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5173"
   targetPort = 5173
   port = 8888
 
@@ -47,8 +47,26 @@
   force = true
 
 [[redirects]]
+  from = "/consulta_cnpj"
+  to = "/.netlify/functions/consulta-cnpj"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/salvar-orcamento"
   to = "/.netlify/functions/salvar-orcamento"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/sync_orcamento_supabase"
+  to = "/.netlify/functions/sync-orcamento-supabase"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/update_valores"
+  to = "/.netlify/functions/lancar-valores-orcamento"
   status = 200
   force = true
 

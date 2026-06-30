@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 import { getStatusLabel } from '../lib/statusMap';
 
 type OrcamentoItem = {
   id: string;
+  dbId?: number;
   protocolo: string;
   cnpj?: string;
   razaoSocial?: string;
@@ -65,6 +66,7 @@ const LancarOrcamentos = () => {
   const [items, setItems] = useState<OrcamentoItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [defeitoEncontrado, setDefeitoEncontrado] = useState('');
   const [pecasDesc, setPecasDesc] = useState('');
   const [valPecas, setValPecas] = useState(0);
@@ -78,6 +80,11 @@ const LancarOrcamentos = () => {
   const [garantia, setGarantia] = useState('');
   const [tipoOrc, setTipoOrc] = useState('');
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [scanValue, setScanValue] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanError, setScanError] = useState('');
+  const scanVideoRef = useRef<HTMLVideoElement | null>(null);
+  const scanStreamRef = useRef<MediaStream | null>(null);
 
   const selected = useMemo(
     () => items.find((item) => item.id === selectedId) || null,
@@ -97,6 +104,7 @@ const LancarOrcamentos = () => {
 
   const getCodigoBarras = (item: OrcamentoItem) => item.ean || item.codBarras || '-';
   const isOrcado = (item: OrcamentoItem) => item.status >= 2;
+  const normalizeCode = (value: string) => value.replace(/\D/g, '').trim();
 
   const total = useMemo(
     () => valPecas + valAcess + valMaoObra + valEmb + valHig,
@@ -110,6 +118,66 @@ const LancarOrcamentos = () => {
     const handle = setTimeout(() => setToast(null), 3500);
     return () => clearTimeout(handle);
   }, [toast]);
+
+  useEffect(() => {
+    if (!isScanning) return;
+    let cancelled = false;
+
+    const start = async () => {
+      try {
+        setScanError('');
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' }
+        });
+        scanStreamRef.current = stream;
+        if (scanVideoRef.current) {
+          scanVideoRef.current.srcObject = stream;
+          await scanVideoRef.current.play();
+        }
+
+        const BarcodeDetectorCtor = (window as any).BarcodeDetector;
+        if (!BarcodeDetectorCtor) {
+          setScanError('Leitor nao suportado neste navegador. Use o campo de bip.');
+          return;
+        }
+
+        const detector = new BarcodeDetectorCtor({
+          formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'qr_code']
+        });
+
+        const scan = async () => {
+          if (cancelled || !scanVideoRef.current) return;
+          try {
+            const barcodes = await detector.detect(scanVideoRef.current);
+            if (barcodes && barcodes.length > 0) {
+              const value = barcodes[0].rawValue || '';
+              if (value) {
+                handleScan(value);
+                setIsScanning(false);
+                return;
+              }
+            }
+          } catch {
+            // ignore scan errors
+          }
+          requestAnimationFrame(scan);
+        };
+        requestAnimationFrame(scan);
+      } catch {
+        setScanError('Nao foi possivel acessar a camera.');
+      }
+    };
+
+    start();
+
+    return () => {
+      cancelled = true;
+      if (scanStreamRef.current) {
+        scanStreamRef.current.getTracks().forEach((t) => t.stop());
+        scanStreamRef.current = null;
+      }
+    };
+  }, [isScanning]);
 
   useEffect(() => {
     const loadFromApi = async () => {
@@ -163,6 +231,12 @@ const LancarOrcamentos = () => {
 
         const normalized = list.map((row, index) => ({
           id: String(row.id ?? row.ID ?? `${row.protocolo ?? row.PROTOCOLO ?? 'p'}-${index}`),
+          dbId: (() => {
+            const rawId = row.id ?? row.ID;
+            if (rawId === null || rawId === undefined || rawId === '') return undefined;
+            const parsed = Number(rawId);
+            return Number.isFinite(parsed) ? parsed : undefined;
+          })(),
           protocolo: String(row.protocolo ?? row.PROTOCOLO ?? ''),
           cnpj: String(row.cnpj ?? row.CNPJ ?? ''),
           razaoSocial: String(row.razao_social ?? row.RAZAO_SOCIAL ?? row.razaoSocial ?? ''),
@@ -185,7 +259,10 @@ const LancarOrcamentos = () => {
           valMaoObra: row.val_mao_obra ?? row.VAL_MAO_OBRA ?? row.valMaoObra,
           valEmb: row.val_emb ?? row.VAL_EMB ?? row.valEmb,
           valHig: row.val_hig ?? row.VAL_HIG ?? row.valHig,
-          fotoNome: row.foto_nome ?? row.FOTO_NOME ?? row.fotoNome
+          fotoNome: row.foto_nome ?? row.FOTO_NOME ?? row.fotoNome,
+          defeitoFuncional: row.defeito_funcional ?? row.DEFEITO_FUNCIONAL ?? row.defeitoFuncional,
+          garantia: row.garantia ?? row.GARANTIA ?? row.garantiaPrazo,
+          tipoOrc: row.tipo_orc ?? row.TIPO_ORC ?? row.tipoOrc
         })) as OrcamentoItem[];
 
         setItems(normalized);
@@ -199,6 +276,29 @@ const LancarOrcamentos = () => {
     loadFromApi();
   }, []);
 
+  const findByCode = (raw: string) => {
+    const norm = normalizeCode(raw);
+    if (!norm) return null;
+    return items.find((item) => {
+      const codigo = normalizeCode(getCodigoBarras(item));
+      const gemco = normalizeCode(item.codGemco || '');
+      const serial = normalizeCode(item.serial || '');
+      return codigo === norm || gemco === norm || serial === norm;
+    }) || null;
+  };
+
+  const handleScan = (raw: string) => {
+    const cleaned = raw.trim();
+    setScanValue(cleaned);
+    const found = findByCode(cleaned);
+    if (found) {
+      selecionarItem(found);
+      setToast({ type: 'success', message: 'Item localizado pelo codigo.' });
+    } else {
+      setToast({ type: 'error', message: 'Codigo nao encontrado nos itens.' });
+    }
+  };
+
   const selecionarItem = (item: OrcamentoItem) => {
     setSelectedId(item.id);
     setDefeitoEncontrado(item.defeitoEncontrado || '');
@@ -210,14 +310,24 @@ const LancarOrcamentos = () => {
     setValEmb(item.valEmb || 0);
     setValHig(item.valHig || 0);
     setFoto(null);
-    setDefeitoFuncional('');
-    setGarantia('');
-    setTipoOrc('');
+    setDefeitoFuncional(item.defeitoFuncional || '');
+    setGarantia(item.garantia || '');
+    setTipoOrc(item.tipoOrc || '');
   };
 
-  const salvarOrcamento = async () => {
+  const lancarValores = async () => {
     if (!selected) return;
+    if (selected.dbId == null) {
+      setToast({ type: 'error', message: 'Este item nao possui ID real do banco. Ajuste o endpoint get_orcamentos_analise para retornar o campo ID.' });
+      return;
+    }
+    if (precisaFoto && !foto && !selected.fotoNome) {
+      setToast({ type: 'error', message: 'Anexe a foto da avaria antes de lancar os valores.' });
+      return;
+    }
+
     try {
+      setIsSubmitting(true);
       const totalOrcamento = valPecas + valAcess + valMaoObra + valEmb + valHig;
       let cnpj = selected.cnpj || '';
       let razaoSocial = selected.razaoSocial || '';
@@ -243,6 +353,8 @@ const LancarOrcamentos = () => {
       }
 
       const payload = {
+        id: selected.dbId,
+        itemId: selected.dbId,
         protocolo: selected.protocolo,
         paUsuario: localStorage.getItem('gat_user') || '',
         cnpj,
@@ -251,6 +363,8 @@ const LancarOrcamentos = () => {
         emailRetorno,
         itens: [
           {
+            id: selected.dbId,
+            itemId: selected.dbId,
             protocolo: selected.protocolo,
             uuid: selected.uuid,
             codBarras: getCodigoBarras(selected),
@@ -277,7 +391,11 @@ const LancarOrcamentos = () => {
         ]
       };
 
-      await oracleApi.post(ORACLE_ENDPOINTS.postOrcamentoFinal, payload, {
+      await oracleApi.post(ORACLE_ENDPOINTS.updateValores, payload, {
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      await oracleApi.post(ORACLE_ENDPOINTS.syncOrcamentoSupabase, payload, {
         headers: { 'Content-Type': 'application/json' }
       });
 
@@ -302,7 +420,7 @@ const LancarOrcamentos = () => {
       });
       setItems(updated);
       savePendentes(updated);
-      // limpa o formul�rio ap�s envio
+      // limpa o formulario apos envio
       setSelectedId(null);
       setDefeitoEncontrado('');
       setPecasDesc('');
@@ -316,26 +434,60 @@ const LancarOrcamentos = () => {
       setDefeitoFuncional('');
       setGarantia('');
       setTipoOrc('');
-      setToast({ type: 'success', message: 'Orçamento enviado com sucesso.' });
+      setToast({ type: 'success', message: 'Valores lancados com sucesso.' });
     } catch (err) {
       if (axios.isAxiosError(err)) {
         const status = err.response?.status;
         const data = err.response?.data;
-        setToast({ type: 'error', message: `Erro ao enviar (${status ?? 'sem status'}).` });
-        console.error('Erro ao enviar orçamento final:', status, data);
+        const backendError =
+          data?.error ||
+          data?.message ||
+          data?.hint ||
+          `Erro ao lancar valores (${status ?? 'sem status'}).`;
+        setToast({ type: 'error', message: String(backendError) });
+        console.error('Erro ao lancar valores do orcamento:', status, data);
       } else {
-        setToast({ type: 'error', message: 'Erro ao enviar orçamento final.' });
-        console.error('Erro ao enviar orçamento final:', err);
+        setToast({ type: 'error', message: 'Erro ao lancar valores do orcamento.' });
+        console.error('Erro ao lancar valores do orcamento:', err);
       }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
     <div className="view-section">
-      <h2 className="page-title">Lançamento de Orçamentos</h2>
+      <h2 className="page-title">Lancamento de Orcamentos</h2>
 
       <div className="card">
         <div className="section-title">Lotes (Protocolos)</div>
+        {items.length > 0 && (
+          <div className="scan-bar">
+            <div className="scan-input">
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="Bipar ou digitar codigo de barras/GEMCO"
+                value={scanValue}
+                onChange={(e) => setScanValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleScan(scanValue);
+                  }
+                }}
+              />
+            </div>
+            <div className="scan-actions">
+              <button className="btn btn-secondary btn-sm" type="button" onClick={() => handleScan(scanValue)}>
+                Buscar
+              </button>
+              <button className="btn btn-primary btn-sm" type="button" onClick={() => setIsScanning(true)}>
+                Bip Camera
+              </button>
+            </div>
+          </div>
+        )}
         {isLoading && (
           <div style={{ color: '#999', textAlign: 'center', padding: '10px 0' }}>Carregando...</div>
         )}
@@ -353,9 +505,9 @@ const LancarOrcamentos = () => {
                 <table className="tabela-horizontal">
                   <thead>
                     <tr>
-                      <th>Cód. Barras</th>
-                      <th>Cód. GEMCO</th>
-                      <th>Descrição</th>
+                      <th>Cod. Barras</th>
+                      <th>Cod. GEMCO</th>
+                      <th>Descricao</th>
                       <th>Fornecedor</th>
                       <th>Linha</th>
                       <th>Serial</th>
@@ -375,7 +527,7 @@ const LancarOrcamentos = () => {
                         <td>{item.fornecedor}</td>
                         <td>{item.linha}</td>
                         <td>{item.serial}</td>
-                        <td>{isOrcado(item) ? '✓' : ''} {getStatusLabel(item.status)}</td>
+                        <td>{isOrcado(item) ? 'OK' : ''} {getStatusLabel(item.status)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -390,7 +542,7 @@ const LancarOrcamentos = () => {
         <div className="section-title">Valores e Defeitos</div>
         {!selected && (
           <div style={{ color: '#777', padding: '10px 0' }}>
-            Selecione um item pendente acima para lançar o orçamento.
+            Selecione um item pendente acima para lancar o orcamento.
           </div>
         )}
         {selected && (
@@ -399,14 +551,14 @@ const LancarOrcamentos = () => {
               <label>Defeito Encontrado</label>
               <select value={defeitoEncontrado} onChange={(e) => setDefeitoEncontrado(e.target.value)}>
                 <option value="">SELECIONE...</option>
-                <option value="EMBALAGEM | HIGIENIZAÇÃO | MÃO DE OBRA">EMBALAGEM | HIGIENIZAÇÃO | MÃO DE OBRA</option>
-                <option value="DEFEITO FUNCIONAL | AVARIA ESTÉTICA">DEFEITO FUNCIONAL | AVARIA ESTÉTICA</option>
-                <option value="AVARIA ESTÉTICA">AVARIA ESTÉTICA</option>
+                <option value="EMBALAGEM | HIGIENIZACAO | MAO DE OBRA">EMBALAGEM | HIGIENIZACAO | MAO DE OBRA</option>
+                <option value="DEFEITO FUNCIONAL | AVARIA ESTETICA">DEFEITO FUNCIONAL | AVARIA ESTETICA</option>
+                <option value="AVARIA ESTETICA">AVARIA ESTETICA</option>
                 <option value="DEFEITO FUNCIONAL">DEFEITO FUNCIONAL</option>
               </select>
               {precisaFoto && (
                 <div style={{ marginTop: 5 }}>
-                  <label style={{ color: 'var(--azul)' }}>📸 Foto da Avaria (Obrigatório)</label>
+                  <label style={{ color: 'var(--azul)' }}>Foto da avaria (obrigatorio)</label>
                   <input
                     type="file"
                     accept="image/*"
@@ -421,7 +573,7 @@ const LancarOrcamentos = () => {
               <select value={defeitoFuncional} onChange={(e) => setDefeitoFuncional(e.target.value)}>
                 <option value="">SELECIONE...</option>
                 <option value="SIM">SIM</option>
-                <option value="NÃO">NÃO</option>
+                <option value="NAO">NAO</option>
               </select>
             </div>
             <div className="span-2">
@@ -429,7 +581,7 @@ const LancarOrcamentos = () => {
               <select value={garantia} onChange={(e) => setGarantia(e.target.value)}>
                 <option value="">SELECIONE...</option>
                 <option value="SIM">SIM</option>
-                <option value="NÃO">NÃO</option>
+                <option value="NAO">NAO</option>
               </select>
             </div>
             <div className="span-4">
@@ -443,34 +595,34 @@ const LancarOrcamentos = () => {
             </div>
 
             <div className="span-4">
-              <label>Peças Avariadas/Faltantes</label>
+              <label>Pecas Avariadas/Faltantes</label>
               <input type="text" value={pecasDesc} onChange={(e) => setPecasDesc(e.target.value)} placeholder="Busca..." />
             </div>
             <div className="span-2">
-              <label>Valor Peças</label>
+              <label>Valor Pecas</label>
               <input type="text" inputMode="decimal" value={formatCurrency(valPecas)} onChange={(e) => setValPecas(parseCurrency(e.target.value))} />
             </div>
             <div className="span-4">
-              <label>Acessórios Avariados/Faltantes</label>
+              <label>Acessorios Avariados/Faltantes</label>
               <input type="text" value={acessDesc} onChange={(e) => setAcessDesc(e.target.value)} placeholder="Busca..." />
             </div>
             <div className="span-2">
-              <label>Valor Acessórios</label>
+              <label>Valor Acessorios</label>
               <input type="text" inputMode="decimal" value={formatCurrency(valAcess)} onChange={(e) => setValAcess(parseCurrency(e.target.value))} />
             </div>
 
-            <div className="span-4"><label>Mão de Obra</label><input type="text" inputMode="decimal" value={formatCurrency(valMaoObra)} onChange={(e) => setValMaoObra(parseCurrency(e.target.value))} /></div>
+            <div className="span-4"><label>Mao de Obra</label><input type="text" inputMode="decimal" value={formatCurrency(valMaoObra)} onChange={(e) => setValMaoObra(parseCurrency(e.target.value))} /></div>
             <div className="span-4"><label>Embalagem</label><input type="text" inputMode="decimal" value={formatCurrency(valEmb)} onChange={(e) => setValEmb(parseCurrency(e.target.value))} /></div>
-            <div className="span-4"><label>Higienização</label><input type="text" inputMode="decimal" value={formatCurrency(valHig)} onChange={(e) => setValHig(parseCurrency(e.target.value))} /></div>
+            <div className="span-4"><label>Higienizacao</label><input type="text" inputMode="decimal" value={formatCurrency(valHig)} onChange={(e) => setValHig(parseCurrency(e.target.value))} /></div>
 
-            <div className="span-6"><label>Valor Final Peças/Acessórios</label><input type="text" readOnly value={formatCurrency(totalPecasAcess)} style={{ textAlign: 'right' }} /></div>
-            <div className="span-6"><label>Total do Orçamento</label><input type="text" readOnly value={formatCurrency(total)} className="total-display" /></div>
+            <div className="span-6"><label>Valor Final Pecas/Acessorios</label><input type="text" readOnly value={formatCurrency(totalPecasAcess)} style={{ textAlign: 'right' }} /></div>
+            <div className="span-6"><label>Total do Orcamento</label><input type="text" readOnly value={formatCurrency(total)} className="total-display" /></div>
           </div>
         )}
         {selected && (
           <div className="action-bar">
-            <button className="btn btn-success btn-sm" type="button" onClick={salvarOrcamento}>
-              <i className="material-icons">save</i> SALVAR ORÇAMENTO
+            <button className="btn btn-success btn-sm" type="button" onClick={lancarValores} disabled={isSubmitting}>
+              <i className="material-icons">save</i> {isSubmitting ? 'LANCANDO...' : 'LANCAR VALORES'}
             </button>
           </div>
         )}
@@ -481,6 +633,23 @@ const LancarOrcamentos = () => {
           <div className={`toast ${toast.type === 'success' ? 'toast-success' : 'toast-error'}`}>
             <div className="toast-title">{toast.type === 'success' ? 'Sucesso' : 'Erro'}</div>
             <div className="toast-message">{toast.message}</div>
+          </div>
+        </div>
+      )}
+
+
+      {isScanning && (
+        <div className="qr-modal">
+          <div className="qr-modal-content">
+            <div className="qr-modal-header">
+              <h3>Bip por Camera</h3>
+              <button type="button" className="qr-close" onClick={() => setIsScanning(false)}>x</button>
+            </div>
+            <div className="qr-video-wrap">
+              <video ref={scanVideoRef} className="qr-video" muted playsInline />
+            </div>
+            {scanError && <div className="qr-error">{scanError}</div>}
+            <div className="qr-help">Aponte a camera para o codigo de barras.</div>
           </div>
         </div>
       )}

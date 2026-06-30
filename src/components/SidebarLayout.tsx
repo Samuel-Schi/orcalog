@@ -5,6 +5,7 @@ const SidebarLayout = () => {
   const navigate = useNavigate();
   const [isDark, setIsDark] = useState(() => localStorage.getItem('gatTheme') === 'dark');
   const [isClosed, setIsClosed] = useState(() => localStorage.getItem('gatSidebar') === 'closed');
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [userName, setUserName] = useState(() => localStorage.getItem('gat_user') || 'Usuário');
 
   useEffect(() => {
@@ -17,13 +18,34 @@ const SidebarLayout = () => {
     localStorage.setItem('gatSidebar', isClosed ? 'closed' : 'open');
   }, [isClosed]);
 
+  useEffect(() => {
+    document.body.classList.toggle('sidebar-mobile-open', isMobileOpen);
+  }, [isMobileOpen]);
+
+  const closeMobile = () => setIsMobileOpen(false);
+
   const logout = () => {
     localStorage.removeItem('gat_user');
+    closeMobile();
     navigate('/login');
   };
 
   return (
     <div className="app-layout">
+      <div className="mobile-topbar">
+        <button className="btn-header-icon" onClick={() => setIsMobileOpen((v) => !v)} title="Menu">
+          <i className="material-icons">menu</i>
+        </button>
+        <div className="mobile-title">Gestão Assistência Técnica</div>
+        <button className="btn-header-icon" onClick={() => setIsDark((v) => !v)} title="Alternar Tema">
+          <i className="material-icons">{isDark ? 'light_mode' : 'dark_mode'}</i>
+        </button>
+      </div>
+
+      {isMobileOpen && (
+        <button className="sidebar-backdrop" aria-label="Fechar menu" onClick={() => setIsMobileOpen(false)} />
+      )}
+
       <aside className="sidebar">
         <div className="sidebar-header">
           <div className="logo-area">
@@ -50,15 +72,15 @@ const SidebarLayout = () => {
         </div>
 
         <nav className="sidebar-nav">
-          <NavLink to="/novo-orcamento" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+          <NavLink to="/novo-orcamento" onClick={closeMobile} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <i className="material-icons">add_circle</i>
             <span>Novo Orçamento</span>
           </NavLink>
-          <NavLink to="/lancar-orcamentos" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+          <NavLink to="/lancar-orcamentos" onClick={closeMobile} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <i className="material-icons">assignment</i>
             <span>Lançar Orçamentos</span>
           </NavLink>
-          <NavLink to="/meus-envios" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+          <NavLink to="/meus-envios" onClick={closeMobile} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <i className="material-icons">list_alt</i>
             <span>Meus Envios</span>
           </NavLink>

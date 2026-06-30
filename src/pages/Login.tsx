@@ -2,6 +2,7 @@
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
+import loginHeroIllustration from '../assets/login-hero-illustration.jpg';
 
 const toBase64 = (buffer: ArrayBuffer) => {
   const bytes = new Uint8Array(buffer);
@@ -126,6 +127,7 @@ const Login = () => {
   return (
     <div className="login-shell">
       <section className="login-hero">
+        <div className="hero-kicker">Fluxo digital de orcamentos</div>
         <div className="hero-brand">
           <div className="orcalog-wordmark" aria-label="Orçalog">
             <span className="orca">ORÇA</span>
@@ -136,9 +138,9 @@ const Login = () => {
         <div className="hero-description">
           Centralize os envios de orçamento e acompanhe seus protocolos com rapidez e controle.
         </div>
-        <div className="hero-cloud cloud-1" />
-        <div className="hero-cloud cloud-2" />
-        <div className="hero-cloud cloud-3" />
+        <div className="hero-visual" aria-hidden="true">
+          <img src={loginHeroIllustration} alt="" className="hero-illustration" />
+        </div>
       </section>
 
       <section className="login-panel">
@@ -197,4 +199,3 @@ const Login = () => {
 };
 
 export default Login;
-

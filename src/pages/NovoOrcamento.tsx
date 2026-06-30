@@ -52,6 +52,24 @@ const NovoOrcamento = () => {
 
     const loadUserInfo = async () => {
       try {
+        const profileRaw = localStorage.getItem('gat_user_profile');
+        if (profileRaw) {
+          try {
+            const profile = JSON.parse(profileRaw) as {
+              cnpj?: string;
+              razao_social?: string;
+              email?: string;
+              unidade?: string;
+            };
+            if (profile.cnpj) setCnpj(String(profile.cnpj));
+            if (profile.razao_social) setRazaoSocial(String(profile.razao_social));
+            if (profile.email) setEmail(String(profile.email));
+            if (profile.unidade) setUnidade(String(profile.unidade));
+          } catch {
+            // ignore profile parsing
+          }
+        }
+
         const usuario = (localStorage.getItem('gat_user') || '').toLowerCase();
         if (!usuario) return;
 

@@ -47,7 +47,27 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: true
         },
+        '/consulta_cnpj': {
+          target: 'https://brasilapi.com.br',
+          changeOrigin: true,
+          secure: true,
+          rewrite: (path) => {
+            const url = new URL(`http://local${path}`);
+            const cnpj = (url.searchParams.get('cnpj') || '').replace(/\D/g, '');
+            return `/api/cnpj/v1/${cnpj}`;
+          }
+        },
         '/salvar-orcamento': {
+          target: ORDS_BASE_URL,
+          changeOrigin: true,
+          secure: true
+        },
+        '/sync_orcamento_supabase': {
+          target: 'http://localhost:8888',
+          changeOrigin: true,
+          secure: false
+        },
+        '/update_valores': {
           target: ORDS_BASE_URL,
           changeOrigin: true,
           secure: true

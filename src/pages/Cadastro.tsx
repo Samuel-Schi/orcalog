@@ -1,4 +1,5 @@
-﻿import { useState } from 'react';
+import axios from 'axios';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { oracleApi, ORACLE_ENDPOINTS } from '../lib/oracle';
 
@@ -29,6 +30,7 @@ const Cadastro = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingCnpj, setLoadingCnpj] = useState(false);
 
   const formatCnpj = (value: string) => {
     const digits = value.replace(/\D/g, '').slice(0, 14);
@@ -42,6 +44,42 @@ const Cadastro = () => {
   const onChangeCnpj = (value: string) => {
     const masked = formatCnpj(value);
     setCnpj(masked);
+  };
+
+  const buscarCnpj = async () => {
+    const cnpjDigits = cnpj.replace(/\D/g, '');
+    if (cnpjDigits.length !== 14 || loadingCnpj) return;
+
+    try {
+      setLoadingCnpj(true);
+      setError('');
+
+      const res = await oracleApi.get(ORACLE_ENDPOINTS.consultaCnpj, {
+        params: { cnpj: cnpjDigits },
+        validateStatus: () => true
+      });
+
+      if (res.status >= 400) {
+        throw new Error('Nao foi possivel localizar esse CNPJ.');
+      }
+
+      const data = res.data ?? {};
+      const razaoSocial = data.razao_social ?? data.nome ?? '';
+
+      if (!razaoSocial) {
+        throw new Error('CNPJ localizado, mas sem razao social disponivel.');
+      }
+
+      setRazao(String(razaoSocial));
+    } catch (err) {
+      if (axios.isAxiosError(err)) {
+        setError(err.response?.data?.message || err.response?.data?.error || 'Erro ao consultar CNPJ.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Erro ao consultar CNPJ.');
+      }
+    } finally {
+      setLoadingCnpj(false);
+    }
   };
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -80,7 +118,7 @@ const Cadastro = () => {
         throw new Error(res.data || `Erro ao registrar (HTTP ${res.status}).`);
       }
 
-      setSuccess('Cadastro enviado com sucesso! Você já pode fazer login.');
+      setSuccess('Cadastro enviado com sucesso! Voce ja pode fazer login.');
       setTimeout(() => navigate('/login'), 1200);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Erro ao cadastrar.';
@@ -94,14 +132,14 @@ const Cadastro = () => {
     <div className="login-shell">
       <section className="login-hero">
         <div className="hero-brand">
-          <div className="orcalog-wordmark" aria-label="Gestão Assistência Técnica">
-            <span className="orca">GESTÃO</span>
-            <span className="log">ASSISTÊNCIA TÉCNICA</span>
+          <div className="orcalog-wordmark" aria-label="Gestao Assistencia Tecnica">
+            <span className="orca">GESTAO</span>
+            <span className="log">ASSISTENCIA TECNICA</span>
           </div>
-          <p>Sistema de gestão de envio de orçamentos</p>
+          <p>Sistema de gestao de envio de orcamentos</p>
         </div>
         <div className="hero-description">
-          Cadastre sua unidade e libere o acesso para envio de orçamentos.
+          Cadastre sua unidade e libere o acesso para envio de orcamentos.
         </div>
         <div className="hero-cloud cloud-1" />
         <div className="hero-cloud cloud-2" />
@@ -127,25 +165,32 @@ const Cadastro = () => {
                 placeholder="00.000.000/0001-00"
                 value={cnpj}
                 onChange={(e) => onChangeCnpj(e.target.value)}
+                onBlur={buscarCnpj}
               />
             </div>
-            <label className="login-label">Razão Social</label>
+            {loadingCnpj && (
+              <div style={{ color: '#64748b', fontSize: 13, marginTop: -8, marginBottom: 10 }}>
+                Buscando razao social pelo CNPJ...
+              </div>
+            )}
+
+            <label className="login-label">Razao Social</label>
             <div className="login-input">
               <i className="material-icons">apartment</i>
               <input
                 type="text"
-                placeholder="Razão social"
+                placeholder="Razao social"
                 value={razao}
                 onChange={(e) => setRazao(e.target.value)}
               />
             </div>
 
-            <label className="login-label">Nome do responsável</label>
+            <label className="login-label">Nome do responsavel</label>
             <div className="login-input">
               <i className="material-icons">person</i>
               <input
                 type="text"
-                placeholder="Nome do responsável"
+                placeholder="Nome do responsavel"
                 value={nome}
                 onChange={(e) => setNome(e.target.value)}
               />
@@ -193,12 +238,12 @@ const Cadastro = () => {
               </label>
             </div>
 
-            <label className="login-label">Usuário</label>
+            <label className="login-label">Usuario</label>
             <div className="login-input">
               <i className="material-icons">badge</i>
               <input
                 type="text"
-                placeholder="Usuário de acesso"
+                placeholder="Usuario de acesso"
                 value={usuario}
                 onChange={(e) => setUsuario(e.target.value.toUpperCase())}
               />
@@ -221,7 +266,7 @@ const Cadastro = () => {
           </form>
 
           <div className="login-footer">
-            Já possui cadastro?{' '}
+            Ja possui cadastro?{' '}
             <button type="button" className="login-link" onClick={() => navigate('/login')}>
               Voltar para login
             </button>
@@ -233,7 +278,3 @@ const Cadastro = () => {
 };
 
 export default Cadastro;
-
-
-
-
