@@ -84,6 +84,10 @@ const SidebarLayout = () => {
             <i className="material-icons">list_alt</i>
             <span>Meus Envios</span>
           </NavLink>
+          <NavLink to="/romaneio" onClick={closeMobile} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <i className="material-icons">print</i>
+            <span>Romaneio</span>
+          </NavLink>
         </nav>
 
         <div className="sidebar-footer">

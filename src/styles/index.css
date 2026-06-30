@@ -786,3 +786,162 @@ body.dark-mode .sidebar {
   .scan-actions { width: 100%; }
   .scan-actions .btn { width: 100%; }
 }
+
+.romaneio-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.romaneio-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 14px;
+}
+
+.romaneio-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.romaneio-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 14px;
+}
+
+.romaneio-header h3 {
+  margin: 4px 0;
+  font-size: 1.35rem;
+  color: #0f172a;
+}
+
+.romaneio-header p {
+  margin: 0;
+  color: #64748b;
+}
+
+.romaneio-kicker {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  color: #2563eb;
+  font-weight: 700;
+}
+
+.romaneio-meta {
+  display: grid;
+  gap: 6px;
+  color: #334155;
+  font-size: 0.92rem;
+  min-width: 220px;
+}
+
+.romaneio-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.romaneio-info-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  min-height: 78px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.romaneio-label {
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+}
+
+.romaneio-info-card strong {
+  color: #0f172a;
+  word-break: break-word;
+}
+
+.romaneio-table strong {
+  display: inline-block;
+  margin-top: 4px;
+}
+
+.romaneio-footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  margin-top: 18px;
+  padding-top: 18px;
+}
+
+.romaneio-signature {
+  border-top: 1px solid #94a3b8;
+  padding-top: 8px;
+  color: #475569;
+  text-align: center;
+  min-height: 56px;
+}
+
+@media (max-width: 1024px) {
+  .romaneio-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .romaneio-header {
+    flex-direction: column;
+  }
+
+  .romaneio-grid,
+  .romaneio-footer {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .romaneio-print-active,
+  .romaneio-print-active * {
+    visibility: visible;
+  }
+
+  .romaneio-print-active {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0;
+    padding: 0;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .romaneio-page {
+    padding: 0 !important;
+  }
+
+  .romaneio-sheet {
+    gap: 12px;
+  }
+
+  .romaneio-info-card {
+    break-inside: avoid;
+  }
+}

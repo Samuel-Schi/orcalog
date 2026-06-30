@@ -112,7 +112,11 @@ export const handler: Handler = async (event) => {
       status: toNumber(item.status || 1)
     };
 
-    const restUrl = `${supabaseUrl.replace(/\/$/, '')}/rest/v1/${tableName}?on_conflict=oracle_item_id`;
+    const normalizedSupabaseUrl = supabaseUrl
+      .replace(/\/rest\/v1\/?$/i, '')
+      .replace(/\/$/, '');
+
+    const restUrl = `${normalizedSupabaseUrl}/rest/v1/${tableName}?on_conflict=oracle_item_id`;
     const res = await fetch(restUrl, {
       method: 'POST',
       headers: {

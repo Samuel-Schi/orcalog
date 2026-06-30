@@ -4,6 +4,7 @@ import Cadastro from './pages/Cadastro';
 import NovoOrcamento from './pages/NovoOrcamento';
 import MeusEnvios from './pages/MeusEnvios';
 import LancarOrcamentos from './pages/LancarOrcamentos';
+import Romaneio from './pages/Romaneio';
 import SidebarLayout from './components/SidebarLayout';
 
 const isAuthenticated = () => {
@@ -22,6 +23,7 @@ const App = () => {
         <Route path="/novo-orcamento" element={<NovoOrcamento />} />
         <Route path="/lancar-orcamentos" element={<LancarOrcamentos />} />
         <Route path="/meus-envios" element={<MeusEnvios />} />
+        <Route path="/romaneio" element={<Romaneio />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

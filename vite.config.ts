@@ -48,13 +48,13 @@ export default defineConfig(({ mode }) => {
           secure: true
         },
         '/consulta_cnpj': {
-          target: 'https://brasilapi.com.br',
+          target: 'https://minhareceita.org',
           changeOrigin: true,
           secure: true,
           rewrite: (path) => {
             const url = new URL(`http://local${path}`);
             const cnpj = (url.searchParams.get('cnpj') || '').replace(/\D/g, '');
-            return `/api/cnpj/v1/${cnpj}`;
+            return `/${cnpj}`;
           }
         },
         '/salvar-orcamento': {

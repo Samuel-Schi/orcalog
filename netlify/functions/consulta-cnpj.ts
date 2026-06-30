@@ -15,9 +15,12 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, {
+    const res = await fetch(`https://minhareceita.org/${cnpj}`, {
       method: 'GET',
-      headers: { Accept: 'application/json' }
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'orcalog-cadastro-cnpj/1.0'
+      }
     });
 
     const text = await res.text();
