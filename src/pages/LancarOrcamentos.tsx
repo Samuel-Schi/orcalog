@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 import { getStatusLabel } from '../lib/statusMap';
@@ -34,6 +35,10 @@ type OrcamentoItem = {
   tipoOrc?: string;
 };
 
+type LancarOrcamentosLocationState = {
+  item?: Partial<OrcamentoItem>;
+};
+
 const loadPendentes = () => {
   try {
     const saved = localStorage.getItem('gat_orc_pendentes');
@@ -62,7 +67,68 @@ const parseCurrency = (raw: string) => {
 const formatCurrency = (v: number) =>
   v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+const normalizeOrcamentoItem = (row: any, index: number): OrcamentoItem => ({
+  id: String(row.id ?? row.ID ?? `${row.protocolo ?? row.PROTOCOLO ?? 'p'}-${index}`),
+  dbId: (() => {
+    const rawId = row.dbId ?? row.id ?? row.ID;
+    if (rawId === null || rawId === undefined || rawId === '') return undefined;
+    const parsed = Number(rawId);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  })(),
+  protocolo: String(row.protocolo ?? row.PROTOCOLO ?? ''),
+  cnpj: String(row.cnpj ?? row.CNPJ ?? ''),
+  razaoSocial: String(row.razao_social ?? row.RAZAO_SOCIAL ?? row.razaoSocial ?? ''),
+  unidade: String(row.unidade ?? row.UNIDADE ?? ''),
+  emailRetorno: String(row.email_retorno ?? row.EMAIL_RETORNO ?? row.emailRetorno ?? ''),
+  uuid: String(row.uuid ?? row.UUID ?? ''),
+  codBarras: row.cod_barras ?? row.COD_BARRAS ?? row.codBarras ?? row.cod_barras,
+  ean: row.ean ?? row.EAN ?? row.cod_barras ?? row.COD_BARRAS ?? row.codBarras,
+  codGemco: String(row.cod_gemco ?? row.COD_GEMCO ?? row.codGemco ?? ''),
+  descricao: String(row.descricao ?? row.DESCRICAO ?? ''),
+  fornecedor: String(row.fornecedor ?? row.FORNECEDOR ?? ''),
+  linha: String(row.linha ?? row.LINHA ?? ''),
+  serial: String(row.serial ?? row.SERIAL ?? ''),
+  status: Number(row.status ?? row.STATUS ?? 1),
+  defeitoEncontrado: row.defeito_encontrado ?? row.DEFEITO_ENCONTRADO ?? row.defeitoEncontrado,
+  pecasDesc: row.pecas_desc ?? row.PECAS_DESC ?? row.pecasDesc,
+  valPecas: row.val_pecas ?? row.VAL_PECAS ?? row.valPecas,
+  acessDesc: row.acess_desc ?? row.ACESS_DESC ?? row.acessDesc,
+  valAcess: row.val_acess ?? row.VAL_ACESS ?? row.valAcess,
+  valMaoObra: row.val_mao_obra ?? row.VAL_MAO_OBRA ?? row.valMaoObra,
+  valEmb: row.val_emb ?? row.VAL_EMB ?? row.valEmb,
+  valHig: row.val_hig ?? row.VAL_HIG ?? row.valHig,
+  fotoNome: row.foto_nome ?? row.FOTO_NOME ?? row.fotoNome,
+  defeitoFuncional: row.defeito_funcional ?? row.DEFEITO_FUNCIONAL ?? row.defeitoFuncional,
+  garantia: row.garantia ?? row.GARANTIA ?? row.garantiaPrazo,
+  tipoOrc: row.tipo_orc ?? row.TIPO_ORC ?? row.tipoOrc
+});
+
+const mergeItemIntoList = (base: OrcamentoItem[], incoming: OrcamentoItem | null) => {
+  if (!incoming) return base;
+
+  const index = base.findIndex((item) => {
+    if (item.id === incoming.id) return true;
+    if (item.dbId != null && incoming.dbId != null && item.dbId === incoming.dbId) return true;
+    return false;
+  });
+
+  if (index === -1) {
+    return [incoming, ...base];
+  }
+
+  const updated = [...base];
+  updated[index] = { ...updated[index], ...incoming };
+  return updated;
+};
+
 const LancarOrcamentos = () => {
+  const location = useLocation();
+  const locationState = (location.state as LancarOrcamentosLocationState | null) ?? null;
+  const editableItem = useMemo(
+    () => (locationState?.item ? normalizeOrcamentoItem(locationState.item, 0) : null),
+    [locationState]
+  );
+  const editSelectionAppliedRef = useRef(false);
   const [items, setItems] = useState<OrcamentoItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -105,6 +171,7 @@ const LancarOrcamentos = () => {
   const getCodigoBarras = (item: OrcamentoItem) => item.ean || item.codBarras || '-';
   const isOrcado = (item: OrcamentoItem) => item.status >= 2;
   const normalizeCode = (value: string) => value.replace(/\D/g, '').trim();
+  const isEditingItem = selected ? isOrcado(selected) : false;
 
   const total = useMemo(
     () => valPecas + valAcess + valMaoObra + valEmb + valHig,
@@ -112,6 +179,42 @@ const LancarOrcamentos = () => {
   );
   const totalPecasAcess = useMemo(() => valPecas + valAcess, [valPecas, valAcess]);
   const precisaFoto = useMemo(() => /AVARIA/i.test(defeitoEncontrado), [defeitoEncontrado]);
+
+  const preencherFormulario = (item: OrcamentoItem) => {
+    setSelectedId(item.id);
+    setDefeitoEncontrado(item.defeitoEncontrado || '');
+    setPecasDesc(item.pecasDesc || '');
+    setValPecas(item.valPecas || 0);
+    setAcessDesc(item.acessDesc || '');
+    setValAcess(item.valAcess || 0);
+    setValMaoObra(item.valMaoObra || 0);
+    setValEmb(item.valEmb || 0);
+    setValHig(item.valHig || 0);
+    setFoto(null);
+    setDefeitoFuncional(item.defeitoFuncional || '');
+    setGarantia(item.garantia || '');
+    setTipoOrc(item.tipoOrc || '');
+  };
+
+  const limparFormulario = () => {
+    setSelectedId(null);
+    setDefeitoEncontrado('');
+    setPecasDesc('');
+    setValPecas(0);
+    setAcessDesc('');
+    setValAcess(0);
+    setValMaoObra(0);
+    setValEmb(0);
+    setValHig(0);
+    setFoto(null);
+    setDefeitoFuncional('');
+    setGarantia('');
+    setTipoOrc('');
+  };
+
+  const selecionarItem = (item: OrcamentoItem) => {
+    preencherFormulario(item);
+  };
 
   useEffect(() => {
     if (!toast) return;
@@ -229,52 +332,25 @@ const LancarOrcamentos = () => {
             ? data
             : [];
 
-        const normalized = list.map((row, index) => ({
-          id: String(row.id ?? row.ID ?? `${row.protocolo ?? row.PROTOCOLO ?? 'p'}-${index}`),
-          dbId: (() => {
-            const rawId = row.id ?? row.ID;
-            if (rawId === null || rawId === undefined || rawId === '') return undefined;
-            const parsed = Number(rawId);
-            return Number.isFinite(parsed) ? parsed : undefined;
-          })(),
-          protocolo: String(row.protocolo ?? row.PROTOCOLO ?? ''),
-          cnpj: String(row.cnpj ?? row.CNPJ ?? ''),
-          razaoSocial: String(row.razao_social ?? row.RAZAO_SOCIAL ?? row.razaoSocial ?? ''),
-          unidade: String(row.unidade ?? row.UNIDADE ?? ''),
-          emailRetorno: String(row.email_retorno ?? row.EMAIL_RETORNO ?? row.emailRetorno ?? ''),
-          uuid: String(row.uuid ?? row.UUID ?? ''),
-          codBarras: row.cod_barras ?? row.COD_BARRAS ?? row.codBarras ?? row.cod_barras,
-          ean: row.ean ?? row.EAN ?? row.cod_barras ?? row.COD_BARRAS ?? row.codBarras,
-          codGemco: String(row.cod_gemco ?? row.COD_GEMCO ?? row.codGemco ?? ''),
-          descricao: String(row.descricao ?? row.DESCRICAO ?? ''),
-          fornecedor: String(row.fornecedor ?? row.FORNECEDOR ?? ''),
-          linha: String(row.linha ?? row.LINHA ?? ''),
-          serial: String(row.serial ?? row.SERIAL ?? ''),
-          status: Number(row.status ?? row.STATUS ?? 1),
-          defeitoEncontrado: row.defeito_encontrado ?? row.DEFEITO_ENCONTRADO ?? row.defeitoEncontrado,
-          pecasDesc: row.pecas_desc ?? row.PECAS_DESC ?? row.pecasDesc,
-          valPecas: row.val_pecas ?? row.VAL_PECAS ?? row.valPecas,
-          acessDesc: row.acess_desc ?? row.ACESS_DESC ?? row.acessDesc,
-          valAcess: row.val_acess ?? row.VAL_ACESS ?? row.valAcess,
-          valMaoObra: row.val_mao_obra ?? row.VAL_MAO_OBRA ?? row.valMaoObra,
-          valEmb: row.val_emb ?? row.VAL_EMB ?? row.valEmb,
-          valHig: row.val_hig ?? row.VAL_HIG ?? row.valHig,
-          fotoNome: row.foto_nome ?? row.FOTO_NOME ?? row.fotoNome,
-          defeitoFuncional: row.defeito_funcional ?? row.DEFEITO_FUNCIONAL ?? row.defeitoFuncional,
-          garantia: row.garantia ?? row.GARANTIA ?? row.garantiaPrazo,
-          tipoOrc: row.tipo_orc ?? row.TIPO_ORC ?? row.tipoOrc
-        })) as OrcamentoItem[];
-
-        setItems(normalized);
+        const normalized = list.map((row, index) => normalizeOrcamentoItem(row, index)) as OrcamentoItem[];
+        setItems(mergeItemIntoList(normalized, editableItem));
       } catch {
-        setItems(loadPendentes());
+        setItems(mergeItemIntoList(loadPendentes(), editableItem));
       } finally {
         setIsLoading(false);
       }
     };
 
     loadFromApi();
-  }, []);
+  }, [editableItem]);
+
+  useEffect(() => {
+    if (!editableItem || editSelectionAppliedRef.current) return;
+    setItems((current) => mergeItemIntoList(current, editableItem));
+    selecionarItem(editableItem);
+    setToast({ type: 'success', message: 'Item carregado para edicao.' });
+    editSelectionAppliedRef.current = true;
+  }, [editableItem]);
 
   const findByCode = (raw: string) => {
     const norm = normalizeCode(raw);
@@ -299,26 +375,10 @@ const LancarOrcamentos = () => {
     }
   };
 
-  const selecionarItem = (item: OrcamentoItem) => {
-    setSelectedId(item.id);
-    setDefeitoEncontrado(item.defeitoEncontrado || '');
-    setPecasDesc(item.pecasDesc || '');
-    setValPecas(item.valPecas || 0);
-    setAcessDesc(item.acessDesc || '');
-    setValAcess(item.valAcess || 0);
-    setValMaoObra(item.valMaoObra || 0);
-    setValEmb(item.valEmb || 0);
-    setValHig(item.valHig || 0);
-    setFoto(null);
-    setDefeitoFuncional(item.defeitoFuncional || '');
-    setGarantia(item.garantia || '');
-    setTipoOrc(item.tipoOrc || '');
-  };
-
   const lancarValores = async () => {
     if (!selected) return;
     if (selected.dbId == null) {
-      setToast({ type: 'error', message: 'Este item nao possui ID real do banco. Ajuste o endpoint get_orcamentos_analise para retornar o campo ID.' });
+      setToast({ type: 'error', message: 'Este item nao possui ID real do banco. Ajuste o endpoint para retornar o campo ID.' });
       return;
     }
     if (precisaFoto && !foto && !selected.fotoNome) {
@@ -420,21 +480,8 @@ const LancarOrcamentos = () => {
       });
       setItems(updated);
       savePendentes(updated);
-      // limpa o formulario apos envio
-      setSelectedId(null);
-      setDefeitoEncontrado('');
-      setPecasDesc('');
-      setValPecas(0);
-      setAcessDesc('');
-      setValAcess(0);
-      setValMaoObra(0);
-      setValEmb(0);
-      setValHig(0);
-      setFoto(null);
-      setDefeitoFuncional('');
-      setGarantia('');
-      setTipoOrc('');
-      setToast({ type: 'success', message: 'Valores lancados com sucesso.' });
+      limparFormulario();
+      setToast({ type: 'success', message: isEditingItem ? 'Lancamento atualizado com sucesso.' : 'Valores lancados com sucesso.' });
     } catch (err) {
       if (axios.isAxiosError(err)) {
         const status = err.response?.status;
@@ -539,10 +586,10 @@ const LancarOrcamentos = () => {
       </div>
 
       <div className="card">
-        <div className="section-title">Valores e Defeitos</div>
+        <div className="section-title">{isEditingItem ? 'Editar Lancamento' : 'Valores e Defeitos'}</div>
         {!selected && (
           <div style={{ color: '#777', padding: '10px 0' }}>
-            Selecione um item pendente acima para lancar o orcamento.
+            Selecione um item acima para lançar ou editar o orçamento.
           </div>
         )}
         {selected && (
@@ -565,6 +612,11 @@ const LancarOrcamentos = () => {
                     onChange={(e) => setFoto(e.target.files?.[0] || null)}
                     style={{ width: '100%' }}
                   />
+                  {selected.fotoNome && !foto && (
+                    <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>
+                      Foto atual: {selected.fotoNome}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -622,7 +674,7 @@ const LancarOrcamentos = () => {
         {selected && (
           <div className="action-bar">
             <button className="btn btn-success btn-sm" type="button" onClick={lancarValores} disabled={isSubmitting}>
-              <i className="material-icons">save</i> {isSubmitting ? 'LANCANDO...' : 'LANCAR VALORES'}
+              <i className="material-icons">save</i> {isSubmitting ? (isEditingItem ? 'SALVANDO...' : 'LANCANDO...') : (isEditingItem ? 'SALVAR EDICAO' : 'LANCAR VALORES')}
             </button>
           </div>
         )}
@@ -636,7 +688,6 @@ const LancarOrcamentos = () => {
           </div>
         </div>
       )}
-
 
       {isScanning && (
         <div className="qr-modal">
@@ -658,5 +709,3 @@ const LancarOrcamentos = () => {
 };
 
 export default LancarOrcamentos;
-
-

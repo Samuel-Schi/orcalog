@@ -1,9 +1,11 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 import { getStatusLabel } from '../lib/statusMap';
 
 type ItemEnvio = {
   id: string;
+  dbId?: number;
   protocolo: string;
   codBarras: string;
   codGemco: string;
@@ -19,9 +21,23 @@ type ItemEnvio = {
   valMaoObra?: number;
   valEmb?: number;
   valHig?: number;
+  defeitoEncontrado?: string;
+  pecasDesc?: string;
+  acessDesc?: string;
+  fotoNome?: string;
+  defeitoFuncional?: string;
+  garantia?: string;
+  tipoOrc?: string;
+  cnpj?: string;
+  razaoSocial?: string;
+  unidade?: string;
+  emailRetorno?: string;
+  uuid?: string;
+  ean?: string;
 };
 
 const MeusEnvios = () => {
+  const navigate = useNavigate();
   const [filtroTexto, setFiltroTexto] = useState('');
   const [filtroStatus, setFiltroStatus] = useState<'' | number>('');
   const [abertos, setAbertos] = useState<Record<string, boolean>>({});
@@ -79,6 +95,12 @@ const MeusEnvios = () => {
 
       const normalized = list.map((row, index) => ({
         id: String(row.id ?? row.ID ?? `${row.protocolo ?? row.PROTOCOLO ?? 'p'}-${index}`),
+        dbId: (() => {
+          const rawId = row.id ?? row.ID;
+          if (rawId === null || rawId === undefined || rawId === '') return undefined;
+          const parsed = Number(rawId);
+          return Number.isFinite(parsed) ? parsed : undefined;
+        })(),
         protocolo: String(row.protocolo ?? row.PROTOCOLO ?? ''),
         codBarras: String(row.cod_barras ?? row.COD_BARRAS ?? row.codBarras ?? ''),
         codGemco: String(row.cod_gemco ?? row.COD_GEMCO ?? row.codGemco ?? ''),
@@ -88,13 +110,25 @@ const MeusEnvios = () => {
         serial: String(row.serial ?? row.SERIAL ?? ''),
         status: Number(row.status ?? row.STATUS ?? 1),
         criadoEm: String(row.criado_em ?? row.CRIADO_EM ?? ''),
-        totalOrcamento: row.total_orcamento ?? row.TOTAL_ORCAMENTO ?? row.totalOrcamento
-        ,
+        totalOrcamento: row.total_orcamento ?? row.TOTAL_ORCAMENTO ?? row.totalOrcamento,
         valPecas: row.val_pecas ?? row.VAL_PECAS ?? row.valPecas,
         valAcess: row.val_acess ?? row.VAL_ACESS ?? row.valAcess,
         valMaoObra: row.val_mao_obra ?? row.VAL_MAO_OBRA ?? row.valMaoObra,
         valEmb: row.val_emb ?? row.VAL_EMB ?? row.valEmb,
-        valHig: row.val_hig ?? row.VAL_HIG ?? row.valHig
+        valHig: row.val_hig ?? row.VAL_HIG ?? row.valHig,
+        defeitoEncontrado: row.defeito_encontrado ?? row.DEFEITO_ENCONTRADO ?? row.defeitoEncontrado,
+        pecasDesc: row.pecas_desc ?? row.PECAS_DESC ?? row.pecasDesc,
+        acessDesc: row.acess_desc ?? row.ACESS_DESC ?? row.acessDesc,
+        fotoNome: row.foto_nome ?? row.FOTO_NOME ?? row.fotoNome,
+        defeitoFuncional: row.defeito_funcional ?? row.DEFEITO_FUNCIONAL ?? row.defeitoFuncional,
+        garantia: row.garantia ?? row.GARANTIA ?? row.garantiaPrazo,
+        tipoOrc: row.tipo_orc ?? row.TIPO_ORC ?? row.tipoOrc,
+        cnpj: String(row.cnpj ?? row.CNPJ ?? ''),
+        razaoSocial: String(row.razao_social ?? row.RAZAO_SOCIAL ?? row.razaoSocial ?? ''),
+        unidade: String(row.unidade ?? row.UNIDADE ?? ''),
+        emailRetorno: String(row.email_retorno ?? row.EMAIL_RETORNO ?? row.emailRetorno ?? ''),
+        uuid: String(row.uuid ?? row.UUID ?? ''),
+        ean: String(row.ean ?? row.EAN ?? row.cod_barras ?? row.COD_BARRAS ?? row.codBarras ?? '')
       })) as ItemEnvio[];
 
       setItems(normalized);
@@ -200,36 +234,47 @@ const MeusEnvios = () => {
                         <th>Cód. Barras</th>
                         <th>Cód. GEMCO</th>
                         <th>Descrição</th>
-                      <th>Fornecedor</th>
-                      <th>Linha</th>
-                      <th>Serial</th>
-                      <th>Peças</th>
-                      <th>Acess.</th>
-                      <th>Mão de Obra</th>
-                      <th>Embal.</th>
-                      <th>Hig.</th>
-                      <th>Total</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {itens.map((item) => (
-                      <tr key={item.id}>
-                        <td>{item.codBarras}</td>
-                        <td><strong>{item.codGemco}</strong></td>
-                        <td>{item.descricao}</td>
-                        <td>{item.fornecedor}</td>
-                        <td>{item.linha}</td>
-                        <td>{item.serial}</td>
-                        <td>{item.valPecas != null ? item.valPecas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
-                        <td>{item.valAcess != null ? item.valAcess.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
-                        <td>{item.valMaoObra != null ? item.valMaoObra.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
-                        <td>{item.valEmb != null ? item.valEmb.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
-                        <td>{item.valHig != null ? item.valHig.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
-                        <td>{item.totalOrcamento != null ? item.totalOrcamento.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
-                        <td>{getStatusLabel(item.status)}</td>
+                        <th>Fornecedor</th>
+                        <th>Linha</th>
+                        <th>Serial</th>
+                        <th>Peças</th>
+                        <th>Acess.</th>
+                        <th>Mão de Obra</th>
+                        <th>Embal.</th>
+                        <th>Hig.</th>
+                        <th>Total</th>
+                        <th>Status</th>
+                        <th>Ações</th>
                       </tr>
-                    ))}
+                    </thead>
+                    <tbody>
+                      {itens.map((item) => (
+                        <tr key={item.id}>
+                          <td>{item.codBarras}</td>
+                          <td><strong>{item.codGemco}</strong></td>
+                          <td>{item.descricao}</td>
+                          <td>{item.fornecedor}</td>
+                          <td>{item.linha}</td>
+                          <td>{item.serial}</td>
+                          <td>{item.valPecas != null ? item.valPecas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
+                          <td>{item.valAcess != null ? item.valAcess.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
+                          <td>{item.valMaoObra != null ? item.valMaoObra.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
+                          <td>{item.valEmb != null ? item.valEmb.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
+                          <td>{item.valHig != null ? item.valHig.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
+                          <td>{item.totalOrcamento != null ? item.totalOrcamento.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
+                          <td>{getStatusLabel(item.status)}</td>
+                          <td>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              type="button"
+                              onClick={() => navigate('/lancar-orcamentos', { state: { item } })}
+                            >
+                              <i className="material-icons" style={{ fontSize: 14, marginRight: 4 }}>edit</i>
+                              Editar
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
