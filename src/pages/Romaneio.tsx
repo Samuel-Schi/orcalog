@@ -31,6 +31,13 @@ type RomaneioItem = {
 const formatMoney = (value?: number) =>
   value != null ? value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-';
 
+const formatDateTime = (value?: string) => {
+  if (!value) return 'Sem data informada';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString('pt-BR');
+};
+
 const Romaneio = () => {
   const [items, setItems] = useState<RomaneioItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -122,6 +129,12 @@ const Romaneio = () => {
     carregar();
   }, []);
 
+  useEffect(() => {
+    const resetPrint = () => setSelectedProtocolo(null);
+    window.addEventListener('afterprint', resetPrint);
+    return () => window.removeEventListener('afterprint', resetPrint);
+  }, []);
+
   const grupos = useMemo(() => {
     const map = new Map<string, RomaneioItem[]>();
     items.forEach((item) => {
@@ -171,7 +184,7 @@ const Romaneio = () => {
           type="text"
           value={filtroTexto}
           onChange={(e) => setFiltroTexto(e.target.value)}
-          placeholder="Buscar por protocolo, razao social ou GEMCO..."
+          placeholder="Buscar por protocolo, razão social ou GEMCO..."
           className="search-input"
         />
       </div>
@@ -181,7 +194,7 @@ const Romaneio = () => {
       )}
 
       {!isLoading && filtrados.length === 0 && (
-        <p style={{ textAlign: 'center', color: '#999', marginTop: 20 }}>Nenhum romaneio disponivel.</p>
+        <p style={{ textAlign: 'center', color: '#999', marginTop: 20 }}>Nenhum romaneio disponível.</p>
       )}
 
       <div className="romaneio-list">
@@ -205,9 +218,9 @@ const Romaneio = () => {
               <div className="romaneio-sheet">
                 <div className="romaneio-header">
                   <div>
-                    <div className="romaneio-kicker">Devolucao / Romaneio</div>
+                    <div className="romaneio-kicker">Devolução / Romaneio</div>
                     <h3>Protocolo {protocolo}</h3>
-                    <p>{first?.criadoEm || 'Sem data informada'}</p>
+                    <p>{formatDateTime(first?.criadoEm)}</p>
                   </div>
                   <div className="romaneio-meta">
                     <div><strong>Status:</strong> {getStatusLabel(Math.max(...itens.map((item) => item.status || 1)))}</div>
@@ -218,7 +231,7 @@ const Romaneio = () => {
 
                 <div className="romaneio-grid">
                   <div className="romaneio-info-card">
-                    <span className="romaneio-label">Razao Social</span>
+                    <span className="romaneio-label">Razão Social</span>
                     <strong>{first?.razaoSocial || '-'}</strong>
                   </div>
                   <div className="romaneio-info-card">
@@ -230,7 +243,7 @@ const Romaneio = () => {
                     <strong>{first?.unidade || '-'}</strong>
                   </div>
                   <div className="romaneio-info-card">
-                    <span className="romaneio-label">E-mail Retorno</span>
+                    <span className="romaneio-label">E-mail de Retorno</span>
                     <strong>{first?.emailRetorno || '-'}</strong>
                   </div>
                 </div>
@@ -239,38 +252,39 @@ const Romaneio = () => {
                   <table className="tabela-horizontal romaneio-table">
                     <thead>
                       <tr>
-                        <th>Cod. Barras</th>
-                        <th>Cod. GEMCO</th>
-                        <th>Descricao</th>
-                        <th>Fornecedor</th>
-                        <th>Linha</th>
-                        <th>Serial</th>
+                        <th>Produto</th>
+                        <th>Identificação</th>
                         <th>Defeito</th>
-                        <th>Pecas</th>
-                        <th>Acessorios</th>
-                        <th>Mao de Obra</th>
+                        <th>Peças / Acessórios</th>
+                        <th>Serviços</th>
                         <th>Total</th>
                       </tr>
                     </thead>
                     <tbody>
                       {itens.map((item) => (
                         <tr key={item.id}>
-                          <td>{item.codBarras}</td>
-                          <td>{item.codGemco}</td>
-                          <td>{item.descricao}</td>
-                          <td>{item.fornecedor}</td>
-                          <td>{item.linha}</td>
-                          <td>{item.serial}</td>
+                          <td>
+                            <strong>{item.descricao || '-'}</strong>
+                            <div>{item.fornecedor || '-'}</div>
+                            <div>{item.linha || '-'}</div>
+                          </td>
+                          <td>
+                            <div><strong>Cód. Barras:</strong> {item.codBarras || '-'}</div>
+                            <div><strong>GEMCO:</strong> {item.codGemco || '-'}</div>
+                            <div><strong>Serial:</strong> {item.serial || '-'}</div>
+                          </td>
                           <td>{item.defeitoEncontrado || '-'}</td>
                           <td>
-                            <div>{item.pecasDesc || '-'}</div>
-                            <strong>{formatMoney(item.valPecas)}</strong>
+                            <div><strong>Peças:</strong> {item.pecasDesc || '-'}</div>
+                            <div>{formatMoney(item.valPecas)}</div>
+                            <div style={{ marginTop: 6 }}><strong>Acessórios:</strong> {item.acessDesc || '-'}</div>
+                            <div>{formatMoney(item.valAcess)}</div>
                           </td>
                           <td>
-                            <div>{item.acessDesc || '-'}</div>
-                            <strong>{formatMoney(item.valAcess)}</strong>
+                            <div><strong>Mão de Obra:</strong> {formatMoney(item.valMaoObra)}</div>
+                            <div><strong>Embalagem:</strong> {formatMoney(item.valEmb)}</div>
+                            <div><strong>Higienização:</strong> {formatMoney(item.valHig)}</div>
                           </td>
-                          <td>{formatMoney(item.valMaoObra)}</td>
                           <td>{formatMoney(item.totalOrcamento)}</td>
                         </tr>
                       ))}
@@ -283,7 +297,7 @@ const Romaneio = () => {
                     <span>Recebido por</span>
                   </div>
                   <div className="romaneio-signature">
-                    <span>Conferencia / Devolucao</span>
+                    <span>Conferência / Devolução</span>
                   </div>
                 </div>
               </div>

@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 
 type Item = {
@@ -12,6 +12,14 @@ type Item = {
   linha: string;
   serial: string;
   status: number;
+};
+
+type ParsedQrPayload = {
+  uuid: string;
+  legacyId: string;
+  ean: string;
+  serial: string;
+  raw: any;
 };
 
 const NovoOrcamento = () => {
@@ -35,6 +43,8 @@ const NovoOrcamento = () => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const requestSeqRef = useRef(0);
+  const pendingScanRef = useRef<ParsedQrPayload | null>(null);
+  const serialInputRef = useRef<HTMLInputElement | null>(null);
 
   const gerarProtocolo = () => {
     const now = new Date();
@@ -45,6 +55,49 @@ const NovoOrcamento = () => {
     const digits = value.replace(/\D/g, '');
     if (digits.length !== 14) return value;
     return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12)}`;
+  };
+
+  const compactLookupValue = (value: string) =>
+    value.replace(/[^0-9a-z]/gi, '').toUpperCase().trim();
+
+  const parseSerialPayload = (raw: string) => {
+    const cleaned = raw.replace(/[\u0000-\u001F\u007F]+/g, ' ').trim();
+    if (!cleaned) return '';
+
+    if (cleaned.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(cleaned);
+        const serialValue =
+          parsed?.serial
+          ?? parsed?.SERIAL
+          ?? parsed?.sn
+          ?? parsed?.SN
+          ?? parsed?.serialNumber
+          ?? parsed?.serial_number
+          ?? parsed?.imei
+          ?? parsed?.IMEI;
+
+        if (serialValue) {
+          return String(serialValue);
+        }
+      } catch {
+        // ignore malformed JSON and continue with plain-text parsing
+      }
+    }
+
+    const labelMatch = cleaned.match(/(?:serial(?:number)?|sn|imei)[^0-9a-z]*([0-9a-z-]+)/i);
+    if (labelMatch?.[1]) {
+      return labelMatch[1];
+    }
+
+    return cleaned;
+  };
+
+  const formatSerialValue = (raw: string) => {
+    const compact = compactLookupValue(parseSerialPayload(raw));
+    if (!compact) return '';
+    if (compact.length <= 4) return compact;
+    return compact.match(/.{1,4}/g)?.join('-') ?? compact;
   };
 
   useEffect(() => {
@@ -159,7 +212,7 @@ const NovoOrcamento = () => {
           requestAnimationFrame(scan);
         };
         requestAnimationFrame(scan);
-      } catch (err) {
+      } catch {
         setQrError('Não foi possível acessar a câmera.');
       }
     };
@@ -198,10 +251,20 @@ const NovoOrcamento = () => {
       const uuid = data?.uuid ?? data?.UUID ?? data?.Uuid;
       const legacyId = data?.legacyId ?? data?.LEGACYID ?? data?.legacy_id;
       const eanValue = data?.ean ?? data?.EAN ?? data?.codigo_barra ?? data?.cod_barra ?? data?.codBarra;
+      const serialValue =
+        data?.serial
+        ?? data?.SERIAL
+        ?? data?.sn
+        ?? data?.SN
+        ?? data?.serialNumber
+        ?? data?.serial_number
+        ?? data?.imei
+        ?? data?.IMEI;
       return {
         uuid: uuid ? String(uuid) : '',
         legacyId: legacyId ? String(legacyId) : '',
         ean: eanValue ? String(eanValue) : '',
+        serial: serialValue ? formatSerialValue(String(serialValue)) : '',
         raw: data
       };
     } catch {
@@ -209,13 +272,18 @@ const NovoOrcamento = () => {
     }
   };
 
-  const normalizeCode = (value: string) => value.replace(/-/g, '').trim();
+  const normalizeCode = (value: string) => compactLookupValue(value);
 
   const handleQrInput = (raw: string) => {
     const parsed = parseQrPayload(raw);
-    if (!parsed) return;
+    if (!parsed) {
+      pendingScanRef.current = null;
+      return;
+    }
+    pendingScanRef.current = parsed;
     if (parsed.uuid) setUuid(parsed.uuid);
     if (parsed.ean) setEan(normalizeCode(parsed.ean));
+    if (parsed.serial) setSerial(parsed.serial);
     if (parsed.legacyId) setCodGemco(normalizeCode(parsed.legacyId));
   };
 
@@ -239,6 +307,10 @@ const NovoOrcamento = () => {
     const finalSerial = override?.serial ?? serial;
 
     if (!finalCodGemco || !finalDesc) return;
+    if (!finalSerial || finalSerial === '-') {
+      setToast({ type: 'error', message: 'Informe o serial antes de bipar o codigo.' });
+      return;
+    }
     const item: Item = {
       id: criarId(),
       protocolo,
@@ -266,17 +338,25 @@ const NovoOrcamento = () => {
     setFornecedor('');
     setLinha('');
     setSerial('');
+    serialInputRef.current?.focus();
   };
 
   const buscarProdutoCadastro = async () => {
     try {
       if (!codGemco) return;
       const requestId = ++requestSeqRef.current;
+      const pendingScan = pendingScanRef.current;
+      const serialAtual = pendingScan?.serial || serial;
+      if (!serialAtual) {
+        setToast({ type: 'error', message: 'Preencha o serial antes de informar o codigo.' });
+        setCodGemco('');
+        return;
+      }
       setDescProd('');
       setFornecedor('');
       setLinha('');
-      const lookupItem = normalizeCode(codGemco);
-      const lookupEan = normalizeCode(ean || codGemco);
+      const lookupItem = normalizeCode(pendingScan?.legacyId || codGemco);
+      const lookupEan = normalizeCode(pendingScan?.ean || ean || codGemco);
       const res = await oracleApi.get(ORACLE_ENDPOINTS.getProdutoCadastro, {
         params: {
           item: lookupItem,
@@ -315,27 +395,22 @@ const NovoOrcamento = () => {
       const descricao = getField(item, ['descricao', 'ds_produto', 'descricao_produto', 'produto']);
       const fornecedorApi = getField(item, ['fornecedor', 'ds_fornecedor', 'desc_fornecedor', 'fornecedor_desc', 'nome_fornecedor']);
       const linhaApi = getField(item, ['linha', 'ds_linha', 'desc_linha', 'linha_desc', 'nome_linha']);
-      const familiaApi = item.familia ?? item.FAMILIA ?? '';
-      const voltagemApi = item.voltagem ?? item.VOLTAGEM ?? '';
-      const volumesApi = item.volumes ?? item.VOLUMES ?? '';
       if (descricao) setDescProd(descricao);
       if (fetchedItem) setCodGemco(String(fetchedItem));
       if (fornecedorApi) setFornecedor(String(fornecedorApi));
       if (linhaApi) setLinha(String(linhaApi));
-      if (familiaApi) setFamilia(String(familiaApi));
-      if (voltagemApi) setVoltagem(String(voltagemApi));
-      if (volumesApi) setVolumes(String(volumesApi));
 
       if (descricao) {
         adicionarItem({
-          uuid,
+          uuid: pendingScan?.uuid || uuid,
           ean: lookupEan,
           codGemco: fetchedItem || lookupItem,
           descricao,
           fornecedor: fornecedorApi || '',
           linha: linhaApi || '',
-          serial
+          serial: serialAtual
         });
+        pendingScanRef.current = null;
       }
     } catch {
       // silencioso
@@ -347,6 +422,8 @@ const NovoOrcamento = () => {
       || `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 
   const removerItem = (id: string) => setItens((prev) => prev.filter((item) => item.id !== id));
+
+  const serialPronto = Boolean(serial.trim());
 
   const finalizarEnvio = async () => {
     if (itens.length === 0 || isSaving) return;
@@ -400,7 +477,7 @@ const NovoOrcamento = () => {
       } catch {
         // ignore storage errors
       }
-    } catch (err) {
+    } catch {
       setToast({ type: 'error', message: 'Não foi possível enviar. Tente novamente.' });
     } finally {
       setIsSaving(false);
@@ -428,11 +505,24 @@ const NovoOrcamento = () => {
         <div className="section-title">Dados do Produto</div>
         <div className="grid-form">
           <div className="span-2">
+            <label>Serial</label>
+            <input
+              ref={serialInputRef}
+              type="text"
+              value={serial}
+              placeholder="Preencha o serial primeiro"
+              onChange={(e) => setSerial(formatSerialValue(e.target.value))}
+              onBlur={(e) => setSerial(formatSerialValue(e.target.value))}
+            />
+          </div>
+          <div className="span-2">
             <label>Código</label>
             <div className="qr-input-group">
               <input
                 type="text"
                 value={codGemco}
+                disabled={!serialPronto}
+                placeholder={serialPronto ? 'Bipe o codigo/QR' : 'Preencha o serial antes'}
                 onChange={(e) => {
                   const value = e.target.value;
                   setCodGemco(value);
@@ -440,6 +530,7 @@ const NovoOrcamento = () => {
                   if (trimmed.startsWith('{') || trimmed.includes('"legacyId"') || trimmed.includes('"uuid"') || trimmed.includes('"ean"')) {
                     handleQrInput(value);
                   } else {
+                    pendingScanRef.current = null;
                     const normalized = normalizeCode(value);
                     setCodGemco(normalized);
                     if (normalized.length >= 8) {
@@ -455,6 +546,7 @@ const NovoOrcamento = () => {
                 className="btn btn-secondary btn-sm"
                 type="button"
                 onClick={abrirLeitorQr}
+                disabled={!serialPronto}
                 title="Ler QR Code"
                 style={{ padding: '0 10px', whiteSpace: 'nowrap' }}
               >
@@ -467,12 +559,11 @@ const NovoOrcamento = () => {
           <div className="span-6"><label>Descrição</label><input type="text" value={descProd} readOnly /></div>
           <div className="span-2"><label>Fornecedor</label><input type="text" value={fornecedor} readOnly /></div>
           <div className="span-2"><label>Linha</label><input type="text" value={linha} readOnly /></div>
-          <div className="span-2"><label>Serial</label><input type="text" value={serial} onChange={(e) => setSerial(e.target.value)} /></div>
         </div>
       </div>
 
       <div className="card">
-      <div className="section-title">Itens neste Protocolo</div>
+        <div className="section-title">Itens neste Protocolo</div>
         <div className="table-scroll">
           <table className="tabela-horizontal">
             <thead>

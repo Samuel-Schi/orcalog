@@ -4,9 +4,8 @@ import { useEffect, useState } from 'react';
 const SidebarLayout = () => {
   const navigate = useNavigate();
   const [isDark, setIsDark] = useState(() => localStorage.getItem('gatTheme') === 'dark');
-  const [isClosed, setIsClosed] = useState(() => localStorage.getItem('gatSidebar') === 'closed');
+  const [isClosed, setIsClosed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
-  const [userName, setUserName] = useState(() => localStorage.getItem('gat_user') || 'Usuário');
 
   useEffect(() => {
     document.body.classList.toggle('dark-mode', isDark);
@@ -36,10 +35,15 @@ const SidebarLayout = () => {
         <button className="btn-header-icon" onClick={() => setIsMobileOpen((v) => !v)} title="Menu">
           <i className="material-icons">menu</i>
         </button>
-        <div className="mobile-title">Gestão Assistência Técnica</div>
-        <button className="btn-header-icon" onClick={() => setIsDark((v) => !v)} title="Alternar Tema">
-          <i className="material-icons">{isDark ? 'light_mode' : 'dark_mode'}</i>
-        </button>
+        <div className="mobile-topbar-actions">
+          <button className="btn-header-icon" onClick={() => setIsClosed((v) => !v)} title="Recolher Menu">
+            <i className="material-icons">{isClosed ? 'menu' : 'menu_open'}</i>
+          </button>
+          <button className="btn-header-icon" onClick={() => setIsDark((v) => !v)} title="Alternar Tema">
+            <i className="material-icons">{isDark ? 'light_mode' : 'dark_mode'}</i>
+          </button>
+        </div>
+        <div className="mobile-topbar-spacer" />
       </div>
 
       {isMobileOpen && (
@@ -48,14 +52,6 @@ const SidebarLayout = () => {
 
       <aside className="sidebar">
         <div className="sidebar-header">
-          <div className="logo-area">
-            <i className="material-icons">dns</i>
-            <span className="logo-text">
-              <span>GESTÃO</span>
-              <span>ASSISTÊNCIA</span>
-              <span>TÉCNICA</span>
-            </span>
-          </div>
           <div className="header-actions">
             <button className="btn-header-icon" onClick={() => setIsClosed((v) => !v)} title="Recolher Menu">
               <i className="material-icons">{isClosed ? 'menu' : 'menu_open'}</i>
@@ -64,11 +60,6 @@ const SidebarLayout = () => {
               <i className="material-icons">{isDark ? 'light_mode' : 'dark_mode'}</i>
             </button>
           </div>
-        </div>
-
-        <div className="user-profile">
-          <div className="avatar-circle"><i className="material-icons">person</i></div>
-          <span>{userName}</span>
         </div>
 
         <nav className="sidebar-nav">

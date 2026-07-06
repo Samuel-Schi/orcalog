@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 import { getStatusLabel } from '../lib/statusMap';
+import { getCatalogoByLinha } from '../lib/catalogoPadrao';
 
 type OrcamentoItem = {
   id: string;
@@ -39,6 +40,12 @@ type LancarOrcamentosLocationState = {
   item?: Partial<OrcamentoItem>;
 };
 
+type SetSelectionState = (updater: (current: string[]) => string[]) => void;
+
+type DriveUploadResponse = {
+  folderLink?: string;
+};
+
 const loadPendentes = () => {
   try {
     const saved = localStorage.getItem('gat_orc_pendentes');
@@ -66,6 +73,92 @@ const parseCurrency = (raw: string) => {
 
 const formatCurrency = (v: number) =>
   v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+const splitStoredSelection = (value?: string, prefix?: string) =>
+  String(value || '')
+    .split(';')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((part, index) => !(prefix && index === 0 && part.toLowerCase() === prefix.toLowerCase()));
+
+const normalizeSelectionToken = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+
+const buildSelectionPayload = (values: string[], prefix?: string) => {
+  const cleaned = values
+    .map((value) => normalizeSelectionToken(value))
+    .filter(Boolean);
+
+  if (cleaned.length === 0) return '';
+  return prefix ? `${prefix};${cleaned.join(';')}` : cleaned.join(';');
+};
+
+const fileToBase64 = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      const base64 = String(reader.result || '').split(',')[1] || '';
+      resolve(base64);
+    };
+    reader.onerror = reject;
+  });
+
+const sanitizeDriveToken = (value: string, fallback: string) => {
+  const cleaned = String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 60);
+
+  return cleaned || fallback;
+};
+
+const buildFotoFolderName = (item: OrcamentoItem) => {
+  const date = new Date();
+  const timestamp = [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+    String(date.getHours()).padStart(2, '0'),
+    String(date.getMinutes()).padStart(2, '0'),
+    String(date.getSeconds()).padStart(2, '0')
+  ].join('');
+
+  return [
+    'Portal_AT',
+    sanitizeDriveToken(item.protocolo, 'SEM_PROTOCOLO'),
+    sanitizeDriveToken(item.codGemco, 'SEM_GEMCO'),
+    sanitizeDriveToken(item.serial, 'SEM_SERIAL'),
+    timestamp
+  ].join('_');
+};
+
+const uploadFotoDrive = async (item: OrcamentoItem, file: File) => {
+  const base64 = await fileToBase64(file);
+  const response = await oracleApi.post<DriveUploadResponse>(
+    ORACLE_ENDPOINTS.uploadFotoDrive,
+    {
+      folderName: buildFotoFolderName(item),
+      files: [
+        {
+          name: `Foto_Avaria_${sanitizeDriveToken(item.protocolo, 'SEM_PROTOCOLO')}_${file.name}`,
+          mimeType: file.type || 'application/octet-stream',
+          base64
+        }
+      ]
+    },
+    { headers: { 'Content-Type': 'application/json' } }
+  );
+
+  return response.data.folderLink || '';
+};
 
 const normalizeOrcamentoItem = (row: any, index: number): OrcamentoItem => ({
   id: String(row.id ?? row.ID ?? `${row.protocolo ?? row.PROTOCOLO ?? 'p'}-${index}`),
@@ -149,6 +242,12 @@ const LancarOrcamentos = () => {
   const [scanValue, setScanValue] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [scanError, setScanError] = useState('');
+  const [pecaSelecionada, setPecaSelecionada] = useState('');
+  const [acessorioSelecionado, setAcessorioSelecionado] = useState('');
+  const [defeitoCatalogado, setDefeitoCatalogado] = useState('');
+  const [defeitosSelecionados, setDefeitosSelecionados] = useState<string[]>([]);
+  const [pecasSelecionadas, setPecasSelecionadas] = useState<string[]>([]);
+  const [acessoriosSelecionados, setAcessoriosSelecionados] = useState<string[]>([]);
   const scanVideoRef = useRef<HTMLVideoElement | null>(null);
   const scanStreamRef = useRef<MediaStream | null>(null);
 
@@ -170,15 +269,19 @@ const LancarOrcamentos = () => {
 
   const getCodigoBarras = (item: OrcamentoItem) => item.ean || item.codBarras || '-';
   const isOrcado = (item: OrcamentoItem) => item.status >= 2;
-  const normalizeCode = (value: string) => value.replace(/\D/g, '').trim();
+  const normalizeCode = (value: string) => value.replace(/[^0-9a-z]/gi, '').toUpperCase().trim();
   const isEditingItem = selected ? isOrcado(selected) : false;
+  const catalogoLinha = useMemo(() => getCatalogoByLinha(selected?.linha), [selected?.linha]);
 
   const total = useMemo(
     () => valPecas + valAcess + valMaoObra + valEmb + valHig,
     [valPecas, valAcess, valMaoObra, valEmb, valHig]
   );
   const totalPecasAcess = useMemo(() => valPecas + valAcess, [valPecas, valAcess]);
-  const precisaFoto = useMemo(() => /AVARIA/i.test(defeitoEncontrado), [defeitoEncontrado]);
+  const precisaFoto = useMemo(
+    () => defeitosSelecionados.some((defeito) => /AVARIA/i.test(defeito)),
+    [defeitosSelecionados]
+  );
 
   const preencherFormulario = (item: OrcamentoItem) => {
     setSelectedId(item.id);
@@ -194,6 +297,12 @@ const LancarOrcamentos = () => {
     setDefeitoFuncional(item.defeitoFuncional || '');
     setGarantia(item.garantia || '');
     setTipoOrc(item.tipoOrc || '');
+    setPecaSelecionada('');
+    setAcessorioSelecionado('');
+    setDefeitoCatalogado('');
+    setDefeitosSelecionados(splitStoredSelection(item.defeitoEncontrado));
+    setPecasSelecionadas(splitStoredSelection(item.pecasDesc, 'pe'));
+    setAcessoriosSelecionados(splitStoredSelection(item.acessDesc, 'ac'));
   };
 
   const limparFormulario = () => {
@@ -210,6 +319,12 @@ const LancarOrcamentos = () => {
     setDefeitoFuncional('');
     setGarantia('');
     setTipoOrc('');
+    setPecaSelecionada('');
+    setAcessorioSelecionado('');
+    setDefeitoCatalogado('');
+    setDefeitosSelecionados([]);
+    setPecasSelecionadas([]);
+    setAcessoriosSelecionados([]);
   };
 
   const selecionarItem = (item: OrcamentoItem) => {
@@ -267,7 +382,7 @@ const LancarOrcamentos = () => {
         };
         requestAnimationFrame(scan);
       } catch {
-        setScanError('Nao foi possivel acessar a camera.');
+        setScanError('Não foi possível acessar a câmera.');
       }
     };
 
@@ -369,10 +484,43 @@ const LancarOrcamentos = () => {
     const found = findByCode(cleaned);
     if (found) {
       selecionarItem(found);
-      setToast({ type: 'success', message: 'Item localizado pelo codigo.' });
+      setToast({ type: 'success', message: 'Item localizado pelo codigo ou serial.' });
     } else {
-      setToast({ type: 'error', message: 'Codigo nao encontrado nos itens.' });
+      setToast({ type: 'error', message: 'Codigo ou serial nao encontrado nos itens.' });
     }
+  };
+
+  const adicionarValorUnico = (
+    value: string,
+    setValues: SetSelectionState
+  ) => {
+    if (!value) return;
+    setValues((current) => (current.includes(value) ? current : [...current, value]));
+  };
+
+  const removerValorSelecionado = (
+    value: string,
+    setValues: SetSelectionState
+  ) => {
+    setValues((current) => current.filter((item) => item !== value));
+  };
+
+  const adicionarPeca = () => {
+    if (!pecaSelecionada) return;
+    adicionarValorUnico(pecaSelecionada, setPecasSelecionadas);
+    setPecaSelecionada('');
+  };
+
+  const adicionarAcessorio = () => {
+    if (!acessorioSelecionado) return;
+    adicionarValorUnico(acessorioSelecionado, setAcessoriosSelecionados);
+    setAcessorioSelecionado('');
+  };
+
+  const adicionarDefeito = () => {
+    if (!defeitoCatalogado) return;
+    adicionarValorUnico(defeitoCatalogado, setDefeitosSelecionados);
+    setDefeitoCatalogado('');
   };
 
   const lancarValores = async () => {
@@ -412,6 +560,17 @@ const LancarOrcamentos = () => {
         // ignore profile parsing
       }
 
+      const defeitoEncontradoPayload = catalogoLinha
+        ? buildSelectionPayload(defeitosSelecionados)
+        : defeitoEncontrado;
+      const pecasDescPayload = catalogoLinha
+        ? buildSelectionPayload(pecasSelecionadas, 'pe')
+        : pecasDesc;
+      const acessDescPayload = catalogoLinha
+        ? buildSelectionPayload(acessoriosSelecionados, 'ac')
+        : acessDesc;
+      const fotoLinkDrive = foto ? await uploadFotoDrive(selected, foto) : (selected.fotoNome || '');
+
       const payload = {
         id: selected.dbId,
         itemId: selected.dbId,
@@ -433,11 +592,11 @@ const LancarOrcamentos = () => {
             fornecedor: selected.fornecedor,
             linha: selected.linha,
             serial: selected.serial,
-            defeitoEncontrado,
-            fotoNome: foto?.name || selected.fotoNome || '',
-            pecasDesc,
+            defeitoEncontrado: defeitoEncontradoPayload,
+            fotoNome: fotoLinkDrive,
+            pecasDesc: pecasDescPayload,
             valPecas,
-            acessDesc,
+            acessDesc: acessDescPayload,
             valAcess,
             valMaoObra,
             valEmb,
@@ -463,15 +622,15 @@ const LancarOrcamentos = () => {
         if (item.id !== selected.id) return item;
         return {
           ...item,
-          defeitoEncontrado,
-          pecasDesc,
+          defeitoEncontrado: defeitoEncontradoPayload,
+          pecasDesc: pecasDescPayload,
           valPecas,
-          acessDesc,
+          acessDesc: acessDescPayload,
           valAcess,
           valMaoObra,
           valEmb,
           valHig,
-          fotoNome: foto?.name || item.fotoNome,
+          fotoNome: fotoLinkDrive || item.fotoNome,
           defeitoFuncional,
           garantia,
           tipoOrc,
@@ -593,19 +752,52 @@ const LancarOrcamentos = () => {
           </div>
         )}
         {selected && (
-          <div className="grid-form">
-            <div className="span-12">
+          <div className="lancamento-form">
+            <div className="lancamento-block">
               <label>Defeito Encontrado</label>
-              <select value={defeitoEncontrado} onChange={(e) => setDefeitoEncontrado(e.target.value)}>
-                <option value="">SELECIONE...</option>
-                <option value="EMBALAGEM | HIGIENIZACAO | MAO DE OBRA">EMBALAGEM | HIGIENIZACAO | MAO DE OBRA</option>
-                <option value="DEFEITO FUNCIONAL | AVARIA ESTETICA">DEFEITO FUNCIONAL | AVARIA ESTETICA</option>
-                <option value="AVARIA ESTETICA">AVARIA ESTETICA</option>
-                <option value="DEFEITO FUNCIONAL">DEFEITO FUNCIONAL</option>
-              </select>
+              {catalogoLinha ? (
+                <div className="selection-stack">
+                  <div className="selection-input-row">
+                    <select value={defeitoCatalogado} onChange={(e) => setDefeitoCatalogado(e.target.value)}>
+                      <option value="">SELECIONE O DEFEITO PADRAO...</option>
+                      {catalogoLinha.DEFEITOS.map((defeito) => (
+                        <option key={defeito} value={defeito}>
+                          {defeito}
+                        </option>
+                      ))}
+                    </select>
+                    <button className="btn btn-secondary btn-sm" type="button" onClick={adicionarDefeito}>
+                      Adicionar
+                    </button>
+                  </div>
+                  <div className="selection-tags">
+                    {defeitosSelecionados.length === 0 && (
+                      <div className="selection-empty">Nenhum defeito selecionado.</div>
+                    )}
+                    {defeitosSelecionados.map((defeito) => (
+                      <button
+                        key={defeito}
+                        type="button"
+                        className="btn btn-secondary btn-sm selection-tag"
+                        onClick={() => removerValorSelecionado(defeito, setDefeitosSelecionados)}
+                      >
+                        {defeito} x
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <select value={defeitoEncontrado} onChange={(e) => setDefeitoEncontrado(e.target.value)}>
+                  <option value="">SELECIONE...</option>
+                  <option value="EMBALAGEM | HIGIENIZACAO | MAO DE OBRA">EMBALAGEM | HIGIENIZACAO | MAO DE OBRA</option>
+                  <option value="DEFEITO FUNCIONAL | AVARIA ESTETICA">DEFEITO FUNCIONAL | AVARIA ESTETICA</option>
+                  <option value="AVARIA ESTETICA">AVARIA ESTETICA</option>
+                  <option value="DEFEITO FUNCIONAL">DEFEITO FUNCIONAL</option>
+                </select>
+              )}
               {precisaFoto && (
                 <div style={{ marginTop: 5 }}>
-                  <label style={{ color: 'var(--azul)' }}>Foto da avaria (obrigatorio)</label>
+                  <label style={{ color: 'var(--azul)' }}>Foto da avaria (obrigatório)</label>
                   <input
                     type="file"
                     accept="image/*"
@@ -620,55 +812,160 @@ const LancarOrcamentos = () => {
                 </div>
               )}
             </div>
-            <div className="span-2">
-              <label>Possui Defeito Funcional?</label>
-              <select value={defeitoFuncional} onChange={(e) => setDefeitoFuncional(e.target.value)}>
-                <option value="">SELECIONE...</option>
-                <option value="SIM">SIM</option>
-                <option value="NAO">NAO</option>
-              </select>
-            </div>
-            <div className="span-2">
-              <label>Dentro do Prazo de Garantia?</label>
-              <select value={garantia} onChange={(e) => setGarantia(e.target.value)}>
-                <option value="">SELECIONE...</option>
-                <option value="SIM">SIM</option>
-                <option value="NAO">NAO</option>
-              </select>
-            </div>
-            <div className="span-4">
-              <label>Tipo Orc.</label>
-              <select value={tipoOrc} onChange={(e) => setTipoOrc(e.target.value)}>
-                <option value="">SELECIONE...</option>
-                <option value="SALDO A">SALDO A</option>
-                <option value="NOVO">NOVO</option>
-                <option value="SUCATA">SUCATA</option>
-              </select>
-            </div>
-
-            <div className="span-4">
-              <label>Pecas Avariadas/Faltantes</label>
-              <input type="text" value={pecasDesc} onChange={(e) => setPecasDesc(e.target.value)} placeholder="Busca..." />
-            </div>
-            <div className="span-2">
-              <label>Valor Pecas</label>
-              <input type="text" inputMode="decimal" value={formatCurrency(valPecas)} onChange={(e) => setValPecas(parseCurrency(e.target.value))} />
-            </div>
-            <div className="span-4">
-              <label>Acessorios Avariados/Faltantes</label>
-              <input type="text" value={acessDesc} onChange={(e) => setAcessDesc(e.target.value)} placeholder="Busca..." />
-            </div>
-            <div className="span-2">
-              <label>Valor Acessorios</label>
-              <input type="text" inputMode="decimal" value={formatCurrency(valAcess)} onChange={(e) => setValAcess(parseCurrency(e.target.value))} />
+            <div className="lancamento-row lancamento-row-3">
+              <div className="lancamento-field">
+                <label>Possui Defeito Funcional?</label>
+                <select value={defeitoFuncional} onChange={(e) => setDefeitoFuncional(e.target.value)}>
+                  <option value="">SELECIONE...</option>
+                  <option value="SIM">SIM</option>
+                  <option value="NAO">NAO</option>
+                </select>
+              </div>
+              <div className="lancamento-field">
+                <label>Dentro do Prazo de Garantia?</label>
+                <select value={garantia} onChange={(e) => setGarantia(e.target.value)}>
+                  <option value="">SELECIONE...</option>
+                  <option value="SIM">SIM</option>
+                  <option value="NAO">NAO</option>
+                </select>
+              </div>
+              <div className="lancamento-field">
+                <label>Tipo Orc.</label>
+                <select value={tipoOrc} onChange={(e) => setTipoOrc(e.target.value)}>
+                  <option value="">SELECIONE...</option>
+                  <option value="SALDO A">SALDO A</option>
+                  <option value="NOVO">NOVO</option>
+                  <option value="SUCATA">SUCATA</option>
+                </select>
+              </div>
             </div>
 
-            <div className="span-4"><label>Mao de Obra</label><input type="text" inputMode="decimal" value={formatCurrency(valMaoObra)} onChange={(e) => setValMaoObra(parseCurrency(e.target.value))} /></div>
-            <div className="span-4"><label>Embalagem</label><input type="text" inputMode="decimal" value={formatCurrency(valEmb)} onChange={(e) => setValEmb(parseCurrency(e.target.value))} /></div>
-            <div className="span-4"><label>Higienizacao</label><input type="text" inputMode="decimal" value={formatCurrency(valHig)} onChange={(e) => setValHig(parseCurrency(e.target.value))} /></div>
+            <div className="lancamento-main-grid">
+              <div className="lancamento-selection-column">
+                <div className="lancamento-block">
+                  <label>Pecas Avariadas/Faltantes</label>
+                  <div className="selection-stack">
+                    {catalogoLinha && (
+                      <div className="selection-input-row">
+                        <select value={pecaSelecionada} onChange={(e) => setPecaSelecionada(e.target.value)}>
+                          <option value="">SELECIONE A PECA...</option>
+                          {catalogoLinha.PECAS.map((peca) => (
+                            <option key={peca} value={peca}>
+                              {peca}
+                            </option>
+                          ))}
+                        </select>
+                        <button className="btn btn-secondary btn-sm" type="button" onClick={adicionarPeca}>
+                          Adicionar
+                        </button>
+                      </div>
+                    )}
+                    {catalogoLinha ? (
+                      <div className="selection-tags">
+                        {pecasSelecionadas.length === 0 && (
+                          <div className="selection-empty">Nenhuma peca selecionada.</div>
+                        )}
+                        {pecasSelecionadas.map((peca) => (
+                          <button
+                            key={peca}
+                            type="button"
+                            className="btn btn-secondary btn-sm selection-tag"
+                            onClick={() => removerValorSelecionado(peca, setPecasSelecionadas)}
+                          >
+                            {peca} x
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <input
+                        type="text"
+                        value={pecasDesc}
+                        onChange={(e) => setPecasDesc(e.target.value)}
+                        placeholder="Busca..."
+                      />
+                    )}
+                  </div>
+                </div>
 
-            <div className="span-6"><label>Valor Final Pecas/Acessorios</label><input type="text" readOnly value={formatCurrency(totalPecasAcess)} style={{ textAlign: 'right' }} /></div>
-            <div className="span-6"><label>Total do Orcamento</label><input type="text" readOnly value={formatCurrency(total)} className="total-display" /></div>
+                <div className="lancamento-block">
+                  <label>Acessorios Avariados/Faltantes</label>
+                  <div className="selection-stack">
+                    {catalogoLinha && (
+                      <div className="selection-input-row">
+                        <select value={acessorioSelecionado} onChange={(e) => setAcessorioSelecionado(e.target.value)}>
+                          <option value="">SELECIONE O ACESSORIO...</option>
+                          {(catalogoLinha.ACESSORIOS || ['ACESSORIO']).map((acessorio) => (
+                            <option key={acessorio} value={acessorio}>
+                              {acessorio}
+                            </option>
+                          ))}
+                        </select>
+                        <button className="btn btn-secondary btn-sm" type="button" onClick={adicionarAcessorio}>
+                          Adicionar
+                        </button>
+                      </div>
+                    )}
+                    {catalogoLinha ? (
+                      <div className="selection-tags">
+                        {acessoriosSelecionados.length === 0 && (
+                          <div className="selection-empty">Nenhum acessorio selecionado.</div>
+                        )}
+                        {acessoriosSelecionados.map((acessorio) => (
+                          <button
+                            key={acessorio}
+                            type="button"
+                            className="btn btn-secondary btn-sm selection-tag"
+                            onClick={() => removerValorSelecionado(acessorio, setAcessoriosSelecionados)}
+                          >
+                            {acessorio} x
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <input
+                        type="text"
+                        value={acessDesc}
+                        onChange={(e) => setAcessDesc(e.target.value)}
+                        placeholder="Busca..."
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="lancamento-values-column">
+                <div className="lancamento-row lancamento-row-2">
+                  <div className="lancamento-field">
+                    <label>Valor Pecas</label>
+                    <input type="text" inputMode="decimal" value={formatCurrency(valPecas)} onChange={(e) => setValPecas(parseCurrency(e.target.value))} />
+                  </div>
+                  <div className="lancamento-field">
+                    <label>Valor Acessorios</label>
+                    <input type="text" inputMode="decimal" value={formatCurrency(valAcess)} onChange={(e) => setValAcess(parseCurrency(e.target.value))} />
+                  </div>
+                </div>
+
+                <div className="lancamento-row lancamento-row-3">
+                  <div className="lancamento-field"><label>Mao de Obra</label><input type="text" inputMode="decimal" value={formatCurrency(valMaoObra)} onChange={(e) => setValMaoObra(parseCurrency(e.target.value))} /></div>
+                  <div className="lancamento-field"><label>Embalagem</label><input type="text" inputMode="decimal" value={formatCurrency(valEmb)} onChange={(e) => setValEmb(parseCurrency(e.target.value))} /></div>
+                  <div className="lancamento-field"><label>Higienizacao</label><input type="text" inputMode="decimal" value={formatCurrency(valHig)} onChange={(e) => setValHig(parseCurrency(e.target.value))} /></div>
+                </div>
+
+                <div className="lancamento-row lancamento-row-1">
+                  <div className="lancamento-field">
+                    <label>Valor Final Pecas/Acessorios</label>
+                    <input type="text" readOnly value={formatCurrency(totalPecasAcess)} style={{ textAlign: 'right' }} />
+                  </div>
+                </div>
+
+                <div className="lancamento-row lancamento-row-1">
+                  <div className="lancamento-field">
+                    <label>Total do Orcamento</label>
+                    <input type="text" readOnly value={formatCurrency(total)} className="total-display" />
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
         {selected && (
@@ -700,7 +997,7 @@ const LancarOrcamentos = () => {
               <video ref={scanVideoRef} className="qr-video" muted playsInline />
             </div>
             {scanError && <div className="qr-error">{scanError}</div>}
-            <div className="qr-help">Aponte a camera para o codigo de barras.</div>
+            <div className="qr-help">Aponte a câmera para o código de barras.</div>
           </div>
         </div>
       )}

@@ -12,6 +12,7 @@ export const ORACLE_ENDPOINTS = {
   saveOrcamento: '/salvar-orcamento',
   syncOrcamentoSupabase: '/sync_orcamento_supabase',
   updateValores: '/update_valores',
+  uploadFotoDrive: '/upload_foto_drive',
   getOrcamentosAnalise: '/get_orcamentos_analise',
   registerPosto: '/register_posto',
   postOrcamentoFinal: '/post_orcamento_final',
@@ -20,8 +21,32 @@ export const ORACLE_ENDPOINTS = {
 
 export const oracleApi = axios.create({
   baseURL: ORDS_BASE_URL,
-  timeout: 15000
+  timeout: 15000,
+  transitional: {
+    clarifyTimeoutError: true
+  },
+  headers: {
+    Accept: 'application/json',
+    'X-Requested-With': 'XMLHttpRequest',
+    'Cache-Control': 'no-cache',
+    Pragma: 'no-cache'
+  }
 });
+
+oracleApi.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (axios.isAxiosError(error)) {
+      if (error.code === 'ECONNABORTED') {
+        error.message = 'A requisicao demorou demais e foi interrompida.';
+      } else if (!error.response) {
+        error.message = 'Falha de rede ou servico indisponivel no momento.';
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
 
 export const decodeText = (input: unknown) => {
   if (typeof input === 'string') return input;

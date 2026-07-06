@@ -1,56 +1,59 @@
-﻿import type { Handler } from '@netlify/functions';
+import type { Handler } from '@netlify/functions';
+import {
+  fetchWithTimeout,
+  handleFunctionError,
+  methodNotAllowed,
+  parseJsonBody,
+  proxyResponse,
+  sanitizeQueryParams
+} from './_shared';
 
 const CHECK_URL = 'https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/check_user';
 
 export const handler: Handler = async (event) => {
   try {
     if (event.httpMethod !== 'POST' && event.httpMethod !== 'GET') {
-      return { statusCode: 405, body: 'Method Not Allowed' };
+      return methodNotAllowed(['GET', 'POST']);
     }
 
     let response: Response;
     if (event.httpMethod === 'GET') {
-      const params = new URLSearchParams(event.queryStringParameters || {});
-      response = await fetch(`${CHECK_URL}?${params.toString()}`, {
+      const params = sanitizeQueryParams(event.queryStringParameters);
+      response = await fetchWithTimeout(`${CHECK_URL}?${params.toString()}`, {
         method: 'GET',
-        headers: { 'Accept': 'application/json' }
+        headers: { Accept: 'application/json' }
       });
     } else {
-      const payload = event.body ? JSON.parse(event.body) : null;
-      if (!payload) {
-        return { statusCode: 400, body: JSON.stringify({ error: 'Body vazio.' }) };
+      const parsedBody = parseJsonBody(event);
+      if (!parsedBody.ok) {
+        return parsedBody.response;
       }
 
-      const res = await fetch(CHECK_URL, {
+      const payload = parsedBody.value;
+      const res = await fetchWithTimeout(CHECK_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify(payload)
       });
 
-      // Fallback: se o ORDS não aceita POST (405), tenta GET com querystring
       response = res;
-      if (res.status === 405) {
+      if (res.status === 405 && payload && typeof payload === 'object') {
         const params = new URLSearchParams();
         Object.entries(payload).forEach(([key, value]) => {
           if (value !== undefined && value !== null) {
-            params.append(key, String(value));
+            params.append(String(key).slice(0, 64), String(value).slice(0, 2048));
           }
         });
-        response = await fetch(`${CHECK_URL}?${params.toString()}`, {
+
+        response = await fetchWithTimeout(`${CHECK_URL}?${params.toString()}`, {
           method: 'GET',
-          headers: { 'Accept': 'application/json' }
+          headers: { Accept: 'application/json' }
         });
       }
     }
 
-    const text = await response.text();
-    return {
-      statusCode: response.status,
-      body: text,
-      headers: { 'Content-Type': response.headers.get('content-type') || 'application/json' }
-    };
+    return proxyResponse(response);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Erro inesperado';
-    return { statusCode: 500, body: JSON.stringify({ error: msg }) };
+    return handleFunctionError(err);
   }
 };

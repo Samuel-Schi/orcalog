@@ -1,4 +1,5 @@
 import type { Handler } from '@netlify/functions';
+import { fetchWithTimeout, handleFunctionError, methodNotAllowed, proxyResponse } from './_shared';
 
 const URL =
   process.env.ORACLE_LANCAR_VALORES_URL ||
@@ -7,23 +8,17 @@ const URL =
 export const handler: Handler = async (event) => {
   try {
     if (event.httpMethod !== 'POST') {
-      return { statusCode: 405, body: 'Method Not Allowed' };
+      return methodNotAllowed(['POST']);
     }
 
-    const res = await fetch(URL, {
+    const res = await fetchWithTimeout(URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: event.body || '{}'
     });
 
-    const text = await res.text();
-    return {
-      statusCode: res.status,
-      body: text,
-      headers: { 'Content-Type': res.headers.get('content-type') || 'application/json' }
-    };
+    return proxyResponse(res);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Erro inesperado';
-    return { statusCode: 500, body: JSON.stringify({ error: msg }) };
+    return handleFunctionError(err);
   }
 };

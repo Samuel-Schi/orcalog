@@ -1,4 +1,13 @@
 import type { Handler } from '@netlify/functions';
+import {
+  fetchWithTimeout,
+  handleFunctionError,
+  jsonResponse,
+  methodNotAllowed,
+  parseJsonBody,
+  sanitizeIdentifier,
+  trimText
+} from './_shared';
 
 type SyncPayload = {
   id?: number;
@@ -12,6 +21,7 @@ type SyncPayload = {
   itens?: Array<{
     id?: number;
     itemId?: number;
+    protocolo?: string;
     uuid?: string;
     codBarras?: string;
     ean?: string;
@@ -45,70 +55,66 @@ const toNumber = (value: unknown) => {
 export const handler: Handler = async (event) => {
   try {
     if (event.httpMethod !== 'POST') {
-      return { statusCode: 405, body: 'Method Not Allowed' };
+      return methodNotAllowed(['POST']);
     }
 
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseSecret = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const tableName = process.env.SUPABASE_ORCAMENTOS_TABLE || 'orcamentos_finalizados';
+    const tableName = sanitizeIdentifier(
+      process.env.SUPABASE_ORCAMENTOS_TABLE || 'orcamentos_finalizados',
+      'orcamentos_finalizados'
+    );
 
     if (!supabaseUrl || !supabaseSecret) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: 'Variaveis SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY sao obrigatorias.' }),
-        headers: { 'Content-Type': 'application/json' }
-      };
+      return jsonResponse(500, { error: 'Variaveis SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY sao obrigatorias.' });
     }
 
-    const payload = JSON.parse(event.body || '{}') as SyncPayload;
+    const parsedBody = parseJsonBody(event);
+    if (!parsedBody.ok) {
+      return parsedBody.response;
+    }
+
+    const payload = parsedBody.value as SyncPayload;
     const item = payload.itens?.[0];
 
     if (!item) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: 'Payload sem item para sincronizar.' }),
-        headers: { 'Content-Type': 'application/json' }
-      };
+      return jsonResponse(400, { error: 'Payload sem item para sincronizar.' });
     }
 
     const oracleItemId = toNumber(item.itemId ?? item.id ?? payload.itemId ?? payload.id);
     if (!oracleItemId) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: 'oracle_item_id invalido.' }),
-        headers: { 'Content-Type': 'application/json' }
-      };
+      return jsonResponse(400, { error: 'oracle_item_id invalido.' });
     }
 
     const record = {
       oracle_item_id: oracleItemId,
-      protocolo: payload.protocolo || item.protocolo || '',
-      pa_usuario: payload.paUsuario || '',
-      cnpj: payload.cnpj || '',
-      razao_social: payload.razaoSocial || '',
-      unidade: payload.unidade || '',
-      email_retorno: payload.emailRetorno || '',
-      uuid: item.uuid || '',
-      cod_barras: item.codBarras || '',
-      ean: item.ean || item.codBarras || '',
-      cod_gemco: item.codGemco || '',
-      descricao: item.descricao || '',
-      fornecedor: item.fornecedor || '',
-      linha: item.linha || '',
-      serial: item.serial || '',
-      defeito_encontrado: item.defeitoEncontrado || '',
-      foto_nome: item.fotoNome || '',
-      pecas_desc: item.pecasDesc || '',
+      protocolo: trimText(payload.protocolo || item.protocolo || '', 80),
+      pa_usuario: trimText(payload.paUsuario || '', 80),
+      cnpj: trimText(payload.cnpj || '', 20),
+      razao_social: trimText(payload.razaoSocial || '', 180),
+      unidade: trimText(payload.unidade || '', 120),
+      email_retorno: trimText(payload.emailRetorno || '', 180),
+      uuid: trimText(item.uuid || '', 120),
+      cod_barras: trimText(item.codBarras || '', 80),
+      ean: trimText(item.ean || item.codBarras || '', 80),
+      cod_gemco: trimText(item.codGemco || '', 80),
+      descricao: trimText(item.descricao || '', 250),
+      fornecedor: trimText(item.fornecedor || '', 180),
+      linha: trimText(item.linha || '', 120),
+      serial: trimText(item.serial || '', 120),
+      defeito_encontrado: trimText(item.defeitoEncontrado || '', 250),
+      foto_nome: trimText(item.fotoNome || '', 180),
+      pecas_desc: trimText(item.pecasDesc || '', 250),
       val_pecas: toNumber(item.valPecas),
-      acess_desc: item.acessDesc || '',
+      acess_desc: trimText(item.acessDesc || '', 250),
       val_acess: toNumber(item.valAcess),
       val_mao_obra: toNumber(item.valMaoObra),
       val_emb: toNumber(item.valEmb),
       val_hig: toNumber(item.valHig),
       total_orcamento: toNumber(item.totalOrcamento),
-      defeito_funcional: item.defeitoFuncional || '',
-      garantia: item.garantia || '',
-      tipo_orc: item.tipoOrc || '',
+      defeito_funcional: trimText(item.defeitoFuncional || '', 80),
+      garantia: trimText(item.garantia || '', 80),
+      tipo_orc: trimText(item.tipoOrc || '', 80),
       status: toNumber(item.status || 1)
     };
 
@@ -117,7 +123,7 @@ export const handler: Handler = async (event) => {
       .replace(/\/$/, '');
 
     const restUrl = `${normalizedSupabaseUrl}/rest/v1/${tableName}?on_conflict=oracle_item_id`;
-    const res = await fetch(restUrl, {
+    const res = await fetchWithTimeout(restUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -132,10 +138,13 @@ export const handler: Handler = async (event) => {
     return {
       statusCode: res.status,
       body: text,
-      headers: { 'Content-Type': res.headers.get('content-type') || 'application/json' }
+      headers: {
+        'Content-Type': res.headers.get('content-type') || 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff'
+      }
     };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Erro inesperado';
-    return { statusCode: 500, body: JSON.stringify({ error: msg }) };
+    return handleFunctionError(err);
   }
 };

@@ -1,6 +1,5 @@
 ﻿import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 import loginHeroIllustration from '../assets/login-hero-illustration.jpg';
 
@@ -127,12 +126,17 @@ const Login = () => {
   return (
     <div className="login-shell">
       <section className="login-hero">
-        <div className="hero-kicker">Fluxo digital de orcamentos</div>
+        <div className="hero-kicker">Fluxo digital de orçamentos</div>
         <div className="hero-brand">
-          <div className="orcalog-wordmark" aria-label="Orçalog">
-            <span className="orca">ORÇA</span>
-            <span className="log">LOG</span>
+          <div className="orcalog-wordmark" aria-label="Portal AT">
+            <span className="brand-core">PORTAL</span>
+            <span className="brand-ai">AT</span>
           </div>
+          <div className="brand-underline" aria-hidden="true">
+            <span className="brand-underline-main" />
+            <span className="brand-underline-dot" />
+          </div>
+          <div className="brand-domain">Plataforma de inteligência para gestão de orçamentos</div>
           <p>Sistema de gestão de envio de orçamentos</p>
         </div>
         <div className="hero-description">
@@ -192,8 +196,8 @@ const Login = () => {
             </button>
           </div>
         </div>
+        <div className="login-footnote">© 2026 Inteligência Reversa &amp; Gotei - Sistema de gestão de envio de orçamentos.</div>
       </section>
-      <div className="login-footnote">© 2026 Gestão Assistência Técnica — Sistema de gestão de envio de orçamentos.</div>
     </div>
   );
 };
