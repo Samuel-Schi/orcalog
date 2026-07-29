@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
-import { getStatusLabel } from '../lib/statusMap';
 import { getCatalogoByLinha } from '../lib/catalogoPadrao';
 
 type OrcamentoItem = {
@@ -24,12 +23,15 @@ type OrcamentoItem = {
   status: number;
   defeitoEncontrado?: string;
   pecasDesc?: string;
+  pecasDetalhes?: string;
   valPecas?: number;
   acessDesc?: string;
+  acessDetalhes?: string;
   valAcess?: number;
   valMaoObra?: number;
   valEmb?: number;
   valHig?: number;
+  totalOrcamento?: number;
   fotoNome?: string;
   defeitoFuncional?: string;
   garantia?: string;
@@ -46,6 +48,16 @@ type DriveUploadResponse = {
   folderLink?: string;
 };
 
+type PecaComValor = {
+  nome: string;
+  valor: number;
+};
+
+type ItemComValor = {
+  nome: string;
+  valor: number;
+};
+
 const loadPendentes = () => {
   try {
     const saved = localStorage.getItem('gat_orc_pendentes');
@@ -60,6 +72,27 @@ const loadPendentes = () => {
 const savePendentes = (items: OrcamentoItem[]) => {
   try {
     localStorage.setItem('gat_orc_pendentes', JSON.stringify(items));
+  } catch {
+    // ignore storage errors
+  }
+};
+
+const RECEM_ENVIADOS_KEY = 'gat_orc_recem_enviados';
+
+const loadRecemEnviados = () => {
+  try {
+    const saved = localStorage.getItem(RECEM_ENVIADOS_KEY);
+    if (!saved) return [] as OrcamentoItem[];
+    const parsed = JSON.parse(saved) as OrcamentoItem[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveRecemEnviados = (items: OrcamentoItem[]) => {
+  try {
+    localStorage.setItem(RECEM_ENVIADOS_KEY, JSON.stringify(items));
   } catch {
     // ignore storage errors
   }
@@ -95,6 +128,54 @@ const buildSelectionPayload = (values: string[], prefix?: string) => {
 
   if (cleaned.length === 0) return '';
   return prefix ? `${prefix};${cleaned.join(';')}` : cleaned.join(';');
+};
+
+const parseItensComValor = (value?: unknown): ItemComValor[] => {
+  if (!value) return [];
+
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .map((item) => ({
+        nome: String(item?.nome || '').trim(),
+        valor: Number(item?.valor || 0)
+      }))
+      .filter((item) => item.nome);
+  } catch {
+    return [];
+  }
+};
+
+const serializeItensComValor = (items: ItemComValor[]) =>
+  JSON.stringify(
+    items
+      .map((item) => ({
+        nome: item.nome.trim(),
+        valor: Number(item.valor || 0)
+      }))
+      .filter((item) => item.nome)
+  );
+
+const buildPecasFallback = (pecasDesc?: string, valPecas?: number) => {
+  const pecas = splitStoredSelection(pecasDesc, 'pe');
+  if (pecas.length === 0) return [];
+
+  return pecas.map((nome, index) => ({
+    nome,
+    valor: index === 0 ? Number(valPecas || 0) : 0
+  }));
+};
+
+const buildAcessoriosFallback = (acessDesc?: string, valAcess?: number) => {
+  const acessorios = splitStoredSelection(acessDesc, 'ac');
+  if (acessorios.length === 0) return [];
+
+  return acessorios.map((nome, index) => ({
+    nome,
+    valor: index === 0 ? Number(valAcess || 0) : 0
+  }));
 };
 
 const fileToBase64 = (file: File) =>
@@ -181,20 +262,64 @@ const normalizeOrcamentoItem = (row: any, index: number): OrcamentoItem => ({
   fornecedor: String(row.fornecedor ?? row.FORNECEDOR ?? ''),
   linha: String(row.linha ?? row.LINHA ?? ''),
   serial: String(row.serial ?? row.SERIAL ?? ''),
-  status: Number(row.status ?? row.STATUS ?? 1),
+  status: Number(row.status ?? row.STATUS ?? 0),
   defeitoEncontrado: row.defeito_encontrado ?? row.DEFEITO_ENCONTRADO ?? row.defeitoEncontrado,
   pecasDesc: row.pecas_desc ?? row.PECAS_DESC ?? row.pecasDesc,
+  pecasDetalhes: row.pecas_detalhes ?? row.PECAS_DETALHES ?? row.pecasDetalhes,
   valPecas: row.val_pecas ?? row.VAL_PECAS ?? row.valPecas,
   acessDesc: row.acess_desc ?? row.ACESS_DESC ?? row.acessDesc,
+  acessDetalhes: row.acess_detalhes ?? row.ACESS_DETALHES ?? row.acessDetalhes,
   valAcess: row.val_acess ?? row.VAL_ACESS ?? row.valAcess,
   valMaoObra: row.val_mao_obra ?? row.VAL_MAO_OBRA ?? row.valMaoObra,
   valEmb: row.val_emb ?? row.VAL_EMB ?? row.valEmb,
   valHig: row.val_hig ?? row.VAL_HIG ?? row.valHig,
+  totalOrcamento: row.total_orcamento ?? row.TOTAL_ORCAMENTO ?? row.totalOrcamento,
   fotoNome: row.foto_nome ?? row.FOTO_NOME ?? row.fotoNome,
   defeitoFuncional: row.defeito_funcional ?? row.DEFEITO_FUNCIONAL ?? row.defeitoFuncional,
   garantia: row.garantia ?? row.GARANTIA ?? row.garantiaPrazo,
   tipoOrc: row.tipo_orc ?? row.TIPO_ORC ?? row.tipoOrc
 });
+
+const hasLancamentoRegistrado = (item: Partial<OrcamentoItem>) =>
+  Boolean(
+    Number(item.status || 0) >= 2 ||
+    item.totalOrcamento ||
+    item.valPecas ||
+    item.valAcess ||
+    item.valMaoObra ||
+    item.valEmb ||
+    item.valHig ||
+    item.defeitoEncontrado ||
+    item.pecasDesc ||
+    item.acessDesc ||
+    item.defeitoFuncional ||
+    item.garantia ||
+    item.tipoOrc
+  );
+
+const applyDraftToItem = (item: OrcamentoItem, payload?: Record<string, unknown> | null): OrcamentoItem => {
+  if (!payload) return item;
+
+  return {
+    ...item,
+    defeitoEncontrado: typeof payload.defeitoEncontrado === 'string' ? payload.defeitoEncontrado : item.defeitoEncontrado,
+    pecasDesc: typeof payload.pecasDesc === 'string' ? payload.pecasDesc : item.pecasDesc,
+    pecasDetalhes: typeof payload.pecasDetalhes === 'string' ? payload.pecasDetalhes : item.pecasDetalhes,
+    valPecas: typeof payload.valPecas === 'number' ? payload.valPecas : item.valPecas,
+    acessDesc: typeof payload.acessDesc === 'string' ? payload.acessDesc : item.acessDesc,
+    acessDetalhes: typeof payload.acessDetalhes === 'string' ? payload.acessDetalhes : item.acessDetalhes,
+    valAcess: typeof payload.valAcess === 'number' ? payload.valAcess : item.valAcess,
+    valMaoObra: typeof payload.valMaoObra === 'number' ? payload.valMaoObra : item.valMaoObra,
+    valEmb: typeof payload.valEmb === 'number' ? payload.valEmb : item.valEmb,
+    valHig: typeof payload.valHig === 'number' ? payload.valHig : item.valHig,
+    totalOrcamento: typeof payload.totalOrcamento === 'number' ? payload.totalOrcamento : item.totalOrcamento,
+    defeitoFuncional: typeof payload.defeitoFuncional === 'string' ? payload.defeitoFuncional : item.defeitoFuncional,
+    garantia: typeof payload.garantia === 'string' ? payload.garantia : item.garantia,
+    tipoOrc: typeof payload.tipoOrc === 'string' ? payload.tipoOrc : item.tipoOrc,
+    fotoNome: typeof payload.fotoNome === 'string' ? payload.fotoNome : item.fotoNome,
+    status: Number(payload.status ?? item.status ?? 0)
+  };
+};
 
 const mergeItemIntoList = (base: OrcamentoItem[], incoming: OrcamentoItem | null) => {
   if (!incoming) return base;
@@ -214,6 +339,29 @@ const mergeItemIntoList = (base: OrcamentoItem[], incoming: OrcamentoItem | null
   return updated;
 };
 
+const mergeUniqueItems = (items: OrcamentoItem[]) => {
+  const merged = new Map<string, OrcamentoItem>();
+
+  items.forEach((item, index) => {
+    const identityKey = buildIdentityKey(item);
+    const fallbackKey = item.id || `${item.protocolo}-${index}`;
+    const key = identityKey && identityKey !== '|||' ? identityKey : fallbackKey;
+    const current = merged.get(key);
+
+    merged.set(key, current ? { ...item, ...current, dbId: current.dbId ?? item.dbId } : item);
+  });
+
+  return Array.from(merged.values());
+};
+
+const buildIdentityKey = (item: Partial<OrcamentoItem>) =>
+  [
+    String(item.protocolo || '').trim().toUpperCase(),
+    String(item.codGemco || '').trim().toUpperCase(),
+    String(item.serial || '').trim().toUpperCase(),
+    String(item.ean || item.codBarras || '').trim().toUpperCase()
+  ].join('|');
+
 const LancarOrcamentos = () => {
   const location = useLocation();
   const locationState = (location.state as LancarOrcamentosLocationState | null) ?? null;
@@ -222,6 +370,7 @@ const LancarOrcamentos = () => {
     [locationState]
   );
   const editSelectionAppliedRef = useRef(false);
+  const draftsHydratedRef = useRef(false);
   const [items, setItems] = useState<OrcamentoItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -243,11 +392,13 @@ const LancarOrcamentos = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [scanError, setScanError] = useState('');
   const [pecaSelecionada, setPecaSelecionada] = useState('');
+  const [valorPecaSelecionada, setValorPecaSelecionada] = useState(0);
   const [acessorioSelecionado, setAcessorioSelecionado] = useState('');
+  const [valorAcessorioSelecionado, setValorAcessorioSelecionado] = useState(0);
   const [defeitoCatalogado, setDefeitoCatalogado] = useState('');
   const [defeitosSelecionados, setDefeitosSelecionados] = useState<string[]>([]);
-  const [pecasSelecionadas, setPecasSelecionadas] = useState<string[]>([]);
-  const [acessoriosSelecionados, setAcessoriosSelecionados] = useState<string[]>([]);
+  const [pecasComValores, setPecasComValores] = useState<PecaComValor[]>([]);
+  const [acessoriosComValores, setAcessoriosComValores] = useState<ItemComValor[]>([]);
   const scanVideoRef = useRef<HTMLVideoElement | null>(null);
   const scanStreamRef = useRef<MediaStream | null>(null);
 
@@ -268,7 +419,18 @@ const LancarOrcamentos = () => {
   }, [items]);
 
   const getCodigoBarras = (item: OrcamentoItem) => item.ean || item.codBarras || '-';
-  const isOrcado = (item: OrcamentoItem) => item.status >= 2;
+  const isOrcado = (item: OrcamentoItem) =>
+    Boolean(
+      item.totalOrcamento ||
+      item.valPecas ||
+      item.valAcess ||
+      item.valMaoObra ||
+      item.valEmb ||
+      item.valHig ||
+      item.defeitoEncontrado ||
+      item.pecasDesc ||
+      item.acessDesc
+    );
   const normalizeCode = (value: string) => value.replace(/[^0-9a-z]/gi, '').toUpperCase().trim();
   const isEditingItem = selected ? isOrcado(selected) : false;
   const catalogoLinha = useMemo(() => getCatalogoByLinha(selected?.linha), [selected?.linha]);
@@ -282,8 +444,40 @@ const LancarOrcamentos = () => {
     () => defeitosSelecionados.some((defeito) => /AVARIA/i.test(defeito)),
     [defeitosSelecionados]
   );
+  const resumoLancamento = useMemo(() => {
+    const linhas: Array<{ label: string; valor: number; destaque?: boolean }> = [];
+
+    pecasComValores.forEach((item) => {
+      linhas.push({ label: item.nome, valor: item.valor });
+    });
+
+    acessoriosComValores.forEach((item) => {
+      linhas.push({ label: item.nome, valor: item.valor });
+    });
+
+    if (valMaoObra > 0) {
+      linhas.push({ label: 'Mao de obra', valor: valMaoObra });
+    }
+
+    if (valEmb > 0) {
+      linhas.push({ label: 'Embalagem', valor: valEmb });
+    }
+
+    if (valHig > 0) {
+      linhas.push({ label: 'Higienizacao', valor: valHig });
+    }
+
+    if (linhas.length > 0) {
+      linhas.push({ label: 'Total do orcamento', valor: total, destaque: true });
+    }
+
+    return linhas;
+  }, [acessoriosComValores, pecasComValores, total, valEmb, valHig, valMaoObra]);
 
   const preencherFormulario = (item: OrcamentoItem) => {
+    const pecasDetalhadas = parseItensComValor(item.pecasDetalhes);
+    const acessoriosDetalhados = parseItensComValor(item.acessDetalhes);
+
     setSelectedId(item.id);
     setDefeitoEncontrado(item.defeitoEncontrado || '');
     setPecasDesc(item.pecasDesc || '');
@@ -298,11 +492,19 @@ const LancarOrcamentos = () => {
     setGarantia(item.garantia || '');
     setTipoOrc(item.tipoOrc || '');
     setPecaSelecionada('');
+    setValorPecaSelecionada(0);
     setAcessorioSelecionado('');
+    setValorAcessorioSelecionado(0);
     setDefeitoCatalogado('');
     setDefeitosSelecionados(splitStoredSelection(item.defeitoEncontrado));
-    setPecasSelecionadas(splitStoredSelection(item.pecasDesc, 'pe'));
-    setAcessoriosSelecionados(splitStoredSelection(item.acessDesc, 'ac'));
+    setPecasComValores(
+      pecasDetalhadas.length > 0 ? pecasDetalhadas : buildPecasFallback(item.pecasDesc, item.valPecas)
+    );
+    setAcessoriosComValores(
+      acessoriosDetalhados.length > 0
+        ? acessoriosDetalhados
+        : buildAcessoriosFallback(item.acessDesc, item.valAcess)
+    );
   };
 
   const limparFormulario = () => {
@@ -320,11 +522,13 @@ const LancarOrcamentos = () => {
     setGarantia('');
     setTipoOrc('');
     setPecaSelecionada('');
+    setValorPecaSelecionada(0);
     setAcessorioSelecionado('');
+    setValorAcessorioSelecionado(0);
     setDefeitoCatalogado('');
     setDefeitosSelecionados([]);
-    setPecasSelecionadas([]);
-    setAcessoriosSelecionados([]);
+    setPecasComValores([]);
+    setAcessoriosComValores([]);
   };
 
   const selecionarItem = (item: OrcamentoItem) => {
@@ -433,12 +637,22 @@ const LancarOrcamentos = () => {
         }
 
         if (!cnpj) return;
-        const res = await oracleApi.get(ORACLE_ENDPOINTS.getOrcamentosAnalise, {
-          params: { cnpj, _ts: Date.now() },
-          responseType: 'arraybuffer',
-          headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
-          validateStatus: (status) => status >= 200 && status < 400
-        });
+        const paUsuario = (localStorage.getItem('gat_user') || '').trim();
+        const [res, draftsRes] = await Promise.all([
+          oracleApi.get(ORACLE_ENDPOINTS.getOrcamentosAnalise, {
+            params: { cnpj, _ts: Date.now() },
+            responseType: 'arraybuffer',
+            headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+            validateStatus: (status) => status >= 200 && status < 400
+          }),
+          paUsuario
+            ? oracleApi.get(ORACLE_ENDPOINTS.getLancamentoDraftsSupabase, {
+                params: { paUsuario, _ts: Date.now() },
+                headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+                validateStatus: (status) => status >= 200 && status < 500
+              })
+            : Promise.resolve({ data: [] })
+        ]);
 
         const data = parseMaybeJson(res.data);
         const list: any[] = Array.isArray(data?.items)
@@ -447,10 +661,38 @@ const LancarOrcamentos = () => {
             ? data
             : [];
 
-        const normalized = list.map((row, index) => normalizeOrcamentoItem(row, index)) as OrcamentoItem[];
-        setItems(mergeItemIntoList(normalized, editableItem));
+        const draftsList = Array.isArray(draftsRes.data) ? draftsRes.data : [];
+        const draftsMap = new Map<number, Record<string, unknown>>();
+        draftsList.forEach((row: any) => {
+          const draftItemId = Number(row?.oracle_item_id ?? 0);
+          const payload = row?.payload && typeof row.payload === 'object' ? row.payload as Record<string, unknown> : null;
+          if (draftItemId && payload) {
+            draftsMap.set(draftItemId, payload);
+          }
+        });
+
+        const normalized = list
+          .map((row, index) => normalizeOrcamentoItem(row, index))
+          .map((item) => applyDraftToItem(item, item.dbId != null ? draftsMap.get(item.dbId) ?? null : null))
+          .filter((item) => !hasLancamentoRegistrado(item)) as OrcamentoItem[];
+
+        const localPendentes = mergeUniqueItems([
+          ...loadPendentes(),
+          ...loadRecemEnviados()
+        ]).filter((item) => !hasLancamentoRegistrado(item));
+
+        const mergedItems = mergeUniqueItems([...normalized, ...localPendentes]);
+
+        setItems(mergeItemIntoList(mergedItems, editableItem));
+        draftsHydratedRef.current = true;
       } catch {
-        setItems(mergeItemIntoList(loadPendentes(), editableItem));
+        const localPendentes = mergeUniqueItems([
+          ...loadPendentes(),
+          ...loadRecemEnviados()
+        ]).filter((item) => !hasLancamentoRegistrado(item));
+
+        setItems(mergeItemIntoList(localPendentes, editableItem));
+        draftsHydratedRef.current = true;
       } finally {
         setIsLoading(false);
       }
@@ -505,22 +747,62 @@ const LancarOrcamentos = () => {
     setValues((current) => current.filter((item) => item !== value));
   };
 
+  useEffect(() => {
+    if (!catalogoLinha) return;
+    setValPecas(pecasComValores.reduce((acc, item) => acc + item.valor, 0));
+  }, [catalogoLinha, pecasComValores]);
+
+  useEffect(() => {
+    if (!catalogoLinha) return;
+    setValAcess(acessoriosComValores.reduce((acc, item) => acc + item.valor, 0));
+  }, [acessoriosComValores, catalogoLinha]);
+
   const adicionarPeca = () => {
     if (!pecaSelecionada) return;
-    adicionarValorUnico(pecaSelecionada, setPecasSelecionadas);
+    setPecasComValores((current) =>
+      current.some((item) => item.nome === pecaSelecionada)
+        ? current
+        : [...current, { nome: pecaSelecionada, valor: valorPecaSelecionada }]
+    );
     setPecaSelecionada('');
+    setValorPecaSelecionada(0);
   };
 
   const adicionarAcessorio = () => {
     if (!acessorioSelecionado) return;
-    adicionarValorUnico(acessorioSelecionado, setAcessoriosSelecionados);
+    setAcessoriosComValores((current) =>
+      current.some((item) => item.nome === acessorioSelecionado)
+        ? current
+        : [...current, { nome: acessorioSelecionado, valor: valorAcessorioSelecionado }]
+    );
     setAcessorioSelecionado('');
+    setValorAcessorioSelecionado(0);
   };
 
   const adicionarDefeito = () => {
     if (!defeitoCatalogado) return;
     adicionarValorUnico(defeitoCatalogado, setDefeitosSelecionados);
     setDefeitoCatalogado('');
+  };
+
+  const removerPeca = (nome: string) => {
+    setPecasComValores((current) => current.filter((item) => item.nome !== nome));
+  };
+
+  const atualizarValorPeca = (nome: string, valor: number) => {
+    setPecasComValores((current) =>
+      current.map((item) => (item.nome === nome ? { ...item, valor } : item))
+    );
+  };
+
+  const removerAcessorio = (nome: string) => {
+    setAcessoriosComValores((current) => current.filter((item) => item.nome !== nome));
+  };
+
+  const atualizarValorAcessorio = (nome: string, valor: number) => {
+    setAcessoriosComValores((current) =>
+      current.map((item) => (item.nome === nome ? { ...item, valor } : item))
+    );
   };
 
   const lancarValores = async () => {
@@ -564,13 +846,22 @@ const LancarOrcamentos = () => {
         ? buildSelectionPayload(defeitosSelecionados)
         : defeitoEncontrado;
       const pecasDescPayload = catalogoLinha
-        ? buildSelectionPayload(pecasSelecionadas, 'pe')
+        ? buildSelectionPayload(
+            pecasComValores.map((item) => item.nome),
+            'pe'
+          )
         : pecasDesc;
+      const pecasDetalhesPayload = serializeItensComValor(pecasComValores);
       const acessDescPayload = catalogoLinha
-        ? buildSelectionPayload(acessoriosSelecionados, 'ac')
+        ? buildSelectionPayload(
+            acessoriosComValores.map((item) => item.nome),
+            'ac'
+          )
         : acessDesc;
+      const acessDetalhesPayload = serializeItensComValor(acessoriosComValores);
       const fotoLinkDrive = foto ? await uploadFotoDrive(selected, foto) : (selected.fotoNome || '');
 
+      const submittedStatus = 2;
       const payload = {
         id: selected.dbId,
         itemId: selected.dbId,
@@ -595,8 +886,10 @@ const LancarOrcamentos = () => {
             defeitoEncontrado: defeitoEncontradoPayload,
             fotoNome: fotoLinkDrive,
             pecasDesc: pecasDescPayload,
+            pecasDetalhes: pecasDetalhesPayload,
             valPecas,
             acessDesc: acessDescPayload,
+            acessDetalhes: acessDetalhesPayload,
             valAcess,
             valMaoObra,
             valEmb,
@@ -605,7 +898,7 @@ const LancarOrcamentos = () => {
             defeitoFuncional,
             garantia,
             tipoOrc,
-            status: 2
+            status: submittedStatus
           }
         ]
       };
@@ -614,33 +907,51 @@ const LancarOrcamentos = () => {
         headers: { 'Content-Type': 'application/json' }
       });
 
-      await oracleApi.post(ORACLE_ENDPOINTS.syncOrcamentoSupabase, payload, {
-        headers: { 'Content-Type': 'application/json' }
-      });
+      let syncWarning = '';
+      try {
+        await oracleApi.post(ORACLE_ENDPOINTS.syncOrcamentoSupabase, payload, {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (syncError) {
+        if (axios.isAxiosError(syncError)) {
+          const syncStatus = syncError.response?.status;
+          const syncData = syncError.response?.data;
+          console.error('Erro ao sincronizar orcamento no Supabase:', syncStatus, syncData);
+        } else {
+          console.error('Erro ao sincronizar orcamento no Supabase:', syncError);
+        }
+        syncWarning = ' Valores salvos no portal, mas a sincronizacao do Supabase falhou.';
+      }
 
-      const updated = items.map((item) => {
-        if (item.id !== selected.id) return item;
-        return {
-          ...item,
-          defeitoEncontrado: defeitoEncontradoPayload,
-          pecasDesc: pecasDescPayload,
-          valPecas,
-          acessDesc: acessDescPayload,
-          valAcess,
-          valMaoObra,
-          valEmb,
-          valHig,
-          fotoNome: fotoLinkDrive || item.fotoNome,
-          defeitoFuncional,
-          garantia,
-          tipoOrc,
-          status: 2
-        };
-      });
-      setItems(updated);
-      savePendentes(updated);
+      const remaining = items.filter((item) => item.id !== selected.id);
+      setItems(remaining);
+      savePendentes(remaining);
+      saveRecemEnviados(
+        loadRecemEnviados().filter((item) => buildIdentityKey(item) !== buildIdentityKey(selected))
+      );
+      if ((localStorage.getItem('gat_user') || '').trim() && selected.dbId != null) {
+        try {
+          await oracleApi.post(
+            ORACLE_ENDPOINTS.saveLancamentoDraftSupabase,
+            {
+              paUsuario: localStorage.getItem('gat_user') || '',
+              oracleItemId: selected.dbId,
+              protocolo: selected.protocolo,
+              cnpj,
+              status: 'FINALIZADO',
+              payload: {}
+            },
+            { headers: { 'Content-Type': 'application/json' } }
+          );
+        } catch {
+          // ignore draft cleanup errors
+        }
+      }
       limparFormulario();
-      setToast({ type: 'success', message: isEditingItem ? 'Lancamento atualizado com sucesso.' : 'Valores lancados com sucesso.' });
+      setToast({
+        type: syncWarning ? 'error' : 'success',
+        message: `${isEditingItem ? 'Lancamento atualizado com sucesso.' : 'Valores lancados com sucesso.'}${syncWarning}`
+      });
     } catch (err) {
       if (axios.isAxiosError(err)) {
         const status = err.response?.status;
@@ -660,6 +971,87 @@ const LancarOrcamentos = () => {
       setIsSubmitting(false);
     }
   };
+
+  useEffect(() => {
+    if (!draftsHydratedRef.current || !selected || selected.dbId == null) return;
+    const paUsuario = (localStorage.getItem('gat_user') || '').trim();
+    if (!paUsuario) return;
+
+    const totalOrcamento = valPecas + valAcess + valMaoObra + valEmb + valHig;
+    const draftPayload = {
+      defeitoEncontrado,
+      pecasDesc,
+      pecasDetalhes: serializeItensComValor(pecasComValores),
+      valPecas,
+      acessDesc,
+      acessDetalhes: serializeItensComValor(acessoriosComValores),
+      valAcess,
+      valMaoObra,
+      valEmb,
+      valHig,
+      totalOrcamento,
+      defeitoFuncional,
+      garantia,
+      tipoOrc,
+      fotoNome: selected.fotoNome || '',
+      status: 0
+    };
+
+    const hasDraftContent = Boolean(
+      defeitoEncontrado ||
+      pecasDesc ||
+      acessDesc ||
+      valPecas ||
+      valAcess ||
+      valMaoObra ||
+      valEmb ||
+      valHig ||
+      totalOrcamento ||
+      defeitoFuncional ||
+      garantia ||
+      tipoOrc ||
+      pecasComValores.length > 0 ||
+      acessoriosComValores.length > 0 ||
+      defeitosSelecionados.length > 0
+    );
+
+    if (!hasDraftContent) return;
+
+    const handle = window.setTimeout(() => {
+      void oracleApi.post(
+        ORACLE_ENDPOINTS.saveLancamentoDraftSupabase,
+        {
+          paUsuario,
+          oracleItemId: selected.dbId,
+          protocolo: selected.protocolo,
+          cnpj: selected.cnpj || '',
+          status: 'RASCUNHO',
+          payload: draftPayload
+        },
+        { headers: { 'Content-Type': 'application/json' } }
+      ).catch(() => {
+        // ignore draft save errors
+      });
+    }, 800);
+
+    return () => window.clearTimeout(handle);
+  }, [
+    selected,
+    defeitoEncontrado,
+    pecasDesc,
+    acessDesc,
+    valPecas,
+    valAcess,
+    valMaoObra,
+    valEmb,
+    valHig,
+    defeitoFuncional,
+    garantia,
+    tipoOrc,
+    pecasComValores,
+    acessoriosComValores,
+    defeitosSelecionados
+  ]);
 
   return (
     <div className="view-section">
@@ -717,7 +1109,6 @@ const LancarOrcamentos = () => {
                       <th>Fornecedor</th>
                       <th>Linha</th>
                       <th>Serial</th>
-                      <th>Status</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -733,7 +1124,6 @@ const LancarOrcamentos = () => {
                         <td>{item.fornecedor}</td>
                         <td>{item.linha}</td>
                         <td>{item.serial}</td>
-                        <td>{isOrcado(item) ? 'OK' : ''} {getStatusLabel(item.status)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -766,7 +1156,7 @@ const LancarOrcamentos = () => {
                         </option>
                       ))}
                     </select>
-                    <button className="btn btn-secondary btn-sm" type="button" onClick={adicionarDefeito}>
+                    <button className="btn btn-success btn-sm" type="button" onClick={adicionarDefeito}>
                       Adicionar
                     </button>
                   </div>
@@ -855,25 +1245,40 @@ const LancarOrcamentos = () => {
                             </option>
                           ))}
                         </select>
-                        <button className="btn btn-secondary btn-sm" type="button" onClick={adicionarPeca}>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={formatCurrency(valorPecaSelecionada)}
+                          onChange={(e) => setValorPecaSelecionada(parseCurrency(e.target.value))}
+                          placeholder="Valor"
+                        />
+                        <button className="btn btn-success btn-sm" type="button" onClick={adicionarPeca}>
                           Adicionar
                         </button>
                       </div>
                     )}
                     {catalogoLinha ? (
-                      <div className="selection-tags">
-                        {pecasSelecionadas.length === 0 && (
+                      <div className="selection-values-list">
+                        {pecasComValores.length === 0 && (
                           <div className="selection-empty">Nenhuma peca selecionada.</div>
                         )}
-                        {pecasSelecionadas.map((peca) => (
-                          <button
-                            key={peca}
-                            type="button"
-                            className="btn btn-secondary btn-sm selection-tag"
-                            onClick={() => removerValorSelecionado(peca, setPecasSelecionadas)}
-                          >
-                            {peca} x
-                          </button>
+                        {pecasComValores.map((peca) => (
+                          <div key={peca.nome} className="selection-value-item">
+                            <div className="selection-value-name">{peca.nome}</div>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={formatCurrency(peca.valor)}
+                              onChange={(e) => atualizarValorPeca(peca.nome, parseCurrency(e.target.value))}
+                            />
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => removerPeca(peca.nome)}
+                            >
+                              Remover
+                            </button>
+                          </div>
                         ))}
                       </div>
                     ) : (
@@ -900,25 +1305,40 @@ const LancarOrcamentos = () => {
                             </option>
                           ))}
                         </select>
-                        <button className="btn btn-secondary btn-sm" type="button" onClick={adicionarAcessorio}>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={formatCurrency(valorAcessorioSelecionado)}
+                          onChange={(e) => setValorAcessorioSelecionado(parseCurrency(e.target.value))}
+                          placeholder="Valor"
+                        />
+                        <button className="btn btn-success btn-sm" type="button" onClick={adicionarAcessorio}>
                           Adicionar
                         </button>
                       </div>
                     )}
                     {catalogoLinha ? (
-                      <div className="selection-tags">
-                        {acessoriosSelecionados.length === 0 && (
+                      <div className="selection-values-list">
+                        {acessoriosComValores.length === 0 && (
                           <div className="selection-empty">Nenhum acessorio selecionado.</div>
                         )}
-                        {acessoriosSelecionados.map((acessorio) => (
-                          <button
-                            key={acessorio}
-                            type="button"
-                            className="btn btn-secondary btn-sm selection-tag"
-                            onClick={() => removerValorSelecionado(acessorio, setAcessoriosSelecionados)}
-                          >
-                            {acessorio} x
-                          </button>
+                        {acessoriosComValores.map((acessorio) => (
+                          <div key={acessorio.nome} className="selection-value-item">
+                            <div className="selection-value-name">{acessorio.nome}</div>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={formatCurrency(acessorio.valor)}
+                              onChange={(e) => atualizarValorAcessorio(acessorio.nome, parseCurrency(e.target.value))}
+                            />
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => removerAcessorio(acessorio.nome)}
+                            >
+                              Remover
+                            </button>
+                          </div>
                         ))}
                       </div>
                     ) : (
@@ -965,6 +1385,25 @@ const LancarOrcamentos = () => {
                   </div>
                 </div>
               </div>
+            </div>
+
+            <div className="lancamento-block resumo-lancamento">
+              <label>Conferencia rapida</label>
+              {resumoLancamento.length === 0 ? (
+                <div className="selection-empty">Os itens e valores lancados vao aparecer aqui.</div>
+              ) : (
+                <div className="resumo-lista">
+                  {resumoLancamento.map((item) => (
+                    <div
+                      key={`${item.label}-${item.valor}-${item.destaque ? 'd' : 'n'}`}
+                      className={`resumo-item${item.destaque ? ' resumo-item-total' : ''}`}
+                    >
+                      <span>{item.label}</span>
+                      <strong>{formatCurrency(item.valor)}</strong>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
