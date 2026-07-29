@@ -22,6 +22,141 @@ type ParsedQrPayload = {
   raw: any;
 };
 
+const QR_FIELD_ALIASES: Record<string, string> = {
+  UUID: 'UUID',
+  DESCRIPTION: 'DESCRIPTION',
+  LEGACYID: 'LEGACYID',
+  LEGACYLD: 'LEGACYID',
+  INVOICENUMBER: 'INVOICENUMBER',
+  NVOICENUMBER: 'INVOICENUMBER',
+  VOICENUMBER: 'INVOICENUMBER',
+  EAN: 'EAN',
+  AN: 'EAN',
+  SERIAL: 'SERIAL',
+  SERIALNUMBER: 'SERIAL',
+  SN: 'SN',
+  IMEI: 'IMEI',
+  VOLUME: 'VOLUME',
+  TOTAL: 'TOTAL'
+};
+
+const normalizeQrFieldKey = (value: string) =>
+  String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/gi, '')
+    .toUpperCase()
+    .trim();
+
+const canonicalizeQrFieldKey = (value: string) => {
+  const normalized = normalizeQrFieldKey(value);
+  return QR_FIELD_ALIASES[normalized] ?? normalized;
+};
+
+const sanitizeUuidValue = (value: unknown) =>
+  String(value ?? '')
+    .replace(/\D/g, '')
+    .trim();
+
+const sanitizeLegacyIdValue = (value: unknown) =>
+  String(value ?? '')
+    .replace(/[^0-9A-Za-z-]/g, '')
+    .replace(/-/g, '')
+    .trim();
+
+const sanitizeEanValue = (value: unknown) =>
+  String(value ?? '')
+    .replace(/\D/g, '')
+    .trim();
+
+const hasLookupFields = (payload: Pick<ParsedQrPayload, 'uuid' | 'legacyId' | 'ean'> | null | undefined) =>
+  Boolean(payload && (payload.legacyId || payload.ean || (payload.uuid && payload.uuid.length >= 8)));
+
+const splitRawQrBlocks = (raw: string) =>
+  String(raw || '')
+    .replace(/\r/g, '\n')
+    .split(/(?=[`{\s,;]*\^?\s*uuid\s*\^)/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+const parseDelimitedQrFields = (raw: string) => {
+  const source = String(raw || '')
+    .replace(/\r/g, '\n')
+    .replace(/[{}]+$/g, '')
+    .trim();
+
+  if (!source.includes('^')) return null;
+
+  const fieldStartRegex =
+    /(^|[,\s`{;])\^?\s*([a-z\u00C0-\u017F][a-z0-9_\u00C0-\u017F]*)\s*\^(?:[^a-z0-9\u00C0-\u017F]+?\^)?/gim;
+  const starts = Array.from(source.matchAll(fieldStartRegex))
+    .map((match) => {
+      const prefixLength = (match[1] || '').length;
+      const startIndex = (match.index ?? -1) + prefixLength;
+
+      return {
+        key: match[2] || '',
+        index: startIndex,
+        valueStart: (match.index ?? -1) + match[0].length
+      };
+    })
+    .filter((entry) => entry.index >= 0 && entry.valueStart >= 0);
+
+  if (starts.length === 0) return null;
+
+  const fields: Record<string, string> = {};
+
+  starts.forEach((entry, index) => {
+    const end = starts[index + 1]?.index ?? source.length;
+    const key = canonicalizeQrFieldKey(entry.key);
+
+    if (!key) return;
+
+    let value = source
+      .slice(entry.valueStart, end)
+      .replace(/^[,\s`{;]+/, '')
+      .replace(/^[^\p{L}\p{N}]+/gu, '')
+      .replace(/[\^,;`{}]+$/g, '')
+      .trim();
+
+    if (!value) return;
+
+    if (key === 'EAN') value = value.replace(/\D/g, '');
+    fields[key] = value;
+  });
+
+  return Object.keys(fields).length > 0 ? fields : null;
+};
+
+const parseMarkerBasedQrFields = (raw: string) => {
+  const compact = String(raw || '')
+    .replace(/[\u0000-\u001F\u007F]+/g, '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, '')
+    .toUpperCase();
+
+  const markers = Array.from(new Set(Object.keys(QR_FIELD_ALIASES))).sort((a, b) => b.length - a.length);
+  const positions = markers
+    .map((marker) => ({ marker, index: compact.indexOf(marker) }))
+    .filter((entry) => entry.index >= 0)
+    .sort((a, b) => a.index - b.index);
+
+  if (positions.length === 0) return null;
+
+  const fields: Record<string, string> = {};
+  positions.forEach((entry, index) => {
+    const start = entry.index + entry.marker.length;
+    const end = positions[index + 1]?.index ?? compact.length;
+    const value = compact.slice(start, end).trim();
+    if (!value) return;
+    const markerKey = canonicalizeQrFieldKey(entry.marker);
+    if (!fields[markerKey]) fields[markerKey] = markerKey === 'EAN' ? value.replace(/\D/g, '') : value;
+  });
+
+  return fields.UUID || fields.LEGACYID || fields.EAN ? fields : null;
+};
+
 const NovoOrcamento = () => {
   const [protocolo, setProtocolo] = useState('');
   const [razaoSocial, setRazaoSocial] = useState('');
@@ -246,11 +381,11 @@ const NovoOrcamento = () => {
   const parseQrPayload = (raw: string) => {
     const trimmed = raw.trim();
     if (!trimmed) return null;
-    try {
-      const data = JSON.parse(trimmed);
-      const uuid = data?.uuid ?? data?.UUID ?? data?.Uuid;
-      const legacyId = data?.legacyId ?? data?.LEGACYID ?? data?.legacy_id;
-      const eanValue = data?.ean ?? data?.EAN ?? data?.codigo_barra ?? data?.cod_barra ?? data?.codBarra;
+
+    const buildParsedPayload = (data: Record<string, unknown>) => {
+      const uuid = sanitizeUuidValue(data?.uuid ?? data?.UUID ?? data?.Uuid);
+      const legacyId = sanitizeLegacyIdValue(data?.legacyId ?? data?.LEGACYID ?? data?.legacy_id ?? data?.LEGACYID);
+      const eanValue = sanitizeEanValue(data?.ean ?? data?.EAN ?? data?.codigo_barra ?? data?.cod_barra ?? data?.codBarra);
       const serialValue =
         data?.serial
         ?? data?.SERIAL
@@ -260,14 +395,64 @@ const NovoOrcamento = () => {
         ?? data?.serial_number
         ?? data?.imei
         ?? data?.IMEI;
+
       return {
-        uuid: uuid ? String(uuid) : '',
-        legacyId: legacyId ? String(legacyId) : '',
-        ean: eanValue ? String(eanValue) : '',
+        uuid,
+        legacyId,
+        ean: eanValue,
         serial: serialValue ? formatSerialValue(String(serialValue)) : '',
         raw: data
       };
+    };
+
+    try {
+      return buildParsedPayload(JSON.parse(trimmed));
     } catch {
+      const delimitedFields = parseDelimitedQrFields(trimmed);
+      if (delimitedFields) {
+        const delimitedPayload = buildParsedPayload({
+          uuid: delimitedFields.UUID,
+          legacyId: delimitedFields.LEGACYID,
+          ean: delimitedFields.EAN,
+          serial: delimitedFields.SERIAL ?? delimitedFields.SN ?? delimitedFields.IMEI,
+          ...delimitedFields
+        });
+        if (hasLookupFields(delimitedPayload)) return delimitedPayload;
+      }
+
+      const markerFields = parseMarkerBasedQrFields(trimmed);
+      if (markerFields) {
+        const markerPayload = buildParsedPayload({
+          uuid: markerFields.UUID,
+          legacyId: markerFields.LEGACYID,
+          ean: markerFields.EAN,
+          serial: markerFields.SERIAL ?? markerFields.SN ?? markerFields.IMEI,
+          ...markerFields
+        });
+        if (hasLookupFields(markerPayload)) return markerPayload;
+      }
+
+      const blocks = splitRawQrBlocks(trimmed);
+      for (const block of blocks) {
+        const normalizedBlock = block
+          .replace(/[\u0000-\u001F\u007F]+/g, ' ')
+          .replace(/[;,]?\s*\{$/, '')
+          .trim();
+        if (!normalizedBlock) continue;
+
+        const parsedFields = parseDelimitedQrFields(normalizedBlock);
+        if (!parsedFields || Object.keys(parsedFields).length === 0) continue;
+
+        const payload = buildParsedPayload({
+          uuid: parsedFields.UUID,
+          legacyId: parsedFields.LEGACYID,
+          ean: parsedFields.EAN,
+          serial: parsedFields.SERIAL ?? parsedFields.SN ?? parsedFields.IMEI,
+          ...parsedFields
+        });
+        if (hasLookupFields(payload)) return payload;
+      }
+
       return null;
     }
   };
@@ -538,6 +723,11 @@ const NovoOrcamento = () => {
                     } else {
                       setEan('');
                     }
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === 'Tab') {
+                    handleQrInput((e.currentTarget as HTMLInputElement).value);
                   }
                 }}
                 onBlur={(e) => handleQrInput(e.target.value)}
