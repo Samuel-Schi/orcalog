@@ -4,6 +4,7 @@
   functions = "netlify/functions"
   [build.environment]
     HUSKY = "0"
+    NODE_VERSION = "20"
 
 [dev]
   command = "node ./node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5173"
@@ -18,18 +19,6 @@
     X-Content-Type-Options = "nosniff"
     X-Frame-Options = "DENY"
     Permissions-Policy = "camera=(self), geolocation=(), microphone=()"
-
-[[redirects]]
-  from = "/api-redash/*"
-  to = "/.netlify/functions/proxy"
-  status = 200
-  force = true
-
-[[redirects]]
-  from = "/api-recebimento/product"
-  to = "/.netlify/functions/recebimento-product"
-  status = 200
-  force = true
 
 [[redirects]]
   from = "/api-check-user"
@@ -68,8 +57,50 @@
   force = true
 
 [[redirects]]
+  from = "/orcamento_rascunho_supa"
+  to = "/.netlify/functions/get-orcamento-draft-supabase"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/orcamento_rascunho_supa/save"
+  to = "/.netlify/functions/upsert-orcamento-draft-supabase"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/lancamento_rascunho_supa"
+  to = "/.netlify/functions/get-lancamento-drafts-supabase"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/lancamento_rascunho_supa/save"
+  to = "/.netlify/functions/upsert-lancamento-draft-supabase"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/sync_orcamento_supabase"
   to = "/.netlify/functions/sync-orcamento-supabase"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/status_envios_supa"
+  to = "/.netlify/functions/get-envios-status-supabase"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/negociacoes_envios_supa"
+  to = "/.netlify/functions/get-envios-negociacoes-supabase"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/negociacoes_envios_supa/resposta"
+  to = "/.netlify/functions/post-envio-negociacao-resposta"
   status = 200
   force = true
 
