@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getStatusLabel } from '../lib/statusMap';
+import { getStatusLabel, isStatusFinalizado } from '../lib/statusMap';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 
 type ItemEnvio = {
@@ -613,14 +613,16 @@ const MeusEnvios = () => {
                           <td>{item.valHig != null ? item.valHig.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
                           <td>{item.totalOrcamento != null ? item.totalOrcamento.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
                           <td>
-                            <button
-                              className="btn btn-secondary btn-sm"
-                              type="button"
-                              onClick={() => navigate('/lancar-orcamentos', { state: { item } })}
-                            >
-                              <i className="material-icons" style={{ fontSize: 14, marginRight: 4 }}>edit</i>
-                              Editar
-                            </button>
+                            {!isStatusFinalizado(item.status) && (
+                              <button
+                                className="btn btn-secondary btn-sm"
+                                type="button"
+                                onClick={() => navigate('/lancar-orcamentos', { state: { item } })}
+                              >
+                                <i className="material-icons" style={{ fontSize: 14, marginRight: 4 }}>edit</i>
+                                Editar
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))}
