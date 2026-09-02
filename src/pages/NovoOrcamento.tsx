@@ -22,6 +22,7 @@ type ParsedQrPayload = {
   raw: any;
 };
 
+const RECEM_ENVIADOS_KEY = 'gat_orc_recem_enviados';
 const QR_FIELD_ALIASES: Record<string, string> = {
   UUID: 'UUID',
   DESCRIPTION: 'DESCRIPTION',
@@ -121,7 +122,10 @@ const parseDelimitedQrFields = (raw: string) => {
 
     if (!value) return;
 
-    if (key === 'EAN') value = value.replace(/\D/g, '');
+    if (key === 'EAN') {
+      value = value.replace(/\D/g, '');
+    }
+
     fields[key] = value;
   });
 
@@ -136,7 +140,9 @@ const parseMarkerBasedQrFields = (raw: string) => {
     .replace(/\s+/g, '')
     .toUpperCase();
 
-  const markers = Array.from(new Set(Object.keys(QR_FIELD_ALIASES))).sort((a, b) => b.length - a.length);
+  const markers = Array.from(new Set(Object.keys(QR_FIELD_ALIASES)))
+    .sort((a, b) => b.length - a.length);
+
   const positions = markers
     .map((marker) => ({ marker, index: compact.indexOf(marker) }))
     .filter((entry) => entry.index >= 0)
@@ -150,8 +156,11 @@ const parseMarkerBasedQrFields = (raw: string) => {
     const end = positions[index + 1]?.index ?? compact.length;
     const value = compact.slice(start, end).trim();
     if (!value) return;
+
     const markerKey = canonicalizeQrFieldKey(entry.marker);
-    if (!fields[markerKey]) fields[markerKey] = markerKey === 'EAN' ? value.replace(/\D/g, '') : value;
+    if (!fields[markerKey]) {
+      fields[markerKey] = markerKey === 'EAN' ? value.replace(/\D/g, '') : value;
+    }
   });
 
   return fields.UUID || fields.LEGACYID || fields.EAN ? fields : null;
@@ -174,12 +183,15 @@ const NovoOrcamento = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const [qrError, setQrError] = useState('');
+  const [manualMode, setManualMode] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const requestSeqRef = useRef(0);
   const pendingScanRef = useRef<ParsedQrPayload | null>(null);
   const serialInputRef = useRef<HTMLInputElement | null>(null);
+  const codeInputRef = useRef<HTMLInputElement | null>(null);
+  const draftHydratedRef = useRef(false);
 
   const gerarProtocolo = () => {
     const now = new Date();
@@ -235,8 +247,83 @@ const NovoOrcamento = () => {
     return compact.match(/.{1,4}/g)?.join('-') ?? compact;
   };
 
+  const focusCodeInput = () => {
+    requestAnimationFrame(() => {
+      codeInputRef.current?.focus();
+      codeInputRef.current?.select();
+    });
+  };
+
+  const finalizeSerialInput = (raw: string) => {
+    const formatted = formatSerialValue(raw);
+    setSerial(formatted);
+    if (formatted) {
+      focusCodeInput();
+    }
+  };
+
   useEffect(() => {
-    setProtocolo(gerarProtocolo());
+    let cancelled = false;
+
+    const loadDraftFromSupabase = async () => {
+      const paUsuario = (localStorage.getItem('gat_user') || '').trim();
+      if (!paUsuario) {
+        setProtocolo(gerarProtocolo());
+        return;
+      }
+
+      try {
+        const response = await oracleApi.get(ORACLE_ENDPOINTS.getOrcamentoDraftSupabase, {
+          params: { paUsuario, _ts: Date.now() },
+          headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+          validateStatus: (status) => status >= 200 && status < 500
+        });
+
+        const rows = Array.isArray(response.data) ? response.data : [];
+        const row = rows[0];
+        const draft = row?.payload && typeof row.payload === 'object'
+          ? row.payload as Partial<{
+            protocolo: string;
+            cnpj: string;
+            razaoSocial: string;
+            email: string;
+            unidade: string;
+            uuid: string;
+            ean: string;
+            codGemco: string;
+            descProd: string;
+            fornecedor: string;
+            linha: string;
+            serial: string;
+            itens: Item[];
+          }>
+          : null;
+
+        if (cancelled) return;
+
+        if (draft) {
+          if (draft.protocolo) setProtocolo(String(draft.protocolo));
+          if (draft.cnpj) setCnpj(String(draft.cnpj));
+          if (draft.razaoSocial) setRazaoSocial(String(draft.razaoSocial));
+          if (draft.email) setEmail(String(draft.email));
+          if (draft.unidade) setUnidade(String(draft.unidade));
+          if (draft.uuid) setUuid(String(draft.uuid));
+          if (draft.ean) setEan(String(draft.ean));
+          if (draft.codGemco) setCodGemco(String(draft.codGemco));
+          if (draft.descProd) setDescProd(String(draft.descProd));
+          if (draft.fornecedor) setFornecedor(String(draft.fornecedor));
+          if (draft.linha) setLinha(String(draft.linha));
+          if (draft.serial) setSerial(String(draft.serial));
+          if (Array.isArray(draft.itens)) setItens(draft.itens);
+        } else {
+          setProtocolo(gerarProtocolo());
+        }
+      } catch {
+        if (!cancelled) {
+          setProtocolo(gerarProtocolo());
+        }
+      }
+    };
 
     const loadUserInfo = async () => {
       try {
@@ -274,6 +361,8 @@ const NovoOrcamento = () => {
             ? data
             : [];
 
+        if (cancelled) return;
+
         const item = list[0] ?? data ?? {};
 
         const getField = (source: any, keys: string[]) => {
@@ -303,8 +392,71 @@ const NovoOrcamento = () => {
       }
     };
 
-    loadUserInfo();
+    void (async () => {
+      await loadDraftFromSupabase();
+      await loadUserInfo();
+      if (!cancelled) {
+        draftHydratedRef.current = true;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  useEffect(() => {
+    if (!draftHydratedRef.current) return;
+    const paUsuario = (localStorage.getItem('gat_user') || '').trim();
+    if (!paUsuario) return;
+    const hasDraftContent = Boolean(
+      cnpj
+      || razaoSocial
+      || email
+      || unidade
+      || uuid
+      || ean
+      || codGemco
+      || descProd
+      || fornecedor
+      || linha
+      || serial
+      || itens.length > 0
+    );
+    if (!hasDraftContent) return;
+
+    const handle = window.setTimeout(() => {
+      void oracleApi.post(
+        ORACLE_ENDPOINTS.saveOrcamentoDraftSupabase,
+        {
+          paUsuario,
+          cnpj,
+          protocolo,
+          status: 'RASCUNHO',
+          payload: {
+            protocolo,
+            cnpj,
+            razaoSocial,
+            email,
+            unidade,
+            uuid,
+            ean,
+            codGemco,
+            descProd,
+            fornecedor,
+            linha,
+            serial,
+            itens
+          }
+        },
+        { headers: { 'Content-Type': 'application/json' } }
+      ).catch(() => {
+        // silencioso: mantem a tela responsiva se o rascunho falhar
+      });
+    }, 800);
+
+    return () => window.clearTimeout(handle);
+  }, [protocolo, cnpj, razaoSocial, email, unidade, uuid, ean, codGemco, descProd, fornecedor, linha, serial, itens]);
 
   useEffect(() => {
     if (!showQr) return;
@@ -415,9 +567,16 @@ const NovoOrcamento = () => {
           legacyId: delimitedFields.LEGACYID,
           ean: delimitedFields.EAN,
           serial: delimitedFields.SERIAL ?? delimitedFields.SN ?? delimitedFields.IMEI,
+          description: delimitedFields.DESCRIPTION,
+          invoiceNumber: delimitedFields.INVOICENUMBER,
+          volume: delimitedFields.VOLUME,
+          total: delimitedFields.TOTAL,
           ...delimitedFields
         });
-        if (hasLookupFields(delimitedPayload)) return delimitedPayload;
+
+        if (hasLookupFields(delimitedPayload)) {
+          return delimitedPayload;
+        }
       }
 
       const markerFields = parseMarkerBasedQrFields(trimmed);
@@ -427,17 +586,26 @@ const NovoOrcamento = () => {
           legacyId: markerFields.LEGACYID,
           ean: markerFields.EAN,
           serial: markerFields.SERIAL ?? markerFields.SN ?? markerFields.IMEI,
+          description: markerFields.DESCRIPTION,
+          invoiceNumber: markerFields.INVOICENUMBER,
+          volume: markerFields.VOLUME,
+          total: markerFields.TOTAL,
           ...markerFields
         });
-        if (hasLookupFields(markerPayload)) return markerPayload;
+
+        if (hasLookupFields(markerPayload)) {
+          return markerPayload;
+        }
       }
 
       const blocks = splitRawQrBlocks(trimmed);
+
       for (const block of blocks) {
         const normalizedBlock = block
           .replace(/[\u0000-\u001F\u007F]+/g, ' ')
           .replace(/[;,]?\s*\{$/, '')
           .trim();
+
         if (!normalizedBlock) continue;
 
         const parsedFields = parseDelimitedQrFields(normalizedBlock);
@@ -448,9 +616,16 @@ const NovoOrcamento = () => {
           legacyId: parsedFields.LEGACYID,
           ean: parsedFields.EAN,
           serial: parsedFields.SERIAL ?? parsedFields.SN ?? parsedFields.IMEI,
+          description: parsedFields.DESCRIPTION,
+          invoiceNumber: parsedFields.INVOICENUMBER,
+          volume: parsedFields.VOLUME,
+          total: parsedFields.TOTAL,
           ...parsedFields
         });
-        if (hasLookupFields(payload)) return payload;
+
+        if (hasLookupFields(payload)) {
+          return payload;
+        }
       }
 
       return null;
@@ -459,20 +634,80 @@ const NovoOrcamento = () => {
 
   const normalizeCode = (value: string) => compactLookupValue(value);
 
+  const applyParsedScan = (parsed: ParsedQrPayload) => {
+    pendingScanRef.current = parsed;
+
+    const normalizedLegacyId = parsed.legacyId ? normalizeCode(parsed.legacyId) : '';
+    const normalizedEan = parsed.ean ? normalizeCode(parsed.ean) : '';
+
+    if (parsed.uuid) setUuid(parsed.uuid);
+    if (normalizedEan) setEan(normalizedEan);
+    if (parsed.serial) setSerial(parsed.serial);
+    if (normalizedLegacyId) {
+      setCodGemco(normalizedLegacyId);
+    } else if (normalizedEan) {
+      setCodGemco(normalizedEan);
+    }
+
+    if (serial.trim() && (normalizedLegacyId || normalizedEan)) {
+      requestAnimationFrame(() => {
+        buscarProdutoCadastro();
+      });
+    }
+  };
+
   const handleQrInput = (raw: string) => {
     const parsed = parseQrPayload(raw);
     if (!parsed) {
       pendingScanRef.current = null;
       return;
     }
-    pendingScanRef.current = parsed;
-    if (parsed.uuid) setUuid(parsed.uuid);
-    if (parsed.ean) setEan(normalizeCode(parsed.ean));
-    if (parsed.serial) setSerial(parsed.serial);
-    if (parsed.legacyId) setCodGemco(normalizeCode(parsed.legacyId));
+    applyParsedScan(parsed);
   };
 
   const abrirLeitorQr = () => { setShowQr(true); };
+
+  const alternarPreenchimentoManual = () => {
+    setManualMode((prev) => !prev);
+    pendingScanRef.current = null;
+  };
+
+  const validarDadosCabecalho = () => {
+    if (!email.trim()) {
+      setToast({ type: 'error', message: 'Obrigatorio preencher o e-mail de retorno.' });
+      return false;
+    }
+
+    if (!unidade.trim()) {
+      setToast({ type: 'error', message: 'Obrigatorio preencher a unidade.' });
+      return false;
+    }
+
+    return true;
+  };
+
+  const validarDadosItem = (values: {
+    serial: string;
+    codGemco: string;
+    descricao: string;
+  }) => {
+    if (!values.serial.trim() || values.serial.trim() === '-') {
+      setToast({ type: 'error', message: 'Obrigatorio preencher o serial.' });
+      return false;
+    }
+
+    if (!values.codGemco.trim()) {
+      setToast({ type: 'error', message: 'Obrigatorio preencher o codigo do produto.' });
+      return false;
+    }
+
+    if (!values.descricao.trim()) {
+      setToast({ type: 'error', message: 'Obrigatorio preencher a descricao do produto.' });
+      return false;
+    }
+
+    return true;
+  };
 
   const adicionarItem = (override?: {
     uuid?: string;
@@ -491,9 +726,11 @@ const NovoOrcamento = () => {
     const finalLinha = override?.linha ?? linha;
     const finalSerial = override?.serial ?? serial;
 
-    if (!finalCodGemco || !finalDesc) return;
-    if (!finalSerial || finalSerial === '-') {
-      setToast({ type: 'error', message: 'Informe o serial antes de bipar o codigo.' });
+    if (!validarDadosItem({
+      serial: finalSerial,
+      codGemco: finalCodGemco,
+      descricao: finalDesc
+    })) {
       return;
     }
     const item: Item = {
@@ -506,7 +743,7 @@ const NovoOrcamento = () => {
       fornecedor: finalFornecedor || '-',
       linha: finalLinha || '-',
       serial: finalSerial || '-',
-      status: 1
+      status: 0
     };
     setItens((prev) => [...prev, item]);
     try {
@@ -612,8 +849,7 @@ const NovoOrcamento = () => {
 
   const finalizarEnvio = async () => {
     if (itens.length === 0 || isSaving) return;
-    if (!unidade.trim()) {
-      setToast({ type: 'error', message: 'Preencha a filial (unidade) para enviar.' });
+    if (!validarDadosCabecalho()) {
       return;
     }
     setIsSaving(true);
@@ -643,8 +879,15 @@ const NovoOrcamento = () => {
         headers: { 'Content-Type': 'application/json' }
       });
 
+      try {
+        const savedRecemEnviados = localStorage.getItem(RECEM_ENVIADOS_KEY);
+        const parsedRecemEnviados = savedRecemEnviados ? JSON.parse(savedRecemEnviados) as Item[] : [];
+        localStorage.setItem(RECEM_ENVIADOS_KEY, JSON.stringify([...parsedRecemEnviados, ...itens]));
+      } catch {
+        // ignore storage errors
+      }
+
       setToast({ type: 'success', message: 'Envio realizado com sucesso.' });
-      const protocoloAnterior = protocolo;
       setItens([]);
       setCodGemco('');
       setUuid('');
@@ -655,9 +898,24 @@ const NovoOrcamento = () => {
       setSerial('');
       setProtocolo(gerarProtocolo());
       try {
+        await oracleApi.post(
+          ORACLE_ENDPOINTS.saveOrcamentoDraftSupabase,
+          {
+            paUsuario: localStorage.getItem('gat_user') || '',
+            cnpj,
+            protocolo,
+            status: 'FINALIZADO',
+            payload: {}
+          },
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+      } catch {
+        // ignore remote draft cleanup errors
+      }
+      try {
         const saved = localStorage.getItem('gat_orc_pendentes');
         const parsed = saved ? JSON.parse(saved) as Item[] : [];
-        const filtered = parsed.filter((item) => item.protocolo !== protocoloAnterior);
+        const filtered = parsed.filter((item) => !itens.some((sentItem) => sentItem.id === item.id));
         localStorage.setItem('gat_orc_pendentes', JSON.stringify(filtered));
       } catch {
         // ignore storage errors
@@ -670,49 +928,85 @@ const NovoOrcamento = () => {
   };
 
   return (
-    <div id="viewNovoOrcamento" className="view-section">
+    <div id="viewNovoOrcamento" className="view-section novo-orcamento-page">
       <h2 className="page-title">Novo Orçamento</h2>
 
       <div className="card">
-        <div className="grid-form">
+        <div className="grid-form novo-orcamento-grid">
           <div className="span-2"><label>Protocolo</label><input type="text" value={protocolo} readOnly /></div>
-          <div className="span-3"><label>P.A.</label><input type="text" value={localStorage.getItem('gat_user') || ''} readOnly /></div>
+          <div className="span-2"><label>P.A.</label><input type="text" value={localStorage.getItem('gat_user') || ''} readOnly /></div>
           <div className="span-2"><label>CNPJ</label><input type="text" value={formatCnpj(cnpj)} readOnly /></div>
           <div className="span-2"><label>Razão Social</label><input type="text" value={razaoSocial} readOnly /></div>
-          <div className="span-3"><label>Email Retorno</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+          <div className="span-4">
+            <label>Email Retorno *</label>
+            <input
+              type="email"
+              value={email}
+              required
+              placeholder="Obrigatorio preencher"
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
         </div>
-        <div className="grid-form" style={{ marginTop: 10 }}>
-          <div className="span-3"><label>Unidade</label><input type="text" value={unidade} onChange={(e) => setUnidade(e.target.value)} /></div>
+        <div className="grid-form novo-orcamento-grid" style={{ marginTop: 10 }}>
+          <div className="span-4">
+            <label>Unidade *</label>
+            <input
+              type="text"
+              value={unidade}
+              required
+              placeholder="Obrigatorio preencher"
+              onChange={(e) => setUnidade(e.target.value)}
+            />
+          </div>
         </div>
       </div>
 
       <div className="card">
         <div className="section-title">Dados do Produto</div>
-        <div className="grid-form">
-          <div className="span-2">
-            <label>Serial</label>
+        <div className="novo-orcamento-help">
+          Campos com * sao obrigatorios. Se a etiqueta estiver rasurada, rasgada, suja ou ilegivel, use o botao de preenchimento manual.
+        </div>
+        <div className="grid-form novo-orcamento-grid novo-orcamento-grid-produto">
+          <div className="span-3">
+            <label>Serial *</label>
             <input
               ref={serialInputRef}
               type="text"
               value={serial}
-              placeholder="Preencha o serial primeiro"
+              required
+              placeholder="Obrigatorio preencher"
               onChange={(e) => setSerial(formatSerialValue(e.target.value))}
-              onBlur={(e) => setSerial(formatSerialValue(e.target.value))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === 'Tab') {
+                  finalizeSerialInput((e.currentTarget as HTMLInputElement).value);
+                }
+              }}
+              onBlur={(e) => finalizeSerialInput(e.target.value)}
             />
           </div>
-          <div className="span-2">
-            <label>Código</label>
-            <div className="qr-input-group">
+          <div className="span-3">
+            <label>Código *</label>
+            <div className="qr-input-group novo-orcamento-qr-group">
               <input
+                ref={codeInputRef}
                 type="text"
                 value={codGemco}
                 disabled={!serialPronto}
-                placeholder={serialPronto ? 'Bipe o codigo/QR' : 'Preencha o serial antes'}
+                required
+                placeholder={serialPronto ? 'Bipe o codigo/QR ou digite manualmente' : 'Preencha o serial antes'}
                 onChange={(e) => {
                   const value = e.target.value;
                   setCodGemco(value);
                   const trimmed = value.trim();
-                  if (trimmed.startsWith('{') || trimmed.includes('"legacyId"') || trimmed.includes('"uuid"') || trimmed.includes('"ean"')) {
+                  if (
+                    trimmed.startsWith('{')
+                    || trimmed.includes('"legacyId"')
+                    || trimmed.includes('"uuid"')
+                    || trimmed.includes('"ean"')
+                    || /\^UUID\^/i.test(trimmed)
+                    || /^UUID\d+/i.test(trimmed)
+                  ) {
                     handleQrInput(value);
                   } else {
                     pendingScanRef.current = null;
@@ -733,22 +1027,74 @@ const NovoOrcamento = () => {
                 onBlur={(e) => handleQrInput(e.target.value)}
               />
               <button
-                className="btn btn-secondary btn-sm"
+                className="btn btn-secondary btn-sm novo-orcamento-qr-button"
                 type="button"
                 onClick={abrirLeitorQr}
                 disabled={!serialPronto}
                 title="Ler QR Code"
-                style={{ padding: '0 10px', whiteSpace: 'nowrap' }}
               >
                 QR
               </button>
+              <button
+                className="btn btn-secondary btn-sm novo-orcamento-qr-button"
+                type="button"
+                onClick={alternarPreenchimentoManual}
+              >
+                {manualMode ? 'Fechar manual' : 'Digitar manual'}
+              </button>
             </div>
           </div>
-          <div className="span-2"><label>UUID</label><input type="text" value={uuid} readOnly /></div>
-          <div className="span-2"><label>Código de Barras</label><input type="text" value={ean} readOnly /></div>
-          <div className="span-6"><label>Descrição</label><input type="text" value={descProd} readOnly /></div>
-          <div className="span-2"><label>Fornecedor</label><input type="text" value={fornecedor} readOnly /></div>
-          <div className="span-2"><label>Linha</label><input type="text" value={linha} readOnly /></div>
+          <div className="span-2">
+            <label>ID Unico</label>
+            <input
+              type="text"
+              value={uuid}
+              readOnly={!manualMode}
+              placeholder={manualMode ? 'Digite manualmente se necessario' : ''}
+              onChange={(e) => setUuid(sanitizeUuidValue(e.target.value))}
+            />
+          </div>
+          <div className="span-4">
+            <label>Código de Barras</label>
+            <input
+              type="text"
+              value={ean}
+              readOnly={!manualMode}
+              placeholder={manualMode ? 'Digite manualmente se necessario' : ''}
+              onChange={(e) => setEan(sanitizeEanValue(e.target.value))}
+            />
+          </div>
+          <div className="span-6">
+            <label>Descrição *</label>
+            <input
+              type="text"
+              value={descProd}
+              readOnly={!manualMode}
+              required
+              placeholder={manualMode ? 'Obrigatorio preencher' : ''}
+              onChange={(e) => setDescProd(e.target.value)}
+            />
+          </div>
+          <div className="span-3">
+            <label>Fornecedor</label>
+            <input
+              type="text"
+              value={fornecedor}
+              readOnly={!manualMode}
+              placeholder={manualMode ? 'Digite manualmente se necessario' : ''}
+              onChange={(e) => setFornecedor(e.target.value)}
+            />
+          </div>
+          <div className="span-3">
+            <label>Linha</label>
+            <input
+              type="text"
+              value={linha}
+              readOnly={!manualMode}
+              placeholder={manualMode ? 'Digite manualmente se necessario' : ''}
+              onChange={(e) => setLinha(e.target.value)}
+            />
+          </div>
         </div>
       </div>
 
@@ -766,14 +1112,13 @@ const NovoOrcamento = () => {
                 <th>Fornecedor</th>
                 <th>Linha</th>
                 <th>Serial</th>
-                <th>Status</th>
                 <th style={{ textAlign: 'center' }}>Ação</th>
               </tr>
             </thead>
             <tbody>
               {itens.length === 0 && (
                 <tr>
-                  <td colSpan={10} style={{ textAlign: 'center', color: '#999' }}>Nenhum item adicionado.</td>
+                  <td colSpan={9} style={{ textAlign: 'center', color: '#999' }}>Nenhum item adicionado.</td>
                 </tr>
               )}
               {itens.map((item) => (
@@ -786,7 +1131,6 @@ const NovoOrcamento = () => {
                   <td>{item.fornecedor}</td>
                   <td>{item.linha}</td>
                   <td>{item.serial}</td>
-                  <td>{item.status}</td>
                   <td style={{ textAlign: 'center' }}>
                     <button className="btn btn-danger btn-sm" type="button" onClick={() => removerItem(item.id)}>
                       <i className="material-icons">delete</i>
@@ -816,7 +1160,7 @@ const NovoOrcamento = () => {
               <video ref={videoRef} className="qr-video" muted playsInline />
             </div>
             {qrError && <div className="qr-error">{qrError}</div>}
-            <div className="qr-help">Aponte a câmera para o QR. Se não funcionar, cole o JSON no campo.</div>
+            <div className="qr-help">Aponte a camera para o QR. Se a etiqueta estiver rasurada, rasgada, suja ou ilegivel, feche esta tela e use o botao "Digitar manual".</div>
           </div>
         </div>
       )}
