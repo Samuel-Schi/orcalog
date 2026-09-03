@@ -3,14 +3,13 @@ import { useEffect, useState } from 'react';
 
 const SidebarLayout = () => {
   const navigate = useNavigate();
-  const [isDark, setIsDark] = useState(() => localStorage.getItem('gatTheme') === 'dark');
-  const [isClosed, setIsClosed] = useState(false);
+  const [isClosed, setIsClosed] = useState(true);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   useEffect(() => {
-    document.body.classList.toggle('dark-mode', isDark);
-    localStorage.setItem('gatTheme', isDark ? 'dark' : 'light');
-  }, [isDark]);
+    document.body.classList.remove('dark-mode');
+    localStorage.setItem('gatTheme', 'light');
+  }, []);
 
   useEffect(() => {
     document.body.classList.toggle('sidebar-closed', isClosed);
@@ -39,9 +38,6 @@ const SidebarLayout = () => {
           <button className="btn-header-icon" onClick={() => setIsClosed((v) => !v)} title="Recolher Menu">
             <i className="material-icons">{isClosed ? 'menu' : 'menu_open'}</i>
           </button>
-          <button className="btn-header-icon" onClick={() => setIsDark((v) => !v)} title="Alternar Tema">
-            <i className="material-icons">{isDark ? 'light_mode' : 'dark_mode'}</i>
-          </button>
         </div>
         <div className="mobile-topbar-spacer" />
       </div>
@@ -55,9 +51,6 @@ const SidebarLayout = () => {
           <div className="header-actions">
             <button className="btn-header-icon" onClick={() => setIsClosed((v) => !v)} title="Recolher Menu">
               <i className="material-icons">{isClosed ? 'menu' : 'menu_open'}</i>
-            </button>
-            <button className="btn-header-icon" onClick={() => setIsDark((v) => !v)} title="Alternar Tema">
-              <i className="material-icons">{isDark ? 'light_mode' : 'dark_mode'}</i>
             </button>
           </div>
         </div>

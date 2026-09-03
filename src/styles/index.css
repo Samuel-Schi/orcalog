@@ -335,6 +335,14 @@ input[readonly] { background-color: #f1f3f5; color: #555; }
   color: #1e293b;
 }
 
+.calculated-value {
+  cursor: default;
+  background: #f1f5f9;
+  color: #334155;
+  font-weight: 600;
+  text-align: right;
+}
+
 .resumo-lancamento {
   border-top: 1px solid #e2e8f0;
   padding-top: 8px;
@@ -408,6 +416,34 @@ input[readonly] { background-color: #f1f3f5; color: #555; }
 .lancamento-values-column {
   display: grid;
   gap: 18px;
+}
+
+.resumo-financeiro {
+  padding: 16px;
+  border: 1px solid #dbe4f0;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #f8fbff 0%, #ffffff 70%);
+}
+
+.resumo-financeiro-titulo {
+  display: grid;
+  gap: 3px;
+  padding-bottom: 2px;
+  color: #0f4c97;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.resumo-financeiro-titulo small {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.resumo-financeiro .total-display {
+  min-height: 48px;
+  font-size: 18px;
 }
 
 .lancamento-selection-column .lancamento-block,

@@ -401,6 +401,7 @@ const LancarOrcamentos = () => {
   const [acessoriosComValores, setAcessoriosComValores] = useState<ItemComValor[]>([]);
   const scanVideoRef = useRef<HTMLVideoElement | null>(null);
   const scanStreamRef = useRef<MediaStream | null>(null);
+  const formularioRef = useRef<HTMLDivElement | null>(null);
 
   const selected = useMemo(
     () => items.find((item) => item.id === selectedId) || null,
@@ -456,7 +457,7 @@ const LancarOrcamentos = () => {
     });
 
     if (valMaoObra > 0) {
-      linhas.push({ label: 'Mao de obra', valor: valMaoObra });
+      linhas.push({ label: 'Mão de obra', valor: valMaoObra });
     }
 
     if (valEmb > 0) {
@@ -464,11 +465,11 @@ const LancarOrcamentos = () => {
     }
 
     if (valHig > 0) {
-      linhas.push({ label: 'Higienizacao', valor: valHig });
+      linhas.push({ label: 'Higienização', valor: valHig });
     }
 
     if (linhas.length > 0) {
-      linhas.push({ label: 'Total do orcamento', valor: total, destaque: true });
+      linhas.push({ label: 'Total do orçamento', valor: total, destaque: true });
     }
 
     return linhas;
@@ -533,6 +534,9 @@ const LancarOrcamentos = () => {
 
   const selecionarItem = (item: OrcamentoItem) => {
     preencherFormulario(item);
+    window.setTimeout(() => {
+      formularioRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
   };
 
   useEffect(() => {
@@ -705,7 +709,7 @@ const LancarOrcamentos = () => {
     if (!editableItem || editSelectionAppliedRef.current) return;
     setItems((current) => mergeItemIntoList(current, editableItem));
     selecionarItem(editableItem);
-    setToast({ type: 'success', message: 'Item carregado para edicao.' });
+    setToast({ type: 'success', message: 'Item carregado para edição.' });
     editSelectionAppliedRef.current = true;
   }, [editableItem]);
 
@@ -726,9 +730,9 @@ const LancarOrcamentos = () => {
     const found = findByCode(cleaned);
     if (found) {
       selecionarItem(found);
-      setToast({ type: 'success', message: 'Item localizado pelo codigo ou serial.' });
+      setToast({ type: 'success', message: 'Item localizado pelo código ou serial.' });
     } else {
-      setToast({ type: 'error', message: 'Codigo ou serial nao encontrado nos itens.' });
+      setToast({ type: 'error', message: 'Código ou serial não encontrado nos itens.' });
     }
   };
 
@@ -748,12 +752,12 @@ const LancarOrcamentos = () => {
   };
 
   useEffect(() => {
-    if (!catalogoLinha) return;
+    if (!catalogoLinha && pecasComValores.length === 0) return;
     setValPecas(pecasComValores.reduce((acc, item) => acc + item.valor, 0));
   }, [catalogoLinha, pecasComValores]);
 
   useEffect(() => {
-    if (!catalogoLinha) return;
+    if (!catalogoLinha && acessoriosComValores.length === 0) return;
     setValAcess(acessoriosComValores.reduce((acc, item) => acc + item.valor, 0));
   }, [acessoriosComValores, catalogoLinha]);
 
@@ -808,11 +812,11 @@ const LancarOrcamentos = () => {
   const lancarValores = async () => {
     if (!selected) return;
     if (selected.dbId == null) {
-      setToast({ type: 'error', message: 'Este item nao possui ID real do banco. Ajuste o endpoint para retornar o campo ID.' });
+      setToast({ type: 'error', message: 'Este item não possui ID real do banco. Ajuste o endpoint para retornar o campo ID.' });
       return;
     }
     if (precisaFoto && !foto && !selected.fotoNome) {
-      setToast({ type: 'error', message: 'Anexe a foto da avaria antes de lancar os valores.' });
+      setToast({ type: 'error', message: 'Anexe a foto da avaria antes de lançar os valores.' });
       return;
     }
 
@@ -845,14 +849,14 @@ const LancarOrcamentos = () => {
       const defeitoEncontradoPayload = catalogoLinha
         ? buildSelectionPayload(defeitosSelecionados)
         : defeitoEncontrado;
-      const pecasDescPayload = catalogoLinha
+      const pecasDescPayload = (catalogoLinha || pecasComValores.length > 0)
         ? buildSelectionPayload(
             pecasComValores.map((item) => item.nome),
             'pe'
           )
         : pecasDesc;
       const pecasDetalhesPayload = serializeItensComValor(pecasComValores);
-      const acessDescPayload = catalogoLinha
+      const acessDescPayload = (catalogoLinha || acessoriosComValores.length > 0)
         ? buildSelectionPayload(
             acessoriosComValores.map((item) => item.nome),
             'ac'
@@ -920,7 +924,7 @@ const LancarOrcamentos = () => {
         } else {
           console.error('Erro ao sincronizar orcamento no Supabase:', syncError);
         }
-        syncWarning = ' Valores salvos no portal, mas a sincronizacao do Supabase falhou.';
+        syncWarning = ' Valores salvos no portal, mas a sincronização do Supabase falhou.';
       }
 
       const remaining = items.filter((item) => item.id !== selected.id);
@@ -950,7 +954,7 @@ const LancarOrcamentos = () => {
       limparFormulario();
       setToast({
         type: syncWarning ? 'error' : 'success',
-        message: `${isEditingItem ? 'Lancamento atualizado com sucesso.' : 'Valores lancados com sucesso.'}${syncWarning}`
+        message: `${isEditingItem ? 'Lançamento atualizado com sucesso.' : 'Valores lançados com sucesso.'}${syncWarning}`
       });
     } catch (err) {
       if (axios.isAxiosError(err)) {
@@ -960,11 +964,11 @@ const LancarOrcamentos = () => {
           data?.error ||
           data?.message ||
           data?.hint ||
-          `Erro ao lancar valores (${status ?? 'sem status'}).`;
+          `Erro ao lançar valores (${status ?? 'sem status'}).`;
         setToast({ type: 'error', message: String(backendError) });
         console.error('Erro ao lancar valores do orcamento:', status, data);
       } else {
-        setToast({ type: 'error', message: 'Erro ao lancar valores do orcamento.' });
+        setToast({ type: 'error', message: 'Erro ao lançar valores do orçamento.' });
         console.error('Erro ao lancar valores do orcamento:', err);
       }
     } finally {
@@ -1055,7 +1059,7 @@ const LancarOrcamentos = () => {
 
   return (
     <div className="view-section">
-      <h2 className="page-title">Lancamento de Orcamentos</h2>
+      <h2 className="page-title">Lançamento de Orçamentos</h2>
 
       <div className="card">
         <div className="section-title">Lotes (Protocolos)</div>
@@ -1065,7 +1069,7 @@ const LancarOrcamentos = () => {
               <input
                 type="text"
                 inputMode="numeric"
-                placeholder="Bipar ou digitar codigo de barras/GEMCO"
+                placeholder="Bipar ou digitar código de barras/GEMCO"
                 value={scanValue}
                 onChange={(e) => setScanValue(e.target.value)}
                 onKeyDown={(e) => {
@@ -1081,7 +1085,7 @@ const LancarOrcamentos = () => {
                 Buscar
               </button>
               <button className="btn btn-primary btn-sm" type="button" onClick={() => setIsScanning(true)}>
-                Bip Camera
+                Bip Câmera
               </button>
             </div>
           </div>
@@ -1103,9 +1107,9 @@ const LancarOrcamentos = () => {
                 <table className="tabela-horizontal">
                   <thead>
                     <tr>
-                      <th>Cod. Barras</th>
+                      <th>Cód. Barras</th>
                       <th>Cod. GEMCO</th>
-                      <th>Descricao</th>
+                      <th>Descrição</th>
                       <th>Fornecedor</th>
                       <th>Linha</th>
                       <th>Serial</th>
@@ -1134,8 +1138,8 @@ const LancarOrcamentos = () => {
         ))}
       </div>
 
-      <div className="card">
-        <div className="section-title">{isEditingItem ? 'Editar Lancamento' : 'Valores e Defeitos'}</div>
+      <div className="card" ref={formularioRef}>
+        <div className="section-title">{isEditingItem ? 'Editar Lançamento' : 'Valores e Defeitos'}</div>
         {!selected && (
           <div style={{ color: '#777', padding: '10px 0' }}>
             Selecione um item acima para lançar ou editar o orçamento.
@@ -1149,7 +1153,7 @@ const LancarOrcamentos = () => {
                 <div className="selection-stack">
                   <div className="selection-input-row">
                     <select value={defeitoCatalogado} onChange={(e) => setDefeitoCatalogado(e.target.value)}>
-                      <option value="">SELECIONE O DEFEITO PADRAO...</option>
+                      <option value="">SELECIONE O DEFEITO PADRÃO...</option>
                       {catalogoLinha.DEFEITOS.map((defeito) => (
                         <option key={defeito} value={defeito}>
                           {defeito}
@@ -1162,7 +1166,7 @@ const LancarOrcamentos = () => {
                   </div>
                   <div className="selection-tags">
                     {defeitosSelecionados.length === 0 && (
-                      <div className="selection-empty">Nenhum defeito selecionado.</div>
+                      <div className="selection-empty">Os defeitos selecionados aparecerão abaixo.</div>
                     )}
                     {defeitosSelecionados.map((defeito) => (
                       <button
@@ -1171,7 +1175,7 @@ const LancarOrcamentos = () => {
                         className="btn btn-secondary btn-sm selection-tag"
                         onClick={() => removerValorSelecionado(defeito, setDefeitosSelecionados)}
                       >
-                        {defeito} x
+                        {defeito} ×
                       </button>
                     ))}
                   </div>
@@ -1204,7 +1208,7 @@ const LancarOrcamentos = () => {
             </div>
             <div className="lancamento-row lancamento-row-3">
               <div className="lancamento-field">
-                <label>Possui Defeito Funcional?</label>
+                <label>Possui defeito funcional?</label>
                 <select value={defeitoFuncional} onChange={(e) => setDefeitoFuncional(e.target.value)}>
                   <option value="">SELECIONE...</option>
                   <option value="SIM">SIM</option>
@@ -1212,7 +1216,7 @@ const LancarOrcamentos = () => {
                 </select>
               </div>
               <div className="lancamento-field">
-                <label>Dentro do Prazo de Garantia?</label>
+                <label>Dentro do prazo de garantia?</label>
                 <select value={garantia} onChange={(e) => setGarantia(e.target.value)}>
                   <option value="">SELECIONE...</option>
                   <option value="SIM">SIM</option>
@@ -1233,18 +1237,26 @@ const LancarOrcamentos = () => {
             <div className="lancamento-main-grid">
               <div className="lancamento-selection-column">
                 <div className="lancamento-block">
-                  <label>Pecas Avariadas/Faltantes</label>
+                  <label>Peças avariadas/faltantes</label>
                   <div className="selection-stack">
-                    {catalogoLinha && (
-                      <div className="selection-input-row">
+                    <div className="selection-input-row">
+                      {catalogoLinha ? (
                         <select value={pecaSelecionada} onChange={(e) => setPecaSelecionada(e.target.value)}>
-                          <option value="">SELECIONE A PECA...</option>
+                          <option value="">SELECIONE A PEÇA...</option>
                           {catalogoLinha.PECAS.map((peca) => (
                             <option key={peca} value={peca}>
                               {peca}
                             </option>
                           ))}
                         </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={pecaSelecionada}
+                          onChange={(e) => setPecaSelecionada(e.target.value)}
+                          placeholder="Descreva a peça"
+                        />
+                      )}
                         <input
                           type="text"
                           inputMode="decimal"
@@ -1255,12 +1267,10 @@ const LancarOrcamentos = () => {
                         <button className="btn btn-success btn-sm" type="button" onClick={adicionarPeca}>
                           Adicionar
                         </button>
-                      </div>
-                    )}
-                    {catalogoLinha ? (
-                      <div className="selection-values-list">
+                    </div>
+                    <div className="selection-values-list">
                         {pecasComValores.length === 0 && (
-                          <div className="selection-empty">Nenhuma peca selecionada.</div>
+                          <div className="selection-empty">As peças selecionadas aparecerão abaixo.</div>
                         )}
                         {pecasComValores.map((peca) => (
                           <div key={peca.nome} className="selection-value-item">
@@ -1280,31 +1290,31 @@ const LancarOrcamentos = () => {
                             </button>
                           </div>
                         ))}
-                      </div>
-                    ) : (
-                      <input
-                        type="text"
-                        value={pecasDesc}
-                        onChange={(e) => setPecasDesc(e.target.value)}
-                        placeholder="Busca..."
-                      />
-                    )}
+                    </div>
                   </div>
                 </div>
 
                 <div className="lancamento-block">
-                  <label>Acessorios Avariados/Faltantes</label>
+                  <label>Acessórios avariados/faltantes</label>
                   <div className="selection-stack">
-                    {catalogoLinha && (
-                      <div className="selection-input-row">
+                    <div className="selection-input-row">
+                      {catalogoLinha ? (
                         <select value={acessorioSelecionado} onChange={(e) => setAcessorioSelecionado(e.target.value)}>
-                          <option value="">SELECIONE O ACESSORIO...</option>
+                          <option value="">SELECIONE O ACESSÓRIO...</option>
                           {(catalogoLinha.ACESSORIOS || ['ACESSORIO']).map((acessorio) => (
                             <option key={acessorio} value={acessorio}>
                               {acessorio}
                             </option>
                           ))}
                         </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={acessorioSelecionado}
+                          onChange={(e) => setAcessorioSelecionado(e.target.value)}
+                          placeholder="Descreva o acessório"
+                        />
+                      )}
                         <input
                           type="text"
                           inputMode="decimal"
@@ -1315,12 +1325,10 @@ const LancarOrcamentos = () => {
                         <button className="btn btn-success btn-sm" type="button" onClick={adicionarAcessorio}>
                           Adicionar
                         </button>
-                      </div>
-                    )}
-                    {catalogoLinha ? (
-                      <div className="selection-values-list">
+                    </div>
+                    <div className="selection-values-list">
                         {acessoriosComValores.length === 0 && (
-                          <div className="selection-empty">Nenhum acessorio selecionado.</div>
+                          <div className="selection-empty">Os acessórios selecionados aparecerão abaixo.</div>
                         )}
                         {acessoriosComValores.map((acessorio) => (
                           <div key={acessorio.nome} className="selection-value-item">
@@ -1340,58 +1348,52 @@ const LancarOrcamentos = () => {
                             </button>
                           </div>
                         ))}
-                      </div>
-                    ) : (
-                      <input
-                        type="text"
-                        value={acessDesc}
-                        onChange={(e) => setAcessDesc(e.target.value)}
-                        placeholder="Busca..."
-                      />
-                    )}
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <div className="lancamento-values-column">
+              <aside className="lancamento-values-column resumo-financeiro" aria-label="Resumo financeiro do orçamento">
+                <div className="resumo-financeiro-titulo">
+                  <span>Resumo financeiro</span>
+                  <small>Os totais de peças e acessórios são calculados automaticamente.</small>
+                </div>
                 <div className="lancamento-row lancamento-row-2">
                   <div className="lancamento-field">
-                    <label>Valor Pecas</label>
-                    <input type="text" inputMode="decimal" value={formatCurrency(valPecas)} onChange={(e) => setValPecas(parseCurrency(e.target.value))} />
+                    <label>Valor das peças</label>
+                    <input type="text" readOnly value={formatCurrency(valPecas)} className="calculated-value" aria-label="Valor das peças calculado automaticamente" />
                   </div>
                   <div className="lancamento-field">
-                    <label>Valor Acessorios</label>
-                    <input type="text" inputMode="decimal" value={formatCurrency(valAcess)} onChange={(e) => setValAcess(parseCurrency(e.target.value))} />
+                    <label>Valor dos acessórios</label>
+                    <input type="text" readOnly value={formatCurrency(valAcess)} className="calculated-value" aria-label="Valor dos acessórios calculado automaticamente" />
                   </div>
                 </div>
 
                 <div className="lancamento-row lancamento-row-3">
-                  <div className="lancamento-field"><label>Mao de Obra</label><input type="text" inputMode="decimal" value={formatCurrency(valMaoObra)} onChange={(e) => setValMaoObra(parseCurrency(e.target.value))} /></div>
+                  <div className="lancamento-field"><label>Mão de obra</label><input type="text" inputMode="decimal" value={formatCurrency(valMaoObra)} onChange={(e) => setValMaoObra(parseCurrency(e.target.value))} /></div>
                   <div className="lancamento-field"><label>Embalagem</label><input type="text" inputMode="decimal" value={formatCurrency(valEmb)} onChange={(e) => setValEmb(parseCurrency(e.target.value))} /></div>
-                  <div className="lancamento-field"><label>Higienizacao</label><input type="text" inputMode="decimal" value={formatCurrency(valHig)} onChange={(e) => setValHig(parseCurrency(e.target.value))} /></div>
+                  <div className="lancamento-field"><label>Higienização</label><input type="text" inputMode="decimal" value={formatCurrency(valHig)} onChange={(e) => setValHig(parseCurrency(e.target.value))} /></div>
                 </div>
 
                 <div className="lancamento-row lancamento-row-1">
                   <div className="lancamento-field">
-                    <label>Valor Final Pecas/Acessorios</label>
-                    <input type="text" readOnly value={formatCurrency(totalPecasAcess)} style={{ textAlign: 'right' }} />
+                    <label>Total de peças e acessórios</label>
+                    <input type="text" readOnly value={formatCurrency(totalPecasAcess)} className="calculated-value" />
                   </div>
                 </div>
 
                 <div className="lancamento-row lancamento-row-1">
                   <div className="lancamento-field">
-                    <label>Total do Orcamento</label>
+                    <label>Total do orçamento</label>
                     <input type="text" readOnly value={formatCurrency(total)} className="total-display" />
                   </div>
                 </div>
-              </div>
+              </aside>
             </div>
 
-            <div className="lancamento-block resumo-lancamento">
-              <label>Conferencia rapida</label>
-              {resumoLancamento.length === 0 ? (
-                <div className="selection-empty">Os itens e valores lancados vao aparecer aqui.</div>
-              ) : (
+            {resumoLancamento.length > 0 && (
+              <div className="lancamento-block resumo-lancamento">
+                <label>Conferência rápida</label>
                 <div className="resumo-lista">
                   {resumoLancamento.map((item) => (
                     <div
@@ -1403,14 +1405,14 @@ const LancarOrcamentos = () => {
                     </div>
                   ))}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         )}
         {selected && (
           <div className="action-bar">
             <button className="btn btn-success btn-sm" type="button" onClick={lancarValores} disabled={isSubmitting}>
-              <i className="material-icons">save</i> {isSubmitting ? (isEditingItem ? 'SALVANDO...' : 'LANCANDO...') : (isEditingItem ? 'SALVAR EDICAO' : 'LANCAR VALORES')}
+              <i className="material-icons">save</i> {isSubmitting ? (isEditingItem ? 'SALVANDO...' : 'LANÇANDO...') : (isEditingItem ? 'SALVAR EDIÇÃO' : 'LANÇAR VALORES')}
             </button>
           </div>
         )}
@@ -1429,7 +1431,7 @@ const LancarOrcamentos = () => {
         <div className="qr-modal">
           <div className="qr-modal-content">
             <div className="qr-modal-header">
-              <h3>Bip por Camera</h3>
+              <h3>Bip por Câmera</h3>
               <button type="button" className="qr-close" onClick={() => setIsScanning(false)}>x</button>
             </div>
             <div className="qr-video-wrap">
