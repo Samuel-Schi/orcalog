@@ -192,6 +192,8 @@ const NovoOrcamento = () => {
   const serialInputRef = useRef<HTMLInputElement | null>(null);
   const codeInputRef = useRef<HTMLInputElement | null>(null);
   const draftHydratedRef = useRef(false);
+  const serialTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lookupInFlightRef = useRef('');
 
   const gerarProtocolo = () => {
     const now = new Date();
@@ -255,6 +257,7 @@ const NovoOrcamento = () => {
   };
 
   const finalizeSerialInput = (raw: string) => {
+    if (serialTimerRef.current) clearTimeout(serialTimerRef.current);
     const formatted = formatSerialValue(raw);
     setSerial(formatted);
     if (formatted) {
@@ -372,7 +375,8 @@ const NovoOrcamento = () => {
           for (const key of keys) {
             const realKey = lowerMap.get(key.toLowerCase());
             if (realKey && source[realKey] !== null && source[realKey] !== undefined && source[realKey] !== '') {
-              return String(source[realKey]);
+              const value = String(source[realKey]).trim();
+            if (value) return value;
             }
           }
           return '';
@@ -522,14 +526,26 @@ const NovoOrcamento = () => {
   }, [toast]);
 
   useEffect(() => {
-    if (manualMode) return;
-    if (!codGemco) return;
-    if (codGemco.trim().startsWith('{')) return;
+    if (manualMode || !codGemco.trim()) return;
     const handle = setTimeout(() => {
-      buscarProdutoCadastro();
-    }, 300);
+      const parsed = parseQrPayload(codGemco);
+      if (parsed && hasLookupFields(parsed)) {
+        pendingScanRef.current = parsed;
+        if (parsed.uuid) setUuid(parsed.uuid);
+        if (parsed.ean) setEan(parsed.ean);
+        if (parsed.serial) setSerial(parsed.serial);
+        void buscarProdutoCadastro(parsed);
+      } else if (!/[{^]/.test(codGemco) && !/^UUID/i.test(codGemco)) {
+        void buscarProdutoCadastro();
+      }
+    }, 450);
     return () => clearTimeout(handle);
   }, [codGemco, manualMode]);
+
+  useEffect(() => () => {
+    if (serialTimerRef.current) clearTimeout(serialTimerRef.current);
+    requestSeqRef.current += 1;
+  }, []);
 
   const parseQrPayload = (raw: string) => {
     const trimmed = raw.trim();
@@ -636,6 +652,7 @@ const NovoOrcamento = () => {
   const normalizeCode = (value: string) => compactLookupValue(value);
 
   const applyParsedScan = (parsed: ParsedQrPayload) => {
+    requestSeqRef.current += 1;
     pendingScanRef.current = parsed;
 
     const normalizedLegacyId = parsed.legacyId ? normalizeCode(parsed.legacyId) : '';
@@ -646,15 +663,11 @@ const NovoOrcamento = () => {
     if (parsed.serial) setSerial(parsed.serial);
     if (normalizedLegacyId) {
       setCodGemco(normalizedLegacyId);
-    } else if (normalizedEan) {
-      setCodGemco(normalizedEan);
+    } else if (normalizedEan || parsed.uuid) {
+      setCodGemco(normalizedEan || parsed.uuid);
     }
 
-    if (serial.trim() && (normalizedLegacyId || normalizedEan)) {
-      requestAnimationFrame(() => {
-        buscarProdutoCadastro();
-      });
-    }
+
   };
 
   const handleQrInput = (raw: string) => {
@@ -770,22 +783,20 @@ const NovoOrcamento = () => {
     serialInputRef.current?.focus();
   };
 
-  const buscarProdutoCadastro = async () => {
+  const buscarProdutoCadastro = async (parsedScan?: ParsedQrPayload) => {
+    const pendingScan = parsedScan || pendingScanRef.current;
+    const lookupItem = normalizeCode(pendingScan?.legacyId || pendingScan?.ean || pendingScan?.uuid || codGemco);
+    const lookupEan = normalizeCode(pendingScan?.ean || (codGemco.length >= 8 ? codGemco : ''));
+    const serialAtual = pendingScan?.serial || serial;
+    if (!lookupItem || !serialAtual) return;
+    const lookupKey = `${serialAtual}|${lookupItem}|${lookupEan}`;
+    if (lookupInFlightRef.current === lookupKey) return;
+    lookupInFlightRef.current = lookupKey;
+    const requestId = ++requestSeqRef.current;
     try {
-      if (!codGemco) return;
-      const requestId = ++requestSeqRef.current;
-      const pendingScan = pendingScanRef.current;
-      const serialAtual = pendingScan?.serial || serial;
-      if (!serialAtual) {
-        setToast({ type: 'error', message: 'Preencha o serial antes de informar o codigo.' });
-        setCodGemco('');
-        return;
-      }
       setDescProd('');
       setFornecedor('');
       setLinha('');
-      const lookupItem = normalizeCode(pendingScan?.legacyId || codGemco);
-      const lookupEan = normalizeCode(pendingScan?.ean || ean || codGemco);
       const res = await oracleApi.get(ORACLE_ENDPOINTS.getProdutoCadastro, {
         params: {
           item: lookupItem,
@@ -814,25 +825,30 @@ const NovoOrcamento = () => {
         for (const key of keys) {
           const realKey = lowerMap.get(key.toLowerCase());
           if (realKey && source[realKey] !== null && source[realKey] !== undefined && source[realKey] !== '') {
-            return String(source[realKey]);
+            const value = String(source[realKey]).trim();
+            if (value) return value;
           }
         }
         return '';
       };
 
       const fetchedItem = getField(item, ['item', 'cod_gemco', 'codigo', 'cod_item', 'item_codigo']);
-      const descricao = getField(item, ['descricao', 'ds_produto', 'descricao_produto', 'produto']);
+      const descricao = getField(item, ['descricao', 'ds_produto', 'descricao_produto', 'desc_produto', 'description', 'produto'])
+        || getField(pendingScan?.raw, ['description', 'descricao', 'descricao_produto', 'ds_produto']);
+      const eanApi = getField(item, ['cod_barra', 'codigo_barra', 'codigo_barras', 'ean']);
+      const uuidApi = getField(item, ['uuid', 'id_unico']);
       const fornecedorApi = getField(item, ['fornecedor', 'ds_fornecedor', 'desc_fornecedor', 'fornecedor_desc', 'nome_fornecedor']);
       const linhaApi = getField(item, ['linha', 'ds_linha', 'desc_linha', 'linha_desc', 'nome_linha']);
       if (descricao) setDescProd(descricao);
-      if (fetchedItem) setCodGemco(String(fetchedItem));
+      if (eanApi) setEan(eanApi);
+      if (uuidApi) setUuid(uuidApi);
       if (fornecedorApi) setFornecedor(String(fornecedorApi));
       if (linhaApi) setLinha(String(linhaApi));
 
       if (descricao) {
         adicionarItem({
-          uuid: pendingScan?.uuid || uuid,
-          ean: lookupEan,
+          uuid: pendingScan?.uuid || uuidApi || uuid,
+          ean: eanApi || pendingScan?.ean || lookupEan,
           codGemco: fetchedItem || lookupItem,
           descricao,
           fornecedor: fornecedorApi || '',
@@ -840,9 +856,14 @@ const NovoOrcamento = () => {
           serial: serialAtual
         });
         pendingScanRef.current = null;
+        setToast({ type: 'success', message: 'Item adicionado automaticamente ao protocolo.' });
+      } else {
+        setToast({ type: 'error', message: 'O cadastro do Oracle e a etiqueta vieram sem descricao. Use Digitar manual para preencher a descricao e adicionar o item.' });
       }
     } catch {
-      // silencioso
+      if (requestId === requestSeqRef.current) setToast({ type: 'error', message: 'Nao foi possivel consultar o produto. Tente bipar novamente.' });
+    } finally {
+      if (lookupInFlightRef.current === lookupKey) lookupInFlightRef.current = '';
     }
   };
 
@@ -983,9 +1004,15 @@ const NovoOrcamento = () => {
               value={serial}
               required
               placeholder="Obrigatorio preencher"
-              onChange={(e) => setSerial(formatSerialValue(e.target.value))}
+              onChange={(e) => {
+                const value = e.target.value;
+                setSerial(formatSerialValue(value));
+                if (serialTimerRef.current) clearTimeout(serialTimerRef.current);
+                if (!manualMode && value.trim()) serialTimerRef.current = setTimeout(() => finalizeSerialInput(value), 450);
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === 'Tab') {
+                  e.preventDefault();
                   finalizeSerialInput((e.currentTarget as HTMLInputElement).value);
                 }
               }}
@@ -1004,6 +1031,7 @@ const NovoOrcamento = () => {
                 placeholder={manualMode ? 'Digite o Código GEMCO' : (serialPronto ? 'Bipe o código/QR' : 'Preencha o serial antes')}
                 onChange={(e) => {
                   const value = e.target.value;
+                  requestSeqRef.current += 1;
                   setCodGemco(value);
                   const trimmed = value.trim();
                   if (
@@ -1014,11 +1042,10 @@ const NovoOrcamento = () => {
                     || /\^UUID\^/i.test(trimmed)
                     || /^UUID\d+/i.test(trimmed)
                   ) {
-                    handleQrInput(value);
+                    pendingScanRef.current = null;
                   } else {
                     pendingScanRef.current = null;
                     const normalized = normalizeCode(value);
-                    setCodGemco(normalized);
                     if (normalized.length >= 8) {
                       setEan(normalized);
                     } else {
@@ -1027,12 +1054,7 @@ const NovoOrcamento = () => {
                   }
                 }}
                 onKeyDown={(e) => {
-                  if (!manualMode && (e.key === 'Enter' || e.key === 'Tab')) {
-                    handleQrInput((e.currentTarget as HTMLInputElement).value);
-                  }
-                }}
-                onBlur={(e) => {
-                  if (!manualMode) handleQrInput(e.target.value);
+                  if (!manualMode && (e.key === 'Enter' || e.key === 'Tab')) e.preventDefault();
                 }}
               />
               <button
@@ -1106,6 +1128,8 @@ const NovoOrcamento = () => {
           </div>
         </div>
       </div>
+
+      {manualMode && <button className="btn btn-success" type="button" onClick={() => adicionarItem()}>Adicionar item manual</button>}
 
       <div className="card">
         <div className="section-title">Itens neste Protocolo</div>
