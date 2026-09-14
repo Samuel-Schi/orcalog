@@ -21,6 +21,12 @@
     Permissions-Policy = "camera=(self), geolocation=(), microphone=()"
 
 [[redirects]]
+  from = "/catalogo_qualidade"
+  to = "/.netlify/functions/get-catalogo-qualidade"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api-check-user"
   to = "/.netlify/functions/check-user"
   status = 200

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
-import { getCatalogoByLinha } from '../lib/catalogoPadrao';
+import { agruparCatalogo, getCatalogoByLinha, type CatalogoLinha, type CatalogoRegistro } from '../lib/catalogoPadrao';
 
 type OrcamentoItem = {
   id: string;
@@ -434,7 +434,28 @@ const LancarOrcamentos = () => {
     );
   const normalizeCode = (value: string) => value.replace(/[^0-9a-z]/gi, '').toUpperCase().trim();
   const isEditingItem = selected ? isOrcado(selected) : false;
-  const catalogoLinha = useMemo(() => getCatalogoByLinha(selected?.linha), [selected?.linha]);
+  const [catalogo, setCatalogo] = useState<Record<string, CatalogoLinha>>({});
+  const [catalogoCarregando, setCatalogoCarregando] = useState(true);
+  const [catalogoErro, setCatalogoErro] = useState('');
+  const [catalogoTentativa, setCatalogoTentativa] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    setCatalogoCarregando(true);
+    setCatalogoErro('');
+    oracleApi.get<CatalogoRegistro[]>(ORACLE_ENDPOINTS.getCatalogoQualidade, { signal: controller.signal })
+      .then(({ data }) => {
+        if (!Array.isArray(data)) throw new Error('Resposta invalida');
+        setCatalogo(agruparCatalogo(data));
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setCatalogoErro('Nao foi possivel carregar o catalogo de pecas.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCatalogoCarregando(false);
+      });
+    return () => controller.abort();
+  }, [catalogoTentativa]);
+  const catalogoLinha = useMemo(() => getCatalogoByLinha(selected?.linha, catalogo), [selected?.linha, catalogo]);
 
   const total = useMemo(
     () => valPecas + valAcess + valMaoObra + valEmb + valHig,
@@ -1147,6 +1168,8 @@ const LancarOrcamentos = () => {
         )}
         {selected && (
           <div className="lancamento-form">
+            {catalogoCarregando && <div role="status">Carregando catalogo...</div>}
+            {catalogoErro && <div role="alert">{catalogoErro} <button type="button" className="btn btn-secondary btn-sm" onClick={() => setCatalogoTentativa((value) => value + 1)}>Tentar novamente</button></div>}
             <div className="lancamento-block">
               <label>Defeito Encontrado</label>
               {catalogoLinha ? (
@@ -1301,7 +1324,7 @@ const LancarOrcamentos = () => {
                       {catalogoLinha ? (
                         <select value={acessorioSelecionado} onChange={(e) => setAcessorioSelecionado(e.target.value)}>
                           <option value="">SELECIONE O ACESSÓRIO...</option>
-                          {(catalogoLinha.ACESSORIOS || ['ACESSORIO']).map((acessorio) => (
+                          {(catalogoLinha.ACESSORIOS || []).map((acessorio) => (
                             <option key={acessorio} value={acessorio}>
                               {acessorio}
                             </option>

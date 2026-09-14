@@ -56,3 +56,14 @@ Arquivo `netlify.toml` já incluído com:
 1. Integrar login e dados reais do protocolo.
 2. Persistir itens no backend.
 3. Ativar endpoints Netlify Functions.
+
+## Catalogo de qualidade
+A tela Lancar Orcamentos consulta `public.catalogo_qualidade` pelo endpoint
+`/catalogo_qualidade`, em producao no Netlify. Usa somente registros com
+`ativo = true`, agrupa por `linha` e `tipo`, e exibe `item` nas listas existentes.
+Tipos usados: PECA, ACESSORIO, DEFEITO e SERVICO (tambem aceita plurais e acentos).
+As linhas sem registros continuam com o preenchimento manual existente.
+
+Configure no servidor `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY`, ou as
+variaveis existentes `SUPABASE_ORCAMENTOS_URL` e
+`SUPABASE_ORCAMENTOS_SERVICE_ROLE_KEY`. A chave permanece no servidor.

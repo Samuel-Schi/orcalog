@@ -522,13 +522,14 @@ const NovoOrcamento = () => {
   }, [toast]);
 
   useEffect(() => {
+    if (manualMode) return;
     if (!codGemco) return;
     if (codGemco.trim().startsWith('{')) return;
     const handle = setTimeout(() => {
       buscarProdutoCadastro();
     }, 300);
     return () => clearTimeout(handle);
-  }, [codGemco]);
+  }, [codGemco, manualMode]);
 
   const parseQrPayload = (raw: string) => {
     const trimmed = raw.trim();
@@ -668,7 +669,13 @@ const NovoOrcamento = () => {
   const abrirLeitorQr = () => { setShowQr(true); };
 
   const alternarPreenchimentoManual = () => {
-    setManualMode((prev) => !prev);
+    setManualMode((prev) => {
+      const next = !prev;
+      if (next) {
+        requestAnimationFrame(() => codeInputRef.current?.focus());
+      }
+      return next;
+    });
     pendingScanRef.current = null;
   };
 
@@ -985,16 +992,16 @@ const NovoOrcamento = () => {
               onBlur={(e) => finalizeSerialInput(e.target.value)}
             />
           </div>
-          <div className="span-3">
-            <label>Código *</label>
+          <div className="span-5 novo-orcamento-gemco-field">
+            <label>Código GEMCO *</label>
             <div className="qr-input-group novo-orcamento-qr-group">
               <input
                 ref={codeInputRef}
                 type="text"
                 value={codGemco}
-                disabled={!serialPronto}
+                disabled={!serialPronto && !manualMode}
                 required
-                placeholder={serialPronto ? 'Bipe o codigo/QR ou digite manualmente' : 'Preencha o serial antes'}
+                placeholder={manualMode ? 'Digite o Código GEMCO' : (serialPronto ? 'Bipe o código/QR' : 'Preencha o serial antes')}
                 onChange={(e) => {
                   const value = e.target.value;
                   setCodGemco(value);
@@ -1020,14 +1027,16 @@ const NovoOrcamento = () => {
                   }
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === 'Tab') {
+                  if (!manualMode && (e.key === 'Enter' || e.key === 'Tab')) {
                     handleQrInput((e.currentTarget as HTMLInputElement).value);
                   }
                 }}
-                onBlur={(e) => handleQrInput(e.target.value)}
+                onBlur={(e) => {
+                  if (!manualMode) handleQrInput(e.target.value);
+                }}
               />
               <button
-                className="btn btn-secondary btn-sm novo-orcamento-qr-button"
+                className="btn btn-secondary btn-sm novo-orcamento-qr-button novo-orcamento-qr-scan-button"
                 type="button"
                 onClick={abrirLeitorQr}
                 disabled={!serialPronto}
@@ -1054,7 +1063,7 @@ const NovoOrcamento = () => {
               onChange={(e) => setUuid(sanitizeUuidValue(e.target.value))}
             />
           </div>
-          <div className="span-4">
+          <div className="span-2">
             <label>Código de Barras</label>
             <input
               type="text"
