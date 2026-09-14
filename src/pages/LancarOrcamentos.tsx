@@ -1,3 +1,4 @@
+import CatalogoSelect from '../components/CatalogoSelect';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import axios from 'axios';
@@ -1175,15 +1176,8 @@ const LancarOrcamentos = () => {
               {catalogoLinha ? (
                 <div className="selection-stack">
                   <div className="selection-input-row">
-                    <select value={defeitoCatalogado} onChange={(e) => setDefeitoCatalogado(e.target.value)}>
-                      <option value="">SELECIONE O DEFEITO PADRÃO...</option>
-                      {catalogoLinha.DEFEITOS.map((defeito) => (
-                        <option key={defeito} value={defeito}>
-                          {defeito}
-                        </option>
-                      ))}
-                    </select>
-                    <button className="btn btn-success btn-sm" type="button" onClick={adicionarDefeito}>
+                    <CatalogoSelect options={catalogoLinha.DEFEITOS} value={defeitoCatalogado} onChange={setDefeitoCatalogado} label="Defeito" />
+                    <button className="btn btn-success btn-sm" type="button" onClick={adicionarDefeito} disabled={Boolean(catalogoLinha && !catalogoLinha.DEFEITOS.includes(defeitoCatalogado))}>
                       Adicionar
                     </button>
                   </div>
@@ -1264,14 +1258,7 @@ const LancarOrcamentos = () => {
                   <div className="selection-stack">
                     <div className="selection-input-row">
                       {catalogoLinha ? (
-                        <select value={pecaSelecionada} onChange={(e) => setPecaSelecionada(e.target.value)}>
-                          <option value="">SELECIONE A PEÇA...</option>
-                          {catalogoLinha.PECAS.map((peca) => (
-                            <option key={peca} value={peca}>
-                              {peca}
-                            </option>
-                          ))}
-                        </select>
+                        <CatalogoSelect options={catalogoLinha.PECAS} value={pecaSelecionada} onChange={setPecaSelecionada} label="Pe?a" />
                       ) : (
                         <input
                           type="text"
@@ -1287,7 +1274,7 @@ const LancarOrcamentos = () => {
                           onChange={(e) => setValorPecaSelecionada(parseCurrency(e.target.value))}
                           placeholder="Valor"
                         />
-                        <button className="btn btn-success btn-sm" type="button" onClick={adicionarPeca}>
+                        <button className="btn btn-success btn-sm" type="button" onClick={adicionarPeca} disabled={Boolean(catalogoLinha && !catalogoLinha.PECAS.includes(pecaSelecionada))}>
                           Adicionar
                         </button>
                     </div>
@@ -1322,14 +1309,7 @@ const LancarOrcamentos = () => {
                   <div className="selection-stack">
                     <div className="selection-input-row">
                       {catalogoLinha ? (
-                        <select value={acessorioSelecionado} onChange={(e) => setAcessorioSelecionado(e.target.value)}>
-                          <option value="">SELECIONE O ACESSÓRIO...</option>
-                          {(catalogoLinha.ACESSORIOS || []).map((acessorio) => (
-                            <option key={acessorio} value={acessorio}>
-                              {acessorio}
-                            </option>
-                          ))}
-                        </select>
+                        <CatalogoSelect options={catalogoLinha.ACESSORIOS || []} value={acessorioSelecionado} onChange={setAcessorioSelecionado} label="Acess?rio" />
                       ) : (
                         <input
                           type="text"
@@ -1345,7 +1325,7 @@ const LancarOrcamentos = () => {
                           onChange={(e) => setValorAcessorioSelecionado(parseCurrency(e.target.value))}
                           placeholder="Valor"
                         />
-                        <button className="btn btn-success btn-sm" type="button" onClick={adicionarAcessorio}>
+                        <button className="btn btn-success btn-sm" type="button" onClick={adicionarAcessorio} disabled={Boolean(catalogoLinha && !(catalogoLinha.ACESSORIOS || []).includes(acessorioSelecionado))}>
                           Adicionar
                         </button>
                     </div>

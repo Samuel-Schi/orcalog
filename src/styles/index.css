@@ -1931,3 +1931,16 @@ body.dark-mode .sidebar {
     padding: 6px 7px !important;
   }
 }
+
+.catalogo-select { position: relative; width: 100%; min-width: 0; }
+.catalogo-select-control { position: relative; }
+.catalogo-select-control input { padding-right: 34px; }
+.catalogo-select-toggle { position: absolute; right: 1px; top: 1px; height: 30px; width: 30px; border: 0; border-radius: 3px; background: transparent; color: inherit; cursor: pointer; }
+.catalogo-select-list { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30; max-height: 210px; overflow-y: auto; background: #fff; color: #333; border: 1px solid var(--cinza-borda); border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+.catalogo-select-option, .catalogo-select-empty { padding: 8px 10px; font-size: .85rem; }
+.catalogo-select-option { cursor: pointer; }
+.catalogo-select-option.is-active { background: #e7f1ff; color: #0056b3; }
+.catalogo-select-option[aria-selected="true"] { font-weight: 600; }
+.catalogo-select-empty { color: #777; }
+body.dark-mode .catalogo-select-list { background: #252a34; color: #eee; }
+body.dark-mode .catalogo-select-option.is-active { background: #34465f; color: #fff; }
