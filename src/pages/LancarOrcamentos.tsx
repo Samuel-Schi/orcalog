@@ -462,7 +462,6 @@ const LancarOrcamentos = () => {
     () => valPecas + valAcess + valMaoObra + valEmb + valHig,
     [valPecas, valAcess, valMaoObra, valEmb, valHig]
   );
-  const totalPecasAcess = useMemo(() => valPecas + valAcess, [valPecas, valAcess]);
   const precisaFoto = useMemo(
     () => defeitosSelecionados.some((defeito) => /AVARIA/i.test(defeito)),
     [defeitosSelecionados]
@@ -470,13 +469,8 @@ const LancarOrcamentos = () => {
   const resumoLancamento = useMemo(() => {
     const linhas: Array<{ label: string; valor: number; destaque?: boolean }> = [];
 
-    pecasComValores.forEach((item) => {
-      linhas.push({ label: item.nome, valor: item.valor });
-    });
-
-    acessoriosComValores.forEach((item) => {
-      linhas.push({ label: item.nome, valor: item.valor });
-    });
+    linhas.push({ label: 'Peças', valor: valPecas });
+    linhas.push({ label: 'Acessórios', valor: valAcess });
 
     if (valMaoObra > 0) {
       linhas.push({ label: 'Mão de obra', valor: valMaoObra });
@@ -491,11 +485,11 @@ const LancarOrcamentos = () => {
     }
 
     if (linhas.length > 0) {
-      linhas.push({ label: 'Total do orçamento', valor: total, destaque: true });
+      linhas.push({ label: 'Total deste produto', valor: total, destaque: true });
     }
 
     return linhas;
-  }, [acessoriosComValores, pecasComValores, total, valEmb, valHig, valMaoObra]);
+  }, [valAcess, valPecas, total, valEmb, valHig, valMaoObra]);
 
   const preencherFormulario = (item: OrcamentoItem) => {
     const pecasDetalhadas = parseItensComValor(item.pecasDetalhes);
@@ -1354,53 +1348,29 @@ const LancarOrcamentos = () => {
                     </div>
                   </div>
                 </div>
+                <section className="custos-opcionais" aria-labelledby="custos-opcionais-titulo" aria-describedby="custos-opcionais-ajuda">
+                  <div className="resumo-financeiro-titulo">
+                    <span id="custos-opcionais-titulo">Custos opcionais deste produto</span>
+                    <small id="custos-opcionais-ajuda">Preencha somente o que for necessário para este produto. Deixe R$ 0,00 quando não se aplicar.</small>
+                  </div>
+                  <div className="lancamento-row lancamento-row-3">
+                    <div className="lancamento-field"><label htmlFor="custo-mao-obra">Mão de obra</label><input id="custo-mao-obra" type="text" inputMode="decimal" value={formatCurrency(valMaoObra)} onChange={(e) => setValMaoObra(parseCurrency(e.target.value))} /></div>
+                    <div className="lancamento-field"><label htmlFor="custo-embalagem">Embalagem</label><input id="custo-embalagem" type="text" inputMode="decimal" value={formatCurrency(valEmb)} onChange={(e) => setValEmb(parseCurrency(e.target.value))} /></div>
+                    <div className="lancamento-field"><label htmlFor="custo-higienizacao">Higienização</label><input id="custo-higienizacao" type="text" inputMode="decimal" value={formatCurrency(valHig)} onChange={(e) => setValHig(parseCurrency(e.target.value))} /></div>
+                  </div>
+                </section>
               </div>
 
-              <aside className="lancamento-values-column resumo-financeiro" aria-label="Resumo financeiro do orçamento">
+              <aside className="lancamento-values-column resumo-financeiro" aria-label="Resumo deste produto">
                 <div className="resumo-financeiro-titulo">
-                  <span>Resumo financeiro</span>
-                  <small>Os totais de peças e acessórios são calculados automaticamente.</small>
+                  <span>Resumo deste produto</span>
+                  <small>{selected.descricao}</small>
+                  <small>Valores calculados automaticamente para o produto selecionado.</small>
                 </div>
-                <div className="lancamento-row lancamento-row-2">
-                  <div className="lancamento-field">
-                    <label>Valor das peças</label>
-                    <input type="text" readOnly value={formatCurrency(valPecas)} className="calculated-value" aria-label="Valor das peças calculado automaticamente" />
-                  </div>
-                  <div className="lancamento-field">
-                    <label>Valor dos acessórios</label>
-                    <input type="text" readOnly value={formatCurrency(valAcess)} className="calculated-value" aria-label="Valor dos acessórios calculado automaticamente" />
-                  </div>
-                </div>
-
-                <div className="lancamento-row lancamento-row-3">
-                  <div className="lancamento-field"><label>Mão de obra</label><input type="text" inputMode="decimal" value={formatCurrency(valMaoObra)} onChange={(e) => setValMaoObra(parseCurrency(e.target.value))} /></div>
-                  <div className="lancamento-field"><label>Embalagem</label><input type="text" inputMode="decimal" value={formatCurrency(valEmb)} onChange={(e) => setValEmb(parseCurrency(e.target.value))} /></div>
-                  <div className="lancamento-field"><label>Higienização</label><input type="text" inputMode="decimal" value={formatCurrency(valHig)} onChange={(e) => setValHig(parseCurrency(e.target.value))} /></div>
-                </div>
-
-                <div className="lancamento-row lancamento-row-1">
-                  <div className="lancamento-field">
-                    <label>Total de peças e acessórios</label>
-                    <input type="text" readOnly value={formatCurrency(totalPecasAcess)} className="calculated-value" />
-                  </div>
-                </div>
-
-                <div className="lancamento-row lancamento-row-1">
-                  <div className="lancamento-field">
-                    <label>Total do orçamento</label>
-                    <input type="text" readOnly value={formatCurrency(total)} className="total-display" />
-                  </div>
-                </div>
-              </aside>
-            </div>
-
-            {resumoLancamento.length > 0 && (
-              <div className="lancamento-block resumo-lancamento">
-                <label>Conferência rápida</label>
                 <div className="resumo-lista">
                   {resumoLancamento.map((item) => (
                     <div
-                      key={`${item.label}-${item.valor}-${item.destaque ? 'd' : 'n'}`}
+                      key={item.label}
                       className={`resumo-item${item.destaque ? ' resumo-item-total' : ''}`}
                     >
                       <span>{item.label}</span>
@@ -1408,14 +1378,14 @@ const LancarOrcamentos = () => {
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              </aside>
+            </div>
           </div>
         )}
         {selected && (
           <div className="action-bar">
             <button className="btn btn-success btn-sm" type="button" onClick={lancarValores} disabled={isSubmitting}>
-              <i className="material-icons">save</i> {isSubmitting ? (isEditingItem ? 'SALVANDO...' : 'LANÇANDO...') : (isEditingItem ? 'SALVAR EDIÇÃO' : 'LANÇAR VALORES')}
+              <i className="material-icons">save</i> {isSubmitting ? 'SALVANDO...' : (isEditingItem ? 'SALVAR EDIÇÃO DO PRODUTO' : 'SALVAR VALORES DESTE PRODUTO')}
             </button>
           </div>
         )}

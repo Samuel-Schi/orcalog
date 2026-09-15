@@ -430,6 +430,13 @@ input[readonly] { background-color: #f1f3f5; color: #555; }
   background: linear-gradient(145deg, #f8fbff 0%, #ffffff 70%);
 }
 
+.custos-opcionais {
+  display: grid;
+  gap: 14px;
+  padding-top: 18px;
+  border-top: 1px solid #dbe4f0;
+}
+
 .resumo-financeiro-titulo {
   display: grid;
   gap: 3px;
