@@ -22,7 +22,6 @@ type ParsedQrPayload = {
   raw: any;
 };
 
-const RECEM_ENVIADOS_KEY = 'gat_orc_recem_enviados';
 const QR_FIELD_ALIASES: Record<string, string> = {
   UUID: 'UUID',
   DESCRIPTION: 'DESCRIPTION',
@@ -766,13 +765,6 @@ const NovoOrcamento = () => {
       status: 0
     };
     setItens((prev) => [...prev, item]);
-    try {
-      const saved = localStorage.getItem('gat_orc_pendentes');
-      const parsed = saved ? JSON.parse(saved) as Item[] : [];
-      localStorage.setItem('gat_orc_pendentes', JSON.stringify([...parsed, item]));
-    } catch {
-      // ignore storage errors
-    }
     setCodGemco('');
     setUuid('');
     setEan('');
@@ -907,13 +899,6 @@ const NovoOrcamento = () => {
         headers: { 'Content-Type': 'application/json' }
       });
 
-      try {
-        const savedRecemEnviados = localStorage.getItem(RECEM_ENVIADOS_KEY);
-        const parsedRecemEnviados = savedRecemEnviados ? JSON.parse(savedRecemEnviados) as Item[] : [];
-        localStorage.setItem(RECEM_ENVIADOS_KEY, JSON.stringify([...parsedRecemEnviados, ...itens]));
-      } catch {
-        // ignore storage errors
-      }
 
       setToast({ type: 'success', message: 'Envio realizado com sucesso.' });
       setItens([]);
@@ -939,14 +924,6 @@ const NovoOrcamento = () => {
         );
       } catch {
         // ignore remote draft cleanup errors
-      }
-      try {
-        const saved = localStorage.getItem('gat_orc_pendentes');
-        const parsed = saved ? JSON.parse(saved) as Item[] : [];
-        const filtered = parsed.filter((item) => !itens.some((sentItem) => sentItem.id === item.id));
-        localStorage.setItem('gat_orc_pendentes', JSON.stringify(filtered));
-      } catch {
-        // ignore storage errors
       }
     } catch {
       setToast({ type: 'error', message: 'Não foi possível enviar. Tente novamente.' });

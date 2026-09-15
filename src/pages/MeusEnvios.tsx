@@ -65,23 +65,10 @@ type NegociacaoSupabaseRow = {
   respondido_por?: string | null;
 };
 
-const RECEM_ENVIADOS_KEY = 'gat_orc_recem_enviados';
-
 const normalizeProtocolKey = (value?: string | null) =>
   String(value || '')
     .trim()
     .toUpperCase();
-
-const loadRecemEnviados = () => {
-  try {
-    const saved = localStorage.getItem(RECEM_ENVIADOS_KEY);
-    if (!saved) return [] as ItemEnvio[];
-    const parsed = JSON.parse(saved) as ItemEnvio[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
 
 const buildItemKey = (item: Partial<ItemEnvio>) =>
   [
@@ -159,10 +146,15 @@ const MeusEnvios = () => {
   const [contraObs, setContraObs] = useState<Record<string, string>>({});
   const [respondendo, setRespondendo] = useState<Record<string, boolean>>({});
   const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   const carregar = async () => {
     try {
       setIsLoading(true);
+      setLoadError('');
+      setItems([]);
+      setTotalItensByProtocolo({});
+      setNegociacoesByProtocolo({});
       let cnpj = '';
       const profileRaw = localStorage.getItem('gat_user_profile');
       if (profileRaw) {
@@ -194,7 +186,7 @@ const MeusEnvios = () => {
         }
       }
 
-      if (!cnpj) return;
+      if (!cnpj) throw new Error('CNPJ não encontrado.');
       const [res, statusRes, negociacoesRes] = await Promise.all([
         oracleApi.get(ORACLE_ENDPOINTS.getEnvios, {
           params: { cnpj, _ts: Date.now() },
@@ -273,30 +265,7 @@ const MeusEnvios = () => {
         };
       }) as ItemEnvio[];
 
-      const mergedByKey = new Map<string, ItemEnvio>();
-      normalized.forEach((item) => {
-        mergedByKey.set(buildItemKey(item), item);
-      });
-
-      loadRecemEnviados().forEach((item, index) => {
-        const normalizedLocal = normalizeEnvioItem(item, index);
-        const key = buildItemKey(normalizedLocal);
-        if (!key || key === '|||') return;
-
-        const current = mergedByKey.get(key);
-        if (!current) {
-          mergedByKey.set(key, normalizedLocal);
-          return;
-        }
-
-        mergedByKey.set(key, {
-          ...normalizedLocal,
-          ...current,
-          status: Number(current.status || normalizedLocal.status || 0)
-        });
-      });
-
-      const mergedItems = Array.from(mergedByKey.values());
+      const mergedItems = normalized;
 
       const totais: Record<string, number> = {};
       mergedItems.forEach((item) => {
@@ -306,8 +275,11 @@ const MeusEnvios = () => {
       });
 
       setTotalItensByProtocolo(totais);
-      setItems(mergedItems.filter((item) => isItemEmEnvio(item) || Boolean(buildItemKey(item) && loadRecemEnviados().some((local) => buildItemKey(local) === buildItemKey(item)))));
+      setItems(mergedItems.filter(isItemEmEnvio));
       setNegociacoesByProtocolo(nextNegociacoesByProtocolo);
+    } catch {
+      setItems([]);
+      setLoadError('Não foi possível consultar os envios no banco. Tente novamente.');
     } finally {
       setIsLoading(false);
     }
@@ -439,7 +411,8 @@ const MeusEnvios = () => {
         {isLoading && (
           <p style={{ textAlign: 'center', color: '#999', marginTop: 20 }}>Carregando...</p>
         )}
-        {!isLoading && filtrados.length === 0 && (
+        {loadError && <p role="alert">{loadError} <button type="button" onClick={carregar}>Tentar novamente</button></p>}
+        {!isLoading && !loadError && filtrados.length === 0 && (
           <p style={{ textAlign: 'center', color: '#999', marginTop: 20 }}>Nenhum registro encontrado.</p>
         )}
 

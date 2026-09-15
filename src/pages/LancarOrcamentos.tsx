@@ -59,46 +59,6 @@ type ItemComValor = {
   valor: number;
 };
 
-const loadPendentes = () => {
-  try {
-    const saved = localStorage.getItem('gat_orc_pendentes');
-    if (!saved) return [] as OrcamentoItem[];
-    const parsed = JSON.parse(saved) as OrcamentoItem[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
-
-const savePendentes = (items: OrcamentoItem[]) => {
-  try {
-    localStorage.setItem('gat_orc_pendentes', JSON.stringify(items));
-  } catch {
-    // ignore storage errors
-  }
-};
-
-const RECEM_ENVIADOS_KEY = 'gat_orc_recem_enviados';
-
-const loadRecemEnviados = () => {
-  try {
-    const saved = localStorage.getItem(RECEM_ENVIADOS_KEY);
-    if (!saved) return [] as OrcamentoItem[];
-    const parsed = JSON.parse(saved) as OrcamentoItem[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
-
-const saveRecemEnviados = (items: OrcamentoItem[]) => {
-  try {
-    localStorage.setItem(RECEM_ENVIADOS_KEY, JSON.stringify(items));
-  } catch {
-    // ignore storage errors
-  }
-};
-
 const parseCurrency = (raw: string) => {
   const onlyDigits = raw.replace(/\D/g, '');
   const asNumber = Number(onlyDigits) / 100;
@@ -322,47 +282,6 @@ const applyDraftToItem = (item: OrcamentoItem, payload?: Record<string, unknown>
   };
 };
 
-const mergeItemIntoList = (base: OrcamentoItem[], incoming: OrcamentoItem | null) => {
-  if (!incoming) return base;
-
-  const index = base.findIndex((item) => {
-    if (item.id === incoming.id) return true;
-    if (item.dbId != null && incoming.dbId != null && item.dbId === incoming.dbId) return true;
-    return false;
-  });
-
-  if (index === -1) {
-    return [incoming, ...base];
-  }
-
-  const updated = [...base];
-  updated[index] = { ...updated[index], ...incoming };
-  return updated;
-};
-
-const mergeUniqueItems = (items: OrcamentoItem[]) => {
-  const merged = new Map<string, OrcamentoItem>();
-
-  items.forEach((item, index) => {
-    const identityKey = buildIdentityKey(item);
-    const fallbackKey = item.id || `${item.protocolo}-${index}`;
-    const key = identityKey && identityKey !== '|||' ? identityKey : fallbackKey;
-    const current = merged.get(key);
-
-    merged.set(key, current ? { ...item, ...current, dbId: current.dbId ?? item.dbId } : item);
-  });
-
-  return Array.from(merged.values());
-};
-
-const buildIdentityKey = (item: Partial<OrcamentoItem>) =>
-  [
-    String(item.protocolo || '').trim().toUpperCase(),
-    String(item.codGemco || '').trim().toUpperCase(),
-    String(item.serial || '').trim().toUpperCase(),
-    String(item.ean || item.codBarras || '').trim().toUpperCase()
-  ].join('|');
-
 const LancarOrcamentos = () => {
   const location = useLocation();
   const locationState = (location.state as LancarOrcamentosLocationState | null) ?? null;
@@ -370,7 +289,6 @@ const LancarOrcamentos = () => {
     () => (locationState?.item ? normalizeOrcamentoItem(locationState.item, 0) : null),
     [locationState]
   );
-  const editSelectionAppliedRef = useRef(false);
   const draftsHydratedRef = useRef(false);
   const [items, setItems] = useState<OrcamentoItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -625,6 +543,9 @@ const LancarOrcamentos = () => {
     const loadFromApi = async () => {
       try {
         setIsLoading(true);
+        setItems([]);
+        setSelectedId(null);
+        draftsHydratedRef.current = false;
         let cnpj = '';
         const profileRaw = localStorage.getItem('gat_user_profile');
         if (profileRaw) {
@@ -656,9 +577,9 @@ const LancarOrcamentos = () => {
           }
         }
 
-        if (!cnpj) return;
+        if (!cnpj) throw new Error('CNPJ não encontrado.');
         const paUsuario = (localStorage.getItem('gat_user') || '').trim();
-        const [res, draftsRes] = await Promise.all([
+        const [res, draftsRes, enviadosRes] = await Promise.all([
           oracleApi.get(ORACLE_ENDPOINTS.getOrcamentosAnalise, {
             params: { cnpj, _ts: Date.now() },
             responseType: 'arraybuffer',
@@ -670,6 +591,12 @@ const LancarOrcamentos = () => {
                 params: { paUsuario, _ts: Date.now() },
                 headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
                 validateStatus: (status) => status >= 200 && status < 500
+              })
+            : Promise.resolve({ data: [] }),
+          editableItem
+            ? oracleApi.get(ORACLE_ENDPOINTS.getEnvios, {
+                params: { cnpj, _ts: Date.now() },
+                responseType: 'arraybuffer'
               })
             : Promise.resolve({ data: [] })
         ]);
@@ -696,37 +623,34 @@ const LancarOrcamentos = () => {
           .map((item) => applyDraftToItem(item, item.dbId != null ? draftsMap.get(item.dbId) ?? null : null))
           .filter((item) => !hasLancamentoRegistrado(item)) as OrcamentoItem[];
 
-        const localPendentes = mergeUniqueItems([
-          ...loadPendentes(),
-          ...loadRecemEnviados()
-        ]).filter((item) => !hasLancamentoRegistrado(item));
-
-        const mergedItems = mergeUniqueItems([...normalized, ...localPendentes]);
-
-        setItems(mergeItemIntoList(mergedItems, editableItem));
+        const enviadosData = parseMaybeJson(enviadosRes.data);
+        const enviadosList: any[] = Array.isArray(enviadosData?.items)
+          ? enviadosData.items
+          : Array.isArray(enviadosData) ? enviadosData : [];
+        const serverEditItem = editableItem
+          ? [...list, ...enviadosList]
+              .map((row, index) => normalizeOrcamentoItem(row, index))
+              .find((item) => item.dbId != null && item.dbId === editableItem.dbId)
+          : undefined;
+        if (serverEditItem) {
+          const currentItem = applyDraftToItem(serverEditItem, draftsMap.get(serverEditItem.dbId!) ?? null);
+          setItems([currentItem, ...normalized.filter((item) => item.dbId !== currentItem.dbId)]);
+          selecionarItem(currentItem);
+        } else {
+          setItems(normalized);
+          if (editableItem) setToast({ type: 'error', message: 'Este produto não foi encontrado no banco.' });
+        }
         draftsHydratedRef.current = true;
       } catch {
-        const localPendentes = mergeUniqueItems([
-          ...loadPendentes(),
-          ...loadRecemEnviados()
-        ]).filter((item) => !hasLancamentoRegistrado(item));
-
-        setItems(mergeItemIntoList(localPendentes, editableItem));
-        draftsHydratedRef.current = true;
+        setItems([]);
+        setSelectedId(null);
+        setToast({ type: 'error', message: 'Não foi possível consultar os produtos no banco. Atualize a página para tentar novamente.' });
       } finally {
         setIsLoading(false);
       }
     };
 
     loadFromApi();
-  }, [editableItem]);
-
-  useEffect(() => {
-    if (!editableItem || editSelectionAppliedRef.current) return;
-    setItems((current) => mergeItemIntoList(current, editableItem));
-    selecionarItem(editableItem);
-    setToast({ type: 'success', message: 'Item carregado para edição.' });
-    editSelectionAppliedRef.current = true;
   }, [editableItem]);
 
   const findByCode = (raw: string) => {
@@ -945,10 +869,7 @@ const LancarOrcamentos = () => {
 
       const remaining = items.filter((item) => item.id !== selected.id);
       setItems(remaining);
-      savePendentes(remaining);
-      saveRecemEnviados(
-        loadRecemEnviados().filter((item) => buildIdentityKey(item) !== buildIdentityKey(selected))
-      );
+
       if ((localStorage.getItem('gat_user') || '').trim() && selected.dbId != null) {
         try {
           await oracleApi.post(

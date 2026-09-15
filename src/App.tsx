@@ -1,4 +1,5 @@
 ﻿import { Navigate, Route, Routes } from 'react-router-dom';
+import { useEffect } from 'react';
 import Login from './pages/Login';
 import Cadastro from './pages/Cadastro';
 import NovoOrcamento from './pages/NovoOrcamento';
@@ -12,6 +13,15 @@ const isAuthenticated = () => {
 };
 
 const App = () => {
+  useEffect(() => {
+    try {
+      localStorage.removeItem('gat_orc_pendentes');
+      localStorage.removeItem('gat_orc_recem_enviados');
+    } catch {
+      return;
+    }
+  }, []);
+
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
