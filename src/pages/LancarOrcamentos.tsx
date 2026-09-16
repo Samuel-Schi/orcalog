@@ -1153,69 +1153,6 @@ const LancarOrcamentos = () => {
                   <option value="DEFEITO FUNCIONAL">DEFEITO FUNCIONAL</option>
                 </select>
               )}
-              <div className="fotos-drive-field">
-                  <label style={{ color: precisaFoto ? 'var(--azul)' : undefined }}>
-                    Fotos do produto{precisaFoto ? ' (obrigatorio)' : ''}
-                  </label>
-                  <div className="fotos-drive-actions">
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => selecionarFotosInputRef.current?.click()}
-                    >
-                      <i className="material-icons">photo_library</i> Selecionar fotos
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm"
-                      onClick={() => cameraFotosInputRef.current?.click()}
-                    >
-                      <i className="material-icons">photo_camera</i> Tirar foto
-                    </button>
-                  </div>
-                  <input
-                    ref={selecionarFotosInputRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    className="fotos-drive-input"
-                    onChange={(e) => {
-                      adicionarFotos(e.target.files);
-                      e.currentTarget.value = '';
-                    }}
-                  />
-                  <input
-                    ref={cameraFotosInputRef}
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="fotos-drive-input"
-                    onChange={(e) => {
-                      adicionarFotos(e.target.files);
-                      e.currentTarget.value = '';
-                    }}
-                  />
-                  {(selected.linkDrive || selected.fotoNome) && fotos.length === 0 && (
-                    <div className="fotos-drive-current">
-                      Link atual: {selected.linkDrive || selected.fotoNome}
-                    </div>
-                  )}
-                  {fotos.length > 0 && (
-                    <div className="fotos-drive-list">
-                      {fotos.map((file, index) => (
-                        <div key={`${file.name}-${file.lastModified}-${index}`} className="fotos-drive-item">
-                          <span>{file.name}</span>
-                          <button type="button" className="btn btn-secondary btn-sm" onClick={() => removerFoto(index)}>
-                            Remover
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <div className="selection-empty">
-                    As fotos anexadas serao enviadas para uma pasta no Google Drive.
-                  </div>
-              </div>
             </div>
             <div className="lancamento-row lancamento-row-3">
               <div className="lancamento-field">
@@ -1379,6 +1316,71 @@ const LancarOrcamentos = () => {
                   ))}
                 </div>
               </aside>
+            </div>
+          </div>
+        )}
+        {selected && (
+          <div className="fotos-drive-field fotos-drive-footer">
+            <label style={{ color: precisaFoto ? 'var(--azul)' : undefined }}>
+              Fotos do produto{precisaFoto ? ' (obrigatorio)' : ''}
+            </label>
+            <div className="fotos-drive-actions">
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => selecionarFotosInputRef.current?.click()}
+              >
+                <i className="material-icons">photo_library</i> Selecionar fotos
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => cameraFotosInputRef.current?.click()}
+              >
+                <i className="material-icons">photo_camera</i> Tirar foto
+              </button>
+            </div>
+            <input
+              ref={selecionarFotosInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="fotos-drive-input"
+              onChange={(e) => {
+                adicionarFotos(e.target.files);
+                e.currentTarget.value = '';
+              }}
+            />
+            <input
+              ref={cameraFotosInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="fotos-drive-input"
+              onChange={(e) => {
+                adicionarFotos(e.target.files);
+                e.currentTarget.value = '';
+              }}
+            />
+            {(selected.linkDrive || selected.fotoNome) && fotos.length === 0 && (
+              <div className="fotos-drive-current">
+                Link atual: {selected.linkDrive || selected.fotoNome}
+              </div>
+            )}
+            {fotos.length > 0 && (
+              <div className="fotos-drive-list">
+                {fotos.map((file, index) => (
+                  <div key={`${file.name}-${file.lastModified}-${index}`} className="fotos-drive-item">
+                    <span>{file.name}</span>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => removerFoto(index)}>
+                      Remover
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="selection-empty">
+              As fotos anexadas serao enviadas para uma pasta no Google Drive.
             </div>
           </div>
         )}

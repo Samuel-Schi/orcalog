@@ -324,10 +324,16 @@ input[readonly] { background-color: #f1f3f5; color: #555; }
   margin-top: 8px;
 }
 
+.fotos-drive-footer {
+  width: min(100%, 460px);
+  margin: 14px 0 0 auto;
+}
+
 .fotos-drive-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  justify-content: flex-end;
 }
 
 .fotos-drive-actions .btn {
