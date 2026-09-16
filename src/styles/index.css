@@ -318,6 +318,56 @@ input[readonly] { background-color: #f1f3f5; color: #555; }
   padding: 4px 0;
 }
 
+.fotos-drive-field {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.fotos-drive-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fotos-drive-actions .btn {
+  width: auto;
+}
+
+.fotos-drive-input {
+  display: none;
+}
+
+.fotos-drive-current {
+  color: #64748b;
+  font-size: 12px;
+  word-break: break-word;
+}
+
+.fotos-drive-list {
+  display: grid;
+  gap: 8px;
+}
+
+.fotos-drive-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid #dbe4f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.fotos-drive-item span {
+  color: #1e293b;
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .selection-values-list {
   display: grid;
   gap: 10px;

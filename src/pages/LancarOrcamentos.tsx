@@ -34,6 +34,7 @@ type OrcamentoItem = {
   valHig?: number;
   totalOrcamento?: number;
   fotoNome?: string;
+  linkDrive?: string;
   defeitoFuncional?: string;
   garantia?: string;
   tipoOrc?: string;
@@ -182,19 +183,31 @@ const buildFotoFolderName = (item: OrcamentoItem) => {
   ].join('_');
 };
 
-const uploadFotoDrive = async (item: OrcamentoItem, file: File) => {
-  const base64 = await fileToBase64(file);
+const uploadFotosDrive = async (item: OrcamentoItem, files: File[]) => {
+  if (files.length === 0) return item.linkDrive || item.fotoNome || '';
+
+  const protocolo = sanitizeDriveToken(item.protocolo, 'SEM_PROTOCOLO');
+  const uploadFiles = await Promise.all(
+    files.map(async (file, index) => {
+      const base64 = await fileToBase64(file);
+      const nomeArquivo = `Foto_${index + 1}_${Date.now()}_${file.name}`.replace(/\s+/g, '_');
+
+      return {
+        name: nomeArquivo,
+        mimeType: file.type || 'application/octet-stream',
+        base64
+      };
+    })
+  );
+
   const response = await oracleApi.post<DriveUploadResponse>(
     ORACLE_ENDPOINTS.uploadFotoDrive,
     {
       folderName: buildFotoFolderName(item),
-      files: [
-        {
-          name: `Foto_Avaria_${sanitizeDriveToken(item.protocolo, 'SEM_PROTOCOLO')}_${file.name}`,
-          mimeType: file.type || 'application/octet-stream',
-          base64
-        }
-      ]
+      files: uploadFiles.map((file) => ({
+        ...file,
+        name: `Foto_Avaria_${protocolo}_${file.name}`.replace(/\s+/g, '_')
+      }))
     },
     { headers: { 'Content-Type': 'application/json' } }
   );
@@ -235,7 +248,8 @@ const normalizeOrcamentoItem = (row: any, index: number): OrcamentoItem => ({
   valEmb: row.val_emb ?? row.VAL_EMB ?? row.valEmb,
   valHig: row.val_hig ?? row.VAL_HIG ?? row.valHig,
   totalOrcamento: row.total_orcamento ?? row.TOTAL_ORCAMENTO ?? row.totalOrcamento,
-  fotoNome: row.foto_nome ?? row.FOTO_NOME ?? row.fotoNome,
+  fotoNome: row.foto_nome ?? row.FOTO_NOME ?? row.fotoNome ?? row.link_drive ?? row.LINK_DRIVE,
+  linkDrive: row.link_drive ?? row.LINK_DRIVE ?? row.linkDrive ?? row.foto_nome ?? row.FOTO_NOME ?? row.fotoNome,
   defeitoFuncional: row.defeito_funcional ?? row.DEFEITO_FUNCIONAL ?? row.defeitoFuncional,
   garantia: row.garantia ?? row.GARANTIA ?? row.garantiaPrazo,
   tipoOrc: row.tipo_orc ?? row.TIPO_ORC ?? row.tipoOrc
@@ -278,6 +292,7 @@ const applyDraftToItem = (item: OrcamentoItem, payload?: Record<string, unknown>
     garantia: typeof payload.garantia === 'string' ? payload.garantia : item.garantia,
     tipoOrc: typeof payload.tipoOrc === 'string' ? payload.tipoOrc : item.tipoOrc,
     fotoNome: typeof payload.fotoNome === 'string' ? payload.fotoNome : item.fotoNome,
+    linkDrive: typeof payload.linkDrive === 'string' ? payload.linkDrive : item.linkDrive,
     status: Number(payload.status ?? item.status ?? 0)
   };
 };
@@ -302,7 +317,7 @@ const LancarOrcamentos = () => {
   const [valMaoObra, setValMaoObra] = useState(0);
   const [valEmb, setValEmb] = useState(0);
   const [valHig, setValHig] = useState(0);
-  const [foto, setFoto] = useState<File | null>(null);
+  const [fotos, setFotos] = useState<File[]>([]);
   const [defeitoFuncional, setDefeitoFuncional] = useState('');
   const [garantia, setGarantia] = useState('');
   const [tipoOrc, setTipoOrc] = useState('');
@@ -318,6 +333,8 @@ const LancarOrcamentos = () => {
   const [defeitosSelecionados, setDefeitosSelecionados] = useState<string[]>([]);
   const [pecasComValores, setPecasComValores] = useState<PecaComValor[]>([]);
   const [acessoriosComValores, setAcessoriosComValores] = useState<ItemComValor[]>([]);
+  const selecionarFotosInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraFotosInputRef = useRef<HTMLInputElement | null>(null);
   const scanVideoRef = useRef<HTMLVideoElement | null>(null);
   const scanStreamRef = useRef<MediaStream | null>(null);
   const formularioRef = useRef<HTMLDivElement | null>(null);
@@ -422,7 +439,7 @@ const LancarOrcamentos = () => {
     setValMaoObra(item.valMaoObra || 0);
     setValEmb(item.valEmb || 0);
     setValHig(item.valHig || 0);
-    setFoto(null);
+    setFotos([]);
     setDefeitoFuncional(item.defeitoFuncional || '');
     setGarantia(item.garantia || '');
     setTipoOrc(item.tipoOrc || '');
@@ -452,7 +469,7 @@ const LancarOrcamentos = () => {
     setValMaoObra(0);
     setValEmb(0);
     setValHig(0);
-    setFoto(null);
+    setFotos([]);
     setDefeitoFuncional('');
     setGarantia('');
     setTipoOrc('');
@@ -749,14 +766,24 @@ const LancarOrcamentos = () => {
     );
   };
 
+  const adicionarFotos = (files?: FileList | null) => {
+    if (!files?.length) return;
+    setFotos((current) => [...current, ...Array.from(files)]);
+  };
+
+  const removerFoto = (index: number) => {
+    setFotos((current) => current.filter((_, currentIndex) => currentIndex !== index));
+  };
+
   const lancarValores = async () => {
     if (!selected) return;
     if (selected.dbId == null) {
       setToast({ type: 'error', message: 'Este item não possui ID real do banco. Ajuste o endpoint para retornar o campo ID.' });
       return;
     }
-    if (precisaFoto && !foto && !selected.fotoNome) {
-      setToast({ type: 'error', message: 'Anexe a foto da avaria antes de lançar os valores.' });
+    const linkDriveExistente = selected.linkDrive || selected.fotoNome || '';
+    if (precisaFoto && fotos.length === 0 && !linkDriveExistente) {
+      setToast({ type: 'error', message: 'Anexe ao menos uma foto da avaria antes de lancar os valores.' });
       return;
     }
 
@@ -803,7 +830,7 @@ const LancarOrcamentos = () => {
           )
         : acessDesc;
       const acessDetalhesPayload = serializeItensComValor(acessoriosComValores);
-      const fotoLinkDrive = foto ? await uploadFotoDrive(selected, foto) : (selected.fotoNome || '');
+      const fotoLinkDrive = fotos.length > 0 ? await uploadFotosDrive(selected, fotos) : linkDriveExistente;
 
       const submittedStatus = 2;
       const payload = {
@@ -815,6 +842,8 @@ const LancarOrcamentos = () => {
         razaoSocial,
         unidade,
         emailRetorno,
+        linkDrive: fotoLinkDrive,
+        link_drive: fotoLinkDrive,
         itens: [
           {
             id: selected.dbId,
@@ -829,6 +858,8 @@ const LancarOrcamentos = () => {
             serial: selected.serial,
             defeitoEncontrado: defeitoEncontradoPayload,
             fotoNome: fotoLinkDrive,
+            linkDrive: fotoLinkDrive,
+            link_drive: fotoLinkDrive,
             pecasDesc: pecasDescPayload,
             pecasDetalhes: pecasDetalhesPayload,
             valPecas,
@@ -935,6 +966,7 @@ const LancarOrcamentos = () => {
       garantia,
       tipoOrc,
       fotoNome: selected.fotoNome || '',
+      linkDrive: selected.linkDrive || selected.fotoNome || '',
       status: 0
     };
 
@@ -1121,22 +1153,69 @@ const LancarOrcamentos = () => {
                   <option value="DEFEITO FUNCIONAL">DEFEITO FUNCIONAL</option>
                 </select>
               )}
-              {precisaFoto && (
-                <div style={{ marginTop: 5 }}>
-                  <label style={{ color: 'var(--azul)' }}>Foto da avaria (obrigatório)</label>
+              <div className="fotos-drive-field">
+                  <label style={{ color: precisaFoto ? 'var(--azul)' : undefined }}>
+                    Fotos do produto{precisaFoto ? ' (obrigatorio)' : ''}
+                  </label>
+                  <div className="fotos-drive-actions">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => selecionarFotosInputRef.current?.click()}
+                    >
+                      <i className="material-icons">photo_library</i> Selecionar fotos
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => cameraFotosInputRef.current?.click()}
+                    >
+                      <i className="material-icons">photo_camera</i> Tirar foto
+                    </button>
+                  </div>
                   <input
+                    ref={selecionarFotosInputRef}
                     type="file"
                     accept="image/*"
-                    onChange={(e) => setFoto(e.target.files?.[0] || null)}
-                    style={{ width: '100%' }}
+                    multiple
+                    className="fotos-drive-input"
+                    onChange={(e) => {
+                      adicionarFotos(e.target.files);
+                      e.currentTarget.value = '';
+                    }}
                   />
-                  {selected.fotoNome && !foto && (
-                    <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>
-                      Foto atual: {selected.fotoNome}
+                  <input
+                    ref={cameraFotosInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="fotos-drive-input"
+                    onChange={(e) => {
+                      adicionarFotos(e.target.files);
+                      e.currentTarget.value = '';
+                    }}
+                  />
+                  {(selected.linkDrive || selected.fotoNome) && fotos.length === 0 && (
+                    <div className="fotos-drive-current">
+                      Link atual: {selected.linkDrive || selected.fotoNome}
                     </div>
                   )}
-                </div>
-              )}
+                  {fotos.length > 0 && (
+                    <div className="fotos-drive-list">
+                      {fotos.map((file, index) => (
+                        <div key={`${file.name}-${file.lastModified}-${index}`} className="fotos-drive-item">
+                          <span>{file.name}</span>
+                          <button type="button" className="btn btn-secondary btn-sm" onClick={() => removerFoto(index)}>
+                            Remover
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="selection-empty">
+                    As fotos anexadas serao enviadas para uma pasta no Google Drive.
+                  </div>
+              </div>
             </div>
             <div className="lancamento-row lancamento-row-3">
               <div className="lancamento-field">

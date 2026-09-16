@@ -18,6 +18,7 @@ create table if not exists public.orcamentos_finalizados (
   serial text,
   defeito_encontrado text,
   foto_nome text,
+  link_drive text,
   pecas_desc text,
   val_pecas numeric(12,2) default 0,
   acess_desc text,
@@ -71,4 +72,3 @@ grant usage, select on sequence public.orcamentos_finalizados_id_seq to service_
 -- Opcional: manter a tabela fora do acesso publico/anon
 revoke all on table public.orcamentos_finalizados from anon;
 revoke all on table public.orcamentos_finalizados from authenticated;
-

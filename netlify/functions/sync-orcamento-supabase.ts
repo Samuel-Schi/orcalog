@@ -32,6 +32,8 @@ type SyncPayload = {
     serial?: string;
     defeitoEncontrado?: string;
     fotoNome?: string;
+    linkDrive?: string;
+    link_drive?: string;
     pecasDesc?: string;
     valPecas?: number;
     acessDesc?: string;
@@ -58,6 +60,7 @@ const buildRecord = (
 ) => {
   const oracleItemId = toNumber(item.itemId ?? item.id ?? payload.itemId ?? payload.id);
   if (!oracleItemId) return null;
+  const linkDrive = trimText(item.link_drive || item.linkDrive || item.fotoNome || '', 1000);
 
   return {
     oracle_item_id: oracleItemId,
@@ -76,7 +79,8 @@ const buildRecord = (
     linha: trimText(item.linha || '', 120),
     serial: trimText(item.serial || '', 120),
     defeito_encontrado: trimText(item.defeitoEncontrado || '', 250),
-    foto_nome: trimText(item.fotoNome || '', 180),
+    foto_nome: trimText(item.fotoNome || linkDrive, 180),
+    link_drive: linkDrive,
     pecas_desc: trimText(item.pecasDesc || '', 250),
     val_pecas: toNumber(item.valPecas),
     acess_desc: trimText(item.acessDesc || '', 250),
