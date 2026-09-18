@@ -5,7 +5,7 @@ type UploadRequest = IncomingMessage & { body?: unknown };
 
 export default async function uploadFotoDrive(request: UploadRequest, response: ServerResponse) {
   try {
-    const { handler } = await import('../netlify/functions/upload-foto-drive');
+    const { handler } = await import('../netlify/functions/upload-foto-drive.js');
     const body = typeof request.body === 'string' ? request.body : JSON.stringify(request.body ?? {});
     const result = await handler({
       httpMethod: request.method || 'GET',

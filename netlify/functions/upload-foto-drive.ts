@@ -1,6 +1,6 @@
 import type { Handler } from '@netlify/functions';
 import { createSign } from 'crypto';
-import { handleFunctionError, jsonResponse, methodNotAllowed, parseJsonBody, trimText } from './_shared';
+import { handleFunctionError, jsonResponse, methodNotAllowed, parseJsonBody, trimText } from './_shared.js';
 
 type DriveUploadFile = {
   name?: string;
