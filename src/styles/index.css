@@ -341,7 +341,11 @@ input[readonly] { background-color: #f1f3f5; color: #555; }
 }
 
 .fotos-drive-input {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
 }
 
 .fotos-drive-current {

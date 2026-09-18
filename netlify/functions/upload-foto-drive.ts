@@ -12,7 +12,7 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const DRIVE_FILES_URL = 'https://www.googleapis.com/drive/v3/files';
 const DRIVE_UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
-const MAX_UPLOAD_BODY_BYTES = 12 * 1024 * 1024;
+const MAX_UPLOAD_BODY_BYTES = 5_500_000;
 
 const base64Url = (input: string | Buffer) =>
   Buffer.from(input)
@@ -21,15 +21,14 @@ const base64Url = (input: string | Buffer) =>
     .replace(/\//g, '_')
     .replace(/=+$/g, '');
 
-const sanitizeDriveName = (value: unknown, fallback: string) => {
+const sanitizeDriveName = (value: unknown, fallback: string, keepExtension = false) => {
   const cleaned = trimText(value, 140)
-    .replace(/\.[^/.]+$/g, '')
     .replace(/[^a-zA-Z0-9_. -]+/g, '_')
     .replace(/\s+/g, '_')
     .replace(/_+/g, '_')
     .replace(/^_+|_+$/g, '');
 
-  return cleaned || fallback;
+  return (keepExtension ? cleaned : cleaned.replace(/\.[^/.]+$/g, '')) || fallback;
 };
 
 const getRequiredEnv = (key: string) => {
@@ -108,21 +107,21 @@ const uploadArquivoDrive = async (
   index: number
 ) => {
   const boundary = `portal_at_${Date.now()}_${index}`;
-  const safeName = sanitizeDriveName(file.name, `foto_${index + 1}`);
+  const safeName = sanitizeDriveName(file.name, `foto_${index + 1}`, true);
   const mimeType = file.mimeType || 'application/octet-stream';
+  const media = Buffer.from(file.base64, 'base64');
+  if (media.length === 0) throw new Error(`O arquivo ${safeName} esta vazio.`);
   const metadata = {
     name: safeName,
     parents: [folderId]
   };
 
-  let body = `--${boundary}\r\n`;
-  body += 'Content-Type: application/json; charset=UTF-8\r\n\r\n';
-  body += `${JSON.stringify(metadata)}\r\n`;
-  body += `--${boundary}\r\n`;
-  body += `Content-Type: ${mimeType}\r\n`;
-  body += 'Content-Transfer-Encoding: base64\r\n\r\n';
-  body += `${file.base64}\r\n`;
-  body += `--${boundary}--`;
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`),
+    Buffer.from(`--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`),
+    media,
+    Buffer.from(`\r\n--${boundary}--`)
+  ]);
 
   const response = await fetch(
     `${DRIVE_UPLOAD_URL}?uploadType=multipart&supportsAllDrives=true&fields=id,name,webViewLink`,

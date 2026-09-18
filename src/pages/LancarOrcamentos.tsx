@@ -48,7 +48,18 @@ type SetSelectionState = (updater: (current: string[]) => string[]) => void;
 
 type DriveUploadResponse = {
   folderLink?: string;
+  files?: Array<{ id?: string }>;
 };
+
+const getDriveLink = (...values: Array<string | undefined>) =>
+  values.find((value) => {
+    try {
+      const url = new URL(value || '');
+      return url.protocol === 'https:' && url.hostname === 'drive.google.com';
+    } catch {
+      return false;
+    }
+  }) || '';
 
 type PecaComValor = {
   nome: string;
@@ -140,13 +151,39 @@ const buildAcessoriosFallback = (acessDesc?: string, valAcess?: number) => {
   }));
 };
 
-const fileToBase64 = (file: File) =>
+const MAX_UPLOAD_BASE64_LENGTH = 5_000_000;
+
+const preparePhoto = async (file: File): Promise<{ blob: Blob; name: string }> => {
+  if (file.size <= 1_500_000 || !file.type.startsWith('image/')) {
+    return { blob: file, name: file.name };
+  }
+
+  try {
+    const image = await createImageBitmap(file);
+    const scale = Math.min(1, 1600 / Math.max(image.width, image.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.width * scale));
+    canvas.height = Math.max(1, Math.round(image.height * scale));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Canvas indisponivel.');
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    image.close();
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.8));
+    if (!blob) throw new Error('Nao foi possivel preparar a foto.');
+    return { blob, name: `${file.name.replace(/\.[^.]+$/, '')}.jpg` };
+  } catch {
+    return { blob: file, name: file.name };
+  }
+};
+
+const fileToBase64 = (file: Blob, name: string) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
     reader.onload = () => {
       const base64 = String(reader.result || '').split(',')[1] || '';
-      resolve(base64);
+      if (base64) resolve(base64);
+      else reject(new Error(`Nao foi possivel ler a foto ${name}.`));
     };
     reader.onerror = reject;
   });
@@ -184,21 +221,26 @@ const buildFotoFolderName = (item: OrcamentoItem) => {
 };
 
 const uploadFotosDrive = async (item: OrcamentoItem, files: File[]) => {
-  if (files.length === 0) return item.linkDrive || item.fotoNome || '';
+  if (files.length === 0) throw new Error('Nenhuma foto foi selecionada para o upload.');
 
   const protocolo = sanitizeDriveToken(item.protocolo, 'SEM_PROTOCOLO');
   const uploadFiles = await Promise.all(
     files.map(async (file, index) => {
-      const base64 = await fileToBase64(file);
-      const nomeArquivo = `Foto_${index + 1}_${Date.now()}_${file.name}`.replace(/\s+/g, '_');
+      const prepared = await preparePhoto(file);
+      const base64 = await fileToBase64(prepared.blob, prepared.name);
+      const nomeArquivo = `Foto_${index + 1}_${Date.now()}_${prepared.name}`.replace(/\s+/g, '_');
 
       return {
         name: nomeArquivo,
-        mimeType: file.type || 'application/octet-stream',
+        mimeType: prepared.blob.type || 'application/octet-stream',
         base64
       };
     })
   );
+
+  if (uploadFiles.reduce((size, file) => size + file.base64.length, 0) > MAX_UPLOAD_BASE64_LENGTH) {
+    throw new Error('As fotos sao grandes demais para enviar juntas. Selecione menos fotos ou imagens menores.');
+  }
 
   const response = await oracleApi.post<DriveUploadResponse>(
     ORACLE_ENDPOINTS.uploadFotoDrive,
@@ -209,10 +251,15 @@ const uploadFotosDrive = async (item: OrcamentoItem, files: File[]) => {
         name: `Foto_Avaria_${protocolo}_${file.name}`.replace(/\s+/g, '_')
       }))
     },
-    { headers: { 'Content-Type': 'application/json' } }
+    { headers: { 'Content-Type': 'application/json' }, timeout: 55000 }
   );
 
-  return response.data.folderLink || '';
+  const folderLink = getDriveLink(response.data?.folderLink);
+  if (!folderLink || response.data?.files?.length !== files.length ||
+      response.data.files.some((file) => !file.id)) {
+    throw new Error('O Drive nao confirmou todas as fotos. O orcamento nao foi salvo.');
+  }
+  return folderLink;
 };
 
 const normalizeOrcamentoItem = (row: any, index: number): OrcamentoItem => ({
@@ -398,8 +445,10 @@ const LancarOrcamentos = () => {
     [valPecas, valAcess, valMaoObra, valEmb, valHig]
   );
   const precisaFoto = useMemo(
-    () => defeitosSelecionados.some((defeito) => /AVARIA/i.test(defeito)),
-    [defeitosSelecionados]
+    () => catalogoLinha
+      ? defeitosSelecionados.some((defeito) => /AVARIA/i.test(defeito))
+      : /AVARIA/i.test(defeitoEncontrado),
+    [catalogoLinha, defeitoEncontrado, defeitosSelecionados]
   );
   const resumoLancamento = useMemo(() => {
     const linhas: Array<{ label: string; valor: number; destaque?: boolean }> = [];
@@ -768,7 +817,8 @@ const LancarOrcamentos = () => {
 
   const adicionarFotos = (files?: FileList | null) => {
     if (!files?.length) return;
-    setFotos((current) => [...current, ...Array.from(files)]);
+    const selectedFiles = Array.from(files);
+    setFotos((current) => [...current, ...selectedFiles]);
   };
 
   const removerFoto = (index: number) => {
@@ -781,7 +831,7 @@ const LancarOrcamentos = () => {
       setToast({ type: 'error', message: 'Este item não possui ID real do banco. Ajuste o endpoint para retornar o campo ID.' });
       return;
     }
-    const linkDriveExistente = selected.linkDrive || selected.fotoNome || '';
+    const linkDriveExistente = getDriveLink(selected.linkDrive, selected.fotoNome);
     if (precisaFoto && fotos.length === 0 && !linkDriveExistente) {
       setToast({ type: 'error', message: 'Anexe ao menos uma foto da avaria antes de lancar os valores.' });
       return;
@@ -936,7 +986,7 @@ const LancarOrcamentos = () => {
         setToast({ type: 'error', message: String(backendError) });
         console.error('Erro ao lancar valores do orcamento:', status, data);
       } else {
-        setToast({ type: 'error', message: 'Erro ao lançar valores do orçamento.' });
+        setToast({ type: 'error', message: err instanceof Error ? err.message : 'Erro ao lançar valores do orçamento.' });
         console.error('Erro ao lancar valores do orcamento:', err);
       }
     } finally {
@@ -1362,9 +1412,9 @@ const LancarOrcamentos = () => {
                 e.currentTarget.value = '';
               }}
             />
-            {(selected.linkDrive || selected.fotoNome) && fotos.length === 0 && (
+            {getDriveLink(selected.linkDrive, selected.fotoNome) && fotos.length === 0 && (
               <div className="fotos-drive-current">
-                Link atual: {selected.linkDrive || selected.fotoNome}
+                Link atual: {getDriveLink(selected.linkDrive, selected.fotoNome)}
               </div>
             )}
             {fotos.length > 0 && (
