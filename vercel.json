@@ -57,6 +57,10 @@
       "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/get_envios"
     },
     {
+      "source": "/upload_foto_drive",
+      "destination": "/api/upload-foto-drive"
+    },
+    {
       "source": "/(.*)",
       "destination": "/"
     }

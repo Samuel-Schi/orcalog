@@ -151,7 +151,7 @@ const buildAcessoriosFallback = (acessDesc?: string, valAcess?: number) => {
   }));
 };
 
-const MAX_UPLOAD_BASE64_LENGTH = 5_000_000;
+const MAX_UPLOAD_BASE64_LENGTH = 4_000_000;
 
 const preparePhoto = async (file: File): Promise<{ blob: Blob; name: string }> => {
   if (file.size <= 1_500_000 || !file.type.startsWith('image/')) {
