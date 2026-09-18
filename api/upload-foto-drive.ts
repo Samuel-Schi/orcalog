@@ -1,17 +1,18 @@
 import type { HandlerContext, HandlerEvent, HandlerResponse } from '@netlify/functions';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { handler } from '../netlify/functions/upload-foto-drive';
 
-export default {
-  async fetch(request: Request): Promise<Response> {
-    const result = await handler({
-      httpMethod: request.method,
-      body: request.method === 'POST' ? await request.text() : null,
-      isBase64Encoded: false
-    } as HandlerEvent, {} as HandlerContext) as HandlerResponse | undefined;
+type UploadRequest = IncomingMessage & { body?: unknown };
 
-    return new Response(result?.body || '{}', {
-      status: result?.statusCode || 500,
-      headers: { 'Content-Type': 'application/json; charset=utf-8' }
-    });
-  }
-};
+export default async function uploadFotoDrive(request: UploadRequest, response: ServerResponse) {
+  const body = typeof request.body === 'string' ? request.body : JSON.stringify(request.body ?? {});
+  const result = await handler({
+    httpMethod: request.method || 'GET',
+    body: request.method === 'POST' ? body : null,
+    isBase64Encoded: false
+  } as HandlerEvent, {} as HandlerContext) as HandlerResponse | undefined;
+
+  response.statusCode = result?.statusCode || 500;
+  response.setHeader('Content-Type', 'application/json; charset=utf-8');
+  response.end(result?.body || '{}');
+}
