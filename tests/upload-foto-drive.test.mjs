@@ -24,7 +24,8 @@ test('envia os bytes da foto ao Drive e devolve o link da pasta', async () => {
   const originalEnv = {
     GOOGLE_SERVICE_ACCOUNT_EMAIL: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
     GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
-    GOOGLE_DRIVE_PARENT_FOLDER_ID: process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID
+    GOOGLE_DRIVE_PARENT_FOLDER_ID: process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID,
+    GOOGLE_SERVICE_ACCOUNT_JSON_ENVIO: process.env.GOOGLE_SERVICE_ACCOUNT_JSON_ENVIO
   };
   const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = 'test@example.com';
@@ -62,6 +63,45 @@ test('envia os bytes da foto ao Drive e devolve o link da pasta', async () => {
     assert.equal(result.statusCode, 200);
     assert.equal(JSON.parse(result.body).folderLink, 'https://drive.google.com/drive/folders/folder-1');
     assert.equal(uploaded, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test('aceita as credenciais no JSON configurado na Netlify', async () => {
+  const originalEnv = {
+    GOOGLE_SERVICE_ACCOUNT_EMAIL: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+    GOOGLE_DRIVE_PARENT_FOLDER_ID: process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID,
+    GOOGLE_SERVICE_ACCOUNT_JSON_ENVIO: process.env.GOOGLE_SERVICE_ACCOUNT_JSON_ENVIO
+  };
+  const originalFetch = globalThis.fetch;
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+
+  delete process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  delete process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
+  process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID = 'parent';
+  process.env.GOOGLE_SERVICE_ACCOUNT_JSON_ENVIO = JSON.stringify({
+    client_email: 'json-test@example.com',
+    private_key: privateKey.export({ type: 'pkcs8', format: 'pem' })
+  });
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('oauth2.googleapis.com/token')) return Response.json({ access_token: 'test-token' });
+    return Response.json({ id: 'folder-1', webViewLink: 'https://drive.google.com/drive/folders/folder-1' });
+  };
+
+  try {
+    const result = await handler({
+      httpMethod: 'POST',
+      body: JSON.stringify({
+        files: [{ name: 'Foto.jpg', mimeType: 'image/jpeg', base64: Buffer.from('foto').toString('base64') }]
+      })
+    });
+    assert.equal(result.statusCode, 200);
   } finally {
     globalThis.fetch = originalFetch;
     for (const [key, value] of Object.entries(originalEnv)) {

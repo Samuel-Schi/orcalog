@@ -13,6 +13,14 @@ const DRIVE_FILES_URL = 'https://www.googleapis.com/drive/v3/files';
 const DRIVE_UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
 const MAX_UPLOAD_BODY_BYTES = 5_500_000;
+const GOOGLE_SERVICE_ACCOUNT_JSON_ENV = 'GOOGLE_SERVICE_ACCOUNT_JSON_ENVIO';
+
+type GoogleServiceAccount = {
+  client_email?: string;
+  private_key?: string;
+  google_drive_parent_folder_id?: string;
+  drive_parent_folder_id?: string;
+};
 
 const base64Url = (input: string | Buffer) =>
   Buffer.from(input)
@@ -31,17 +39,37 @@ const sanitizeDriveName = (value: unknown, fallback: string, keepExtension = fal
   return (keepExtension ? cleaned : cleaned.replace(/\.[^/.]+$/g, '')) || fallback;
 };
 
-const getRequiredEnv = (key: string) => {
-  const value = process.env[key];
-  if (!value) {
-    throw new Error(`Variavel ${key} nao configurada.`);
+const getServiceAccount = (): GoogleServiceAccount => {
+  const rawJson = process.env[GOOGLE_SERVICE_ACCOUNT_JSON_ENV]?.trim();
+  if (!rawJson) return {};
+
+  try {
+    const parsed = JSON.parse(rawJson) as GoogleServiceAccount;
+    if (!parsed || typeof parsed !== 'object') throw new Error('Formato invalido.');
+    return parsed;
+  } catch {
+    throw new Error(`Variavel ${GOOGLE_SERVICE_ACCOUNT_JSON_ENV} contem um JSON invalido.`);
   }
-  return value;
+};
+
+const getGoogleDriveConfig = () => {
+  const serviceAccount = getServiceAccount();
+  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || serviceAccount.client_email;
+  const privateKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || serviceAccount.private_key;
+  const parentFolderId = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID
+    || serviceAccount.google_drive_parent_folder_id
+    || serviceAccount.drive_parent_folder_id;
+
+  if (!email) throw new Error('Configure GOOGLE_SERVICE_ACCOUNT_EMAIL ou o client_email no JSON da service account.');
+  if (!privateKey) throw new Error('Configure GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY ou o private_key no JSON da service account.');
+  if (!parentFolderId) throw new Error('Variavel GOOGLE_DRIVE_PARENT_FOLDER_ID nao configurada.');
+
+  return { email, privateKey, parentFolderId };
 };
 
 const getGoogleAccessToken = async () => {
-  const serviceAccountEmail = getRequiredEnv('GOOGLE_SERVICE_ACCOUNT_EMAIL');
-  const privateKey = getRequiredEnv('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY').replace(/\\n/g, '\n');
+  const { email: serviceAccountEmail, privateKey: configuredPrivateKey } = getGoogleDriveConfig();
+  const privateKey = configuredPrivateKey.replace(/\\n/g, '\n');
   const now = Math.floor(Date.now() / 1000);
 
   const header = { alg: 'RS256', typ: 'JWT' };
@@ -75,7 +103,7 @@ const getGoogleAccessToken = async () => {
 };
 
 const criarPastaDrive = async (token: string, folderName: string) => {
-  const parentFolderId = getRequiredEnv('GOOGLE_DRIVE_PARENT_FOLDER_ID');
+  const { parentFolderId } = getGoogleDriveConfig();
   const response = await fetch(`${DRIVE_FILES_URL}?supportsAllDrives=true&fields=id,webViewLink`, {
     method: 'POST',
     headers: {
