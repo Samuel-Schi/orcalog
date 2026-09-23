@@ -16,6 +16,8 @@ export const ORACLE_ENDPOINTS = {
   getLancamentoDraftsSupabase: '/lancamento_rascunho_supa',
   saveLancamentoDraftSupabase: '/lancamento_rascunho_supa/save',
   syncOrcamentoSupabase: '/sync_orcamento_supabase',
+  getPagamentosSupabase: '/pagamentos_supa',
+  savePagamentoSupabase: '/pagamentos_supa/save',
   getEnviosStatusSupabase: '/status_envios_supa',
   getEnviosNegociacoesSupabase: '/negociacoes_envios_supa',
   postEnvioNegociacaoResposta: '/negociacoes_envios_supa/resposta',

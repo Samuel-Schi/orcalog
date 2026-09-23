@@ -51,6 +51,11 @@ type DriveUploadResponse = {
   files?: Array<{ id?: string }>;
 };
 
+type StatusSupabaseRow = {
+  oracle_item_id?: number | string | null;
+  status?: number | string | null;
+};
+
 const getDriveLink = (...values: Array<string | undefined>) =>
   values.find((value) => {
     try {
@@ -60,6 +65,9 @@ const getDriveLink = (...values: Array<string | undefined>) =>
       return false;
     }
   }) || '';
+
+const isStatusPendente = (status: number | string | null | undefined) =>
+  [0, 1].includes(Number(status ?? 0));
 
 type PecaComValor = {
   nome: string;
@@ -351,6 +359,7 @@ const LancarOrcamentos = () => {
     () => (locationState?.item ? normalizeOrcamentoItem(locationState.item, 0) : null),
     [locationState]
   );
+  const edicaoBloqueada = Boolean(editableItem && !isStatusPendente(editableItem.status));
   const draftsHydratedRef = useRef(false);
   const [items, setItems] = useState<OrcamentoItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -612,6 +621,10 @@ const LancarOrcamentos = () => {
         setItems([]);
         setSelectedId(null);
         draftsHydratedRef.current = false;
+        if (edicaoBloqueada) {
+          setToast({ type: 'error', message: 'A edição só é permitida enquanto o orçamento estiver pendente.' });
+          return;
+        }
         let cnpj = '';
         const profileRaw = localStorage.getItem('gat_user_profile');
         if (profileRaw) {
@@ -645,7 +658,7 @@ const LancarOrcamentos = () => {
 
         if (!cnpj) throw new Error('CNPJ não encontrado.');
         const paUsuario = (localStorage.getItem('gat_user') || '').trim();
-        const [res, draftsRes, enviadosRes] = await Promise.all([
+        const [res, draftsRes, enviadosRes, statusRes] = await Promise.all([
           oracleApi.get(ORACLE_ENDPOINTS.getOrcamentosAnalise, {
             params: { cnpj, _ts: Date.now() },
             responseType: 'arraybuffer',
@@ -663,6 +676,13 @@ const LancarOrcamentos = () => {
             ? oracleApi.get(ORACLE_ENDPOINTS.getEnvios, {
                 params: { cnpj, _ts: Date.now() },
                 responseType: 'arraybuffer'
+              })
+            : Promise.resolve({ data: [] }),
+          editableItem
+            ? oracleApi.get<StatusSupabaseRow[]>(ORACLE_ENDPOINTS.getEnviosStatusSupabase, {
+                params: { cnpj, _ts: Date.now() },
+                headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+                validateStatus: (status) => status >= 200 && status < 500
               })
             : Promise.resolve({ data: [] })
         ]);
@@ -693,18 +713,30 @@ const LancarOrcamentos = () => {
         const enviadosList: any[] = Array.isArray(enviadosData?.items)
           ? enviadosData.items
           : Array.isArray(enviadosData) ? enviadosData : [];
+        const statusRows = Array.isArray(statusRes.data) ? statusRes.data : [];
+        const supabaseStatus = editableItem?.dbId == null
+          ? undefined
+          : statusRows.find((row) => Number(row.oracle_item_id) === editableItem.dbId)?.status;
+        const podeEditar = !editableItem || isStatusPendente(supabaseStatus ?? editableItem.status);
         const serverEditItem = editableItem
           ? [...list, ...enviadosList]
               .map((row, index) => normalizeOrcamentoItem(row, index))
               .find((item) => item.dbId != null && item.dbId === editableItem.dbId)
           : undefined;
-        if (serverEditItem) {
+        if (serverEditItem && podeEditar) {
           const currentItem = applyDraftToItem(serverEditItem, draftsMap.get(serverEditItem.dbId!) ?? null);
           setItems([currentItem, ...normalized.filter((item) => item.dbId !== currentItem.dbId)]);
           selecionarItem(currentItem);
         } else {
           setItems(normalized);
-          if (editableItem) setToast({ type: 'error', message: 'Este produto não foi encontrado no banco.' });
+          if (editableItem) {
+            setToast({
+              type: 'error',
+              message: podeEditar
+                ? 'Este produto não foi encontrado no banco.'
+                : 'Este orçamento já está em análise e não pode mais ser editado.'
+            });
+          }
         }
         draftsHydratedRef.current = true;
       } catch {
@@ -717,7 +749,7 @@ const LancarOrcamentos = () => {
     };
 
     loadFromApi();
-  }, [editableItem]);
+  }, [editableItem, edicaoBloqueada]);
 
   const findByCode = (raw: string) => {
     const norm = normalizeCode(raw);
@@ -863,6 +895,21 @@ const LancarOrcamentos = () => {
         // ignore profile parsing
       }
 
+      if (cnpj) {
+        const statusResponse = await oracleApi.get<StatusSupabaseRow[]>(ORACLE_ENDPOINTS.getEnviosStatusSupabase, {
+          params: { cnpj, _ts: Date.now() },
+          headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+          validateStatus: (status) => status >= 200 && status < 400
+        });
+        const statusAtual = (Array.isArray(statusResponse.data) ? statusResponse.data : [])
+          .find((row) => Number(row.oracle_item_id) === selected.dbId)?.status;
+
+        if (statusAtual !== undefined && !isStatusPendente(statusAtual)) {
+          setToast({ type: 'error', message: 'Este orçamento já está em análise e não pode mais ser editado.' });
+          return;
+        }
+      }
+
       const defeitoEncontradoPayload = catalogoLinha
         ? buildSelectionPayload(defeitosSelecionados)
         : defeitoEncontrado;
@@ -894,6 +941,8 @@ const LancarOrcamentos = () => {
         emailRetorno,
         linkDrive: fotoLinkDrive,
         link_drive: fotoLinkDrive,
+        fotoNome: fotoLinkDrive,
+        foto_nome: fotoLinkDrive,
         itens: [
           {
             id: selected.dbId,
@@ -934,7 +983,14 @@ const LancarOrcamentos = () => {
 
       let syncWarning = '';
       try {
-        await oracleApi.post(ORACLE_ENDPOINTS.syncOrcamentoSupabase, payload, {
+        // No Supabase, o orçamento deve aguardar a atribuição de um analista.
+        // Mantemos o status enviado ao Oracle, mas iniciamos a fila do Supabase
+        // como pendente.
+        const supabasePayload = {
+          ...payload,
+          itens: payload.itens.map((item) => ({ ...item, status: 0 }))
+        };
+        await oracleApi.post(ORACLE_ENDPOINTS.syncOrcamentoSupabase, supabasePayload, {
           headers: { 'Content-Type': 'application/json' }
         });
       } catch (syncError) {
@@ -1227,6 +1283,7 @@ const LancarOrcamentos = () => {
                   <option value="">SELECIONE...</option>
                   <option value="SALDO A">SALDO A</option>
                   <option value="NOVO">NOVO</option>
+                  <option value="GARANTIA">GARANTIA</option>
                   <option value="SUCATA">SUCATA</option>
                 </select>
               </div>
@@ -1261,7 +1318,7 @@ const LancarOrcamentos = () => {
                     </div>
                     <div className="selection-values-list">
                         {pecasComValores.length === 0 && (
-                          <div className="selection-empty">As peças selecionadas aparecerão abaixo.</div>
+                          <div className="selection-empty">Nenhuma peça adicionada. Deixe em branco se não houver troca ou reposição.</div>
                         )}
                         {pecasComValores.map((peca) => (
                           <div key={peca.nome} className="selection-value-item">
@@ -1312,7 +1369,7 @@ const LancarOrcamentos = () => {
                     </div>
                     <div className="selection-values-list">
                         {acessoriosComValores.length === 0 && (
-                          <div className="selection-empty">Os acessórios selecionados aparecerão abaixo.</div>
+                          <div className="selection-empty">Nenhum acessório adicionado. Deixe em branco se não houver troca ou reposição.</div>
                         )}
                         {acessoriosComValores.map((acessorio) => (
                           <div key={acessorio.nome} className="selection-value-item">

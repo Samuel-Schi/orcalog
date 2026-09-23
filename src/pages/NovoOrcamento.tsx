@@ -185,7 +185,6 @@ const NovoOrcamento = () => {
   const [manualMode, setManualMode] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
   const requestSeqRef = useRef(0);
   const pendingScanRef = useRef<ParsedQrPayload | null>(null);
   const serialInputRef = useRef<HTMLInputElement | null>(null);
@@ -464,46 +463,65 @@ const NovoOrcamento = () => {
   useEffect(() => {
     if (!showQr) return;
     let cancelled = false;
+    let frameId = 0;
+    let stream: MediaStream | null = null;
 
     const start = async () => {
       try {
         setQrError('');
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' }
-        });
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
+        if (!navigator.mediaDevices?.getUserMedia || !videoRef.current) {
+          setQrError('Este navegador não permite o acesso à câmera.');
+          return;
         }
 
         const BarcodeDetectorCtor = (window as any).BarcodeDetector;
         if (!BarcodeDetectorCtor) {
-          setQrError('Leitor não suportado neste navegador. Use colar o QR no campo.');
+          setQrError('Leitura por câmera não é suportada neste navegador. Abra pelo Chrome atualizado ou use o preenchimento manual.');
           return;
         }
 
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
+        if (cancelled) return;
+
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+
         const detector = new BarcodeDetectorCtor({ formats: ['qr_code'] });
-        const scan = async () => {
+        let lastAttempt = 0;
+        const scan = async (now: number) => {
           if (cancelled || !videoRef.current) return;
-          try {
-            const barcodes = await detector.detect(videoRef.current);
-            if (barcodes && barcodes.length > 0) {
-              const value = barcodes[0].rawValue || '';
+          if (now - lastAttempt >= 120 && videoRef.current.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+            lastAttempt = now;
+            try {
+              const barcodes = await detector.detect(videoRef.current);
+              const value = barcodes?.[0]?.rawValue?.trim();
               if (value) {
                 handleQrInput(value);
                 setShowQr(false);
                 return;
               }
+            } catch {
+              // A câmera pode ainda estar ajustando foco/exposição; tenta novamente.
             }
-          } catch {
-            // ignore scan errors
           }
-          requestAnimationFrame(scan);
+          frameId = requestAnimationFrame(scan);
         };
-        requestAnimationFrame(scan);
-      } catch {
-        setQrError('Não foi possível acessar a câmera.');
+        frameId = requestAnimationFrame(scan);
+      } catch (error) {
+        if (cancelled) return;
+        const name = error instanceof DOMException ? error.name : '';
+        setQrError(
+          name === 'NotAllowedError'
+            ? 'Permissão da câmera negada. Libere o acesso à câmera nas configurações do navegador.'
+            : 'Não foi possível iniciar a câmera. Verifique se ela está em uso por outro aplicativo.'
+        );
       }
     };
 
@@ -511,10 +529,8 @@ const NovoOrcamento = () => {
 
     return () => {
       cancelled = true;
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      }
+      cancelAnimationFrame(frameId);
+      stream?.getTracks().forEach((track) => track.stop());
     };
   }, [showQr]);
 
@@ -939,7 +955,7 @@ const NovoOrcamento = () => {
       <div className="card">
         <div className="grid-form novo-orcamento-grid">
           <div className="span-2"><label>Protocolo</label><input type="text" value={protocolo} readOnly /></div>
-          <div className="span-2"><label>P.A.</label><input type="text" value={localStorage.getItem('gat_user') || ''} readOnly /></div>
+          <div className="span-2"><label>Usuário</label><input type="text" value={localStorage.getItem('gat_user') || ''} readOnly /></div>
           <div className="span-2"><label>CNPJ</label><input type="text" value={formatCnpj(cnpj)} readOnly /></div>
           <div className="span-2"><label>Razão Social</label><input type="text" value={razaoSocial} readOnly /></div>
           <div className="span-4">
@@ -956,13 +972,16 @@ const NovoOrcamento = () => {
         <div className="grid-form novo-orcamento-grid" style={{ marginTop: 10 }}>
           <div className="span-4">
             <label>Unidade *</label>
-            <input
-              type="text"
+            <select
               value={unidade}
               required
-              placeholder="Obrigatorio preencher"
               onChange={(e) => setUnidade(e.target.value)}
-            />
+            >
+              <option value="">Selecione a unidade</option>
+              {[49, 93, 299, 389, 549, 893, 985, 1116, 2099, 2599, 2999, 5299, 5599].map((codigo) => (
+                <option key={codigo} value={String(codigo)}>DQS - {codigo}</option>
+              ))}
+            </select>
           </div>
         </div>
       </div>

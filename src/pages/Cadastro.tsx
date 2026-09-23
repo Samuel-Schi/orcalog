@@ -31,7 +31,15 @@ const Cadastro = () => {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingCnpj, setLoadingCnpj] = useState(false);
+  const [cnpjLookupFailed, setCnpjLookupFailed] = useState(false);
   const [step, setStep] = useState<1 | 2>(1);
+
+  const normalizarNomePosto = (value: string) =>
+    value
+      .normalize('NFC')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLocaleUpperCase('pt-BR');
 
   const formatCnpj = (value: string) => {
     const digits = value.replace(/\D/g, '').slice(0, 14);
@@ -45,6 +53,8 @@ const Cadastro = () => {
   const onChangeCnpj = (value: string) => {
     const masked = formatCnpj(value);
     setCnpj(masked);
+    setRazao('');
+    setCnpjLookupFailed(false);
   };
 
   const buscarCnpj = async () => {
@@ -71,12 +81,15 @@ const Cadastro = () => {
         throw new Error('CNPJ localizado, mas sem razao social disponivel.');
       }
 
-      setRazao(String(razaoSocial));
+      setRazao(normalizarNomePosto(String(razaoSocial)));
+      setCnpjLookupFailed(false);
     } catch (err) {
+      setCnpjLookupFailed(true);
       if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.message || err.response?.data?.error || 'Erro ao consultar CNPJ.');
+        setError(err.response?.data?.message || err.response?.data?.error || 'Não foi possível consultar o CNPJ. Informe manualmente o nome do posto.');
       } else {
-        setError(err instanceof Error ? err.message : 'Erro ao consultar CNPJ.');
+        const detail = err instanceof Error ? err.message : 'Não foi possível consultar o CNPJ.';
+        setError(`${detail} Informe manualmente o nome do posto.`);
       }
     } finally {
       setLoadingCnpj(false);
@@ -103,7 +116,7 @@ const Cadastro = () => {
         usuario: usuarioUpper,
         senha: senha_hash,
         cnpj: cnpjDigits,
-        razao_social: razao,
+        razao_social: normalizarNomePosto(razao),
         telefone,
         email,
         nome,
@@ -219,16 +232,23 @@ const Cadastro = () => {
                   </div>
                 )}
 
-                <label className="login-label">Razão Social</label>
+                <label className="login-label">{cnpjLookupFailed ? 'Nome do posto' : 'Razão Social'}</label>
                 <div className="login-input">
                   <i className="material-icons">apartment</i>
                   <input
                     type="text"
-                    placeholder="Razão social"
+                    placeholder={cnpjLookupFailed ? 'Digite o nome do posto' : 'Razão social'}
                     value={razao}
+                    readOnly={!cnpjLookupFailed}
                     onChange={(e) => setRazao(e.target.value)}
+                    onBlur={(e) => setRazao(normalizarNomePosto(e.target.value))}
                   />
                 </div>
+                {cnpjLookupFailed && (
+                  <div style={{ color: '#64748b', fontSize: 12, marginTop: -8, marginBottom: 10 }}>
+                    O nome será salvo em caixa alta e sem espaços duplicados, no padrão do retorno da consulta.
+                  </div>
+                )}
 
                 <label className="login-label">Nome do responsável</label>
                 <div className="login-input">

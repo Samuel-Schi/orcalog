@@ -93,6 +93,18 @@
   force = true
 
 [[redirects]]
+  from = "/pagamentos_supa"
+  to = "/.netlify/functions/get-pagamentos-supabase"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/pagamentos_supa/save"
+  to = "/.netlify/functions/save-pagamento-supabase"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/status_envios_supa"
   to = "/.netlify/functions/get-envios-status-supabase"
   status = 200

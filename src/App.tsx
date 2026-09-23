@@ -6,6 +6,7 @@ import NovoOrcamento from './pages/NovoOrcamento';
 import MeusEnvios from './pages/MeusEnvios';
 import LancarOrcamentos from './pages/LancarOrcamentos';
 import Romaneio from './pages/Romaneio';
+import Pagamentos from './pages/Pagamentos';
 import SidebarLayout from './components/SidebarLayout';
 
 const isAuthenticated = () => {
@@ -34,6 +35,7 @@ const App = () => {
         <Route path="/lancar-orcamentos" element={<LancarOrcamentos />} />
         <Route path="/meus-envios" element={<MeusEnvios />} />
         <Route path="/romaneio" element={<Romaneio />} />
+        <Route path="/pagamentos" element={<Pagamentos />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
