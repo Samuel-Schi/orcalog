@@ -875,6 +875,58 @@ const NovoOrcamento = () => {
     }
   };
 
+  const buscarProdutoPorCodigoBarras = async (value: string) => {
+    const codigoBarras = sanitizeEanValue(value);
+    if (!manualMode || codigoBarras.length < 8) return;
+
+    const requestId = ++requestSeqRef.current;
+    try {
+      const response = await oracleApi.get(ORACLE_ENDPOINTS.getProdutoCodigoBarras, {
+        params: { codigo_barra: codigoBarras, _ts: Date.now() },
+        responseType: 'arraybuffer',
+        headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+        validateStatus: (status) => status >= 200 && status < 400
+      });
+      const data = parseMaybeJson(response.data);
+      const rows: any[] = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+      const produto = rows[0] ?? data ?? {};
+      if (requestId !== requestSeqRef.current) return;
+
+      const getField = (keys: string[]) => {
+        const lowerMap = new Map<string, string>();
+        Object.keys(produto || {}).forEach((key) => lowerMap.set(key.toLowerCase(), key));
+        for (const key of keys) {
+          const actualKey = lowerMap.get(key.toLowerCase());
+          const field = actualKey ? produto[actualKey] : undefined;
+          if (field !== null && field !== undefined && String(field).trim()) return String(field).trim();
+        }
+        return '';
+      };
+
+      const descricao = getField(['descricao', 'ds_produto', 'descricao_produto', 'desc_produto', 'description', 'produto']);
+      const fornecedorApi = getField(['fornecedor', 'ds_fornecedor', 'desc_fornecedor', 'fornecedor_desc', 'nome_fornecedor']);
+      const linhaApi = getField(['linha', 'ds_linha', 'desc_linha', 'linha_desc', 'nome_linha']);
+      const gemcoApi = getField(['item', 'cod_gemco', 'codigo', 'cod_item', 'item_codigo']);
+      const eanApi = getField(['cod_barra', 'codigo_barra', 'codigo_barras', 'ean']);
+
+      if (!descricao && !fornecedorApi && !linhaApi) {
+        setToast({ type: 'error', message: 'Código de barras não encontrado no cadastro de produtos.' });
+        return;
+      }
+
+      setEan(sanitizeEanValue(eanApi || codigoBarras));
+      if (gemcoApi) setCodGemco(gemcoApi);
+      if (descricao) setDescProd(descricao);
+      if (fornecedorApi) setFornecedor(fornecedorApi);
+      if (linhaApi) setLinha(linhaApi);
+      setToast({ type: 'success', message: 'Dados do produto preenchidos pelo código de barras.' });
+    } catch {
+      if (requestId === requestSeqRef.current) {
+        setToast({ type: 'error', message: 'Não foi possível consultar o código de barras. Tente novamente.' });
+      }
+    }
+  };
+
   const criarId = () =>
     (typeof crypto !== 'undefined' && 'randomUUID' in crypto && crypto.randomUUID())
       || `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
@@ -1089,6 +1141,13 @@ const NovoOrcamento = () => {
               readOnly={!manualMode}
               placeholder={manualMode ? 'Digite manualmente se necessario' : ''}
               onChange={(e) => setEan(sanitizeEanValue(e.target.value))}
+              onBlur={(e) => void buscarProdutoPorCodigoBarras(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void buscarProdutoPorCodigoBarras(e.currentTarget.value);
+                }
+              }}
             />
           </div>
           <div className="span-6">

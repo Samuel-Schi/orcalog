@@ -6,6 +6,11 @@ alter table public.orcamentos_finalizados
   add column if not exists nota_fiscal_drive_link text,
   add column if not exists nota_fiscal_enviada_em timestamptz,
   add column if not exists pagamento_solicitado_em timestamptz;
+alter table public.orcamentos_finalizados
+  add column if not exists valor_pagamento numeric(12,2);
+alter table public.orcamentos_finalizados
+  add column if not exists nota_fiscal_numero text,
+  add column if not exists pagamento_validacao_status text not null default 'PENDENTE';
 
 create index if not exists orcamentos_finalizados_pagamento_status_idx
   on public.orcamentos_finalizados (pagamento_status);

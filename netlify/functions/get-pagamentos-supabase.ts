@@ -16,8 +16,9 @@ export const handler: Handler = async (event) => {
 
     const baseUrl = supabaseUrl.replace(/\/rest\/v1\/?$/i, '').replace(/\/$/, '');
     const url = new URL(`${baseUrl}/rest/v1/${tableName}`);
-    url.searchParams.set('select', 'oracle_item_id,protocolo,cod_gemco,descricao,serial,total_orcamento,pagamento_status,pagamento_referencia,nota_fiscal_nome,nota_fiscal_drive_link,nota_fiscal_enviada_em,pagamento_solicitado_em');
+    url.searchParams.set('select', 'oracle_item_id,protocolo,cod_gemco,descricao,serial,total_orcamento,status,status_text,pagamento_status,pagamento_referencia,valor_pagamento,nota_fiscal_numero,nota_fiscal_nome,nota_fiscal_drive_link,nota_fiscal_enviada_em,pagamento_solicitado_em,pagamento_validacao_status');
     url.searchParams.set('cnpj', `eq.${cnpj}`);
+    url.searchParams.set('status', 'eq.10');
     url.searchParams.set('order', 'atualizado_em.desc');
     url.searchParams.set('limit', '500');
 
@@ -25,7 +26,15 @@ export const handler: Handler = async (event) => {
       headers: { Accept: 'application/json', apikey: supabaseSecret, Authorization: `Bearer ${supabaseSecret}` }
     });
     const text = await response.text();
-    if (!response.ok) return jsonResponse(response.status, { error: 'Falha ao consultar pagamentos.', detail: text || null });
+    if (!response.ok) {
+      const missingPaymentSchema = response.status === 400 && /pagamento_status|nota_fiscal|pagamento_/i.test(text);
+      return jsonResponse(response.status, {
+        error: missingPaymentSchema
+          ? 'A tabela de pagamentos ainda nao foi configurada no Supabase. Execute supabase/pagamentos_setup.sql no SQL Editor.'
+          : 'Falha ao consultar pagamentos.',
+        detail: text || null
+      });
+    }
     return { statusCode: 200, body: text, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } };
   } catch (error) {
     return handleFunctionError(error);

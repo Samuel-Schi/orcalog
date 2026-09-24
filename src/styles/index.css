@@ -479,6 +479,67 @@ input[readonly] { background-color: #f1f3f5; color: #555; }
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.negociacao-valores {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.negociacao-valor-card {
+  padding: 13px;
+  border: 1px solid #dbe4f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.negociacao-valor-card label,
+.negociacao-valor-card small {
+  display: block;
+}
+
+.negociacao-valor-card label {
+  margin-bottom: 5px;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.negociacao-valor-card strong {
+  color: #0f172a;
+  font-size: 1.2rem;
+}
+
+.negociacao-valor-atual {
+  border-color: #fbbf24;
+  background: #fffbeb;
+}
+
+.negociacao-valor-card small { margin-top: 5px; font-size: 0.78rem; }
+.negociacao-economia { color: #15803d; }
+.negociacao-acrescimo { color: #b45309; }
+
+.negociacao-currency-input {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.negociacao-currency-input:focus-within { border-color: var(--azul); box-shadow: 0 0 0 2px rgba(0, 112, 192, 0.12); }
+.negociacao-currency-input span { padding-left: 11px; color: #475569; font-weight: 700; }
+.negociacao-currency-input input { border: 0; box-shadow: none; min-width: 0; }
+
+.negociacao-atalhos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.negociacao-atalhos button { border: 0; padding: 0; background: transparent; color: var(--azul); font: inherit; font-size: 0.78rem; cursor: pointer; text-decoration: underline; }
+
+@media (max-width: 600px) {
+  .negociacao-valores { grid-template-columns: 1fr; }
+}
+
 .lancamento-main-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);

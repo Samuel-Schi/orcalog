@@ -39,8 +39,9 @@ const sanitizeDriveName = (value: unknown, fallback: string, keepExtension = fal
   return (keepExtension ? cleaned : cleaned.replace(/\.[^/.]+$/g, '')) || fallback;
 };
 
-const getServiceAccount = (): GoogleServiceAccount => {
-  const rawJson = process.env[GOOGLE_SERVICE_ACCOUNT_JSON_ENV]?.trim();
+type UploadEnv = Record<string, string | undefined>;
+const getServiceAccount = (env: UploadEnv): GoogleServiceAccount => {
+  const rawJson = env[GOOGLE_SERVICE_ACCOUNT_JSON_ENV]?.trim();
   if (!rawJson) return {};
 
   try {
@@ -52,11 +53,11 @@ const getServiceAccount = (): GoogleServiceAccount => {
   }
 };
 
-const getGoogleDriveConfig = () => {
-  const serviceAccount = getServiceAccount();
-  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || serviceAccount.client_email;
-  const privateKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || serviceAccount.private_key;
-  const parentFolderId = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID
+const getGoogleDriveConfig = (env: UploadEnv) => {
+  const serviceAccount = getServiceAccount(env);
+  const email = env.GOOGLE_SERVICE_ACCOUNT_EMAIL || serviceAccount.client_email;
+  const privateKey = env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || serviceAccount.private_key;
+  const parentFolderId = env.GOOGLE_DRIVE_PARENT_FOLDER_ID
     || serviceAccount.google_drive_parent_folder_id
     || serviceAccount.drive_parent_folder_id;
 
@@ -67,8 +68,8 @@ const getGoogleDriveConfig = () => {
   return { email, privateKey, parentFolderId };
 };
 
-const getGoogleAccessToken = async () => {
-  const { email: serviceAccountEmail, privateKey: configuredPrivateKey } = getGoogleDriveConfig();
+const getGoogleAccessToken = async (env: UploadEnv) => {
+  const { email: serviceAccountEmail, privateKey: configuredPrivateKey } = getGoogleDriveConfig(env);
   const privateKey = configuredPrivateKey.replace(/\\n/g, '\n');
   const now = Math.floor(Date.now() / 1000);
 
@@ -102,8 +103,8 @@ const getGoogleAccessToken = async () => {
   return String(data.access_token);
 };
 
-const criarPastaDrive = async (token: string, folderName: string) => {
-  const { parentFolderId } = getGoogleDriveConfig();
+const criarPastaDrive = async (token: string, folderName: string, env: UploadEnv) => {
+  const { parentFolderId } = getGoogleDriveConfig(env);
   const response = await fetch(`${DRIVE_FILES_URL}?supportsAllDrives=true&fields=id,webViewLink`, {
     method: 'POST',
     headers: {
@@ -175,7 +176,7 @@ const uploadArquivoDrive = async (
   };
 };
 
-export const handler: Handler = async (event) => {
+export const createUploadHandler = (env: UploadEnv): Handler => async (event) => {
   if (event.httpMethod !== 'POST') return methodNotAllowed(['POST']);
 
   try {
@@ -193,12 +194,12 @@ export const handler: Handler = async (event) => {
       .filter((file): file is Required<DriveUploadFile> => Boolean(file.base64));
 
     if (validFiles.length === 0) {
-      return jsonResponse(400, { error: 'Envie pelo menos uma foto para upload.' });
+      return jsonResponse(400, { error: 'Selecione pelo menos um arquivo para enviar.' });
     }
 
     const folderName = sanitizeDriveName(body.folderName, `Portal_AT_${Date.now()}`);
-    const token = await getGoogleAccessToken();
-    const folder = await criarPastaDrive(token, folderName);
+    const token = await getGoogleAccessToken(env);
+    const folder = await criarPastaDrive(token, folderName, env);
     const uploadedFiles = await Promise.all(
       validFiles.map((file, index) => uploadArquivoDrive(token, folder.id, file, index))
     );
@@ -212,3 +213,5 @@ export const handler: Handler = async (event) => {
     return handleFunctionError(error);
   }
 };
+
+export const handler = createUploadHandler(process.env);

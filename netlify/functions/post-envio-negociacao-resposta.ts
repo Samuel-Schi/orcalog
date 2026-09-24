@@ -94,7 +94,7 @@ export const handler: Handler = async (event) => {
       method: 'PATCH',
       headers: {
         Accept: 'application/json',
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json; charset=utf-8',
         apikey: supabaseSecret,
         Authorization: `Bearer ${supabaseSecret}`,
         Prefer: 'return=representation'

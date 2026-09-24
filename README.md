@@ -23,6 +23,13 @@ npm run dev
 - No `npm run dev`, o Vite faz proxy para o ORDS via `VITE_ORDS_BASE_URL`.
 - Se precisar trocar o endpoint, copie `.env.example` para `.env` e ajuste `VITE_ORDS_BASE_URL`.
 
+O comando de desenvolvimento usa os certificados confiáveis do sistema quando
+o Node oferece `--use-system-ca` (incluindo o Node 22.19). Isso permite acessar
+o Oracle em redes com certificados corporativos sem desativar a validação HTTPS.
+Se o login retornar erro 500 por `SELF_SIGNED_CERT_IN_CHAIN`, use uma versão do
+Node com esse suporte e reinicie `npm run dev`. Em versões anteriores, configure
+`NODE_EXTRA_CA_CERTS` com o arquivo PEM da autoridade certificadora da sua rede.
+
 
 ## Build
 ```bash
@@ -67,3 +74,22 @@ As linhas sem registros continuam com o preenchimento manual existente.
 Configure no servidor `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY`, ou as
 variaveis existentes `SUPABASE_ORCAMENTOS_URL` e
 `SUPABASE_ORCAMENTOS_SERVICE_ROLE_KEY`. A chave permanece no servidor.
+
+## Enviar codigo e publicar
+No Windows, execute na raiz do projeto:
+
+```powershell
+.\scripts\publicar.cmd
+```
+
+O comando verifica TypeScript, compila, confere se a main remota pode receber
+as alteracoes, cria um commit dos arquivos do projeto e envia para `origin/main`.
+Nao inclui `.env`, `node_modules` nem `dist`. Precisa de autenticacao Git no GitHub.
+Se o envio falhar depois do commit, execute novamente para tentar o push.
+
+O workflow `.github/workflows/ci.yml` verifica TypeScript e build nos pushes
+para main e nos pull requests. Tambem pode ser executado na aba Actions.
+No Netlify, conecte `Samuel-Schi/orcalog` e selecione `main` como branch de producao.
+O `netlify.toml` exige TypeScript e build antes da publicacao. As variaveis do
+Supabase permanecem configuradas no Netlify; nenhuma chave precisa ir ao GitHub.
+O GitHub Actions faz a validacao; o deploy automatico e feito pela conexao Git do Netlify.

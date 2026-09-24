@@ -40,7 +40,7 @@ export const handler: Handler = async (event) => {
       .replace(/\/$/, '');
 
     const url = new URL(`${normalizedSupabaseUrl}/rest/v1/${tableName}`);
-    url.searchParams.set('select', 'oracle_item_id,protocolo,cod_gemco,cod_barras,serial,status');
+    url.searchParams.set('select', 'id,oracle_item_id,protocolo,cod_gemco,cod_barras,serial,status,status_text,total_orcamento');
     url.searchParams.set('cnpj', `eq.${cnpj}`);
     url.searchParams.set('order', 'atualizado_em.desc');
     url.searchParams.set('limit', '500');

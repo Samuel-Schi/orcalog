@@ -9,6 +9,7 @@ export const ORACLE_ENDPOINTS = {
   betUserInf: '/api-bet-user-inf',
   getUserInf: '/get_user_inf',
   getProdutoCadastro: '/get_produto_cadastro',
+  getProdutoCodigoBarras: '/get_produto_codigo_barras',
   consultaCnpj: '/consulta_cnpj',
   saveOrcamento: '/salvar-orcamento',
   getOrcamentoDraftSupabase: '/orcamento_rascunho_supa',

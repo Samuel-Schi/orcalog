@@ -1,5 +1,7 @@
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import type { HandlerEvent, HandlerContext } from '@netlify/functions';
+import { createUploadHandler } from './netlify/functions/upload-foto-drive';
 
 const readRequestBody = async (req: NodeJS.ReadableStream) => {
   const chunks: Buffer[] = [];
@@ -32,6 +34,89 @@ const createLocalSupabaseSyncPlugin = (env: Record<string, string>): Plugin => {
         const requestUrl = req.url ? new URL(req.url, 'http://localhost') : null;
         const pathname = requestUrl?.pathname || '';
 
+        if (pathname === '/upload_foto_drive') {
+          try {
+            const body = req.method === 'POST' ? await readRequestBody(req) : '';
+            const result = await createUploadHandler(env)({
+              httpMethod: req.method || 'GET', body, isBase64Encoded: false
+            } as HandlerEvent, {} as HandlerContext);
+            if (!result) throw new Error('O envio do arquivo nao retornou resposta.');
+            res.statusCode = result.statusCode;
+            for (const [key, value] of Object.entries(result.headers || {})) {
+              if (value != null) res.setHeader(key, String(value));
+            }
+            res.end(result.body);
+          } catch {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify({ error: 'Nao foi possivel enviar o arquivo.' }));
+          }
+          return;
+        }
+
+        // No deploy, esta rota e atendida pela Netlify Function. O Vite nao
+        // interpreta os redirects do netlify.toml, entao a reproduzimos aqui
+        // para que o catalogo tambem funcione com `npm run dev`.
+        if (req.method === 'GET' && pathname === '/catalogo_qualidade') {
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-store');
+
+          if (!supabaseUrl || !supabaseSecret) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: 'Variaveis do Supabase nao configuradas no .env local.' }));
+            return;
+          }
+
+          try {
+            const normalizedSupabaseUrl = supabaseUrl
+              .replace(/\/rest\/v1\/?$/i, '')
+              .replace(/\/$/, '');
+            const rows: unknown[] = [];
+            const pageSize = 500;
+
+            for (let offset = 0; ; offset += pageSize) {
+              const supaUrl = new URL(`${normalizedSupabaseUrl}/rest/v1/catalogo_qualidade`);
+              supaUrl.searchParams.set('select', 'id,linha,tipo,item,ativo');
+              supaUrl.searchParams.set('ativo', 'eq.true');
+              supaUrl.searchParams.set('order', 'id.asc');
+              supaUrl.searchParams.set('limit', String(pageSize));
+              supaUrl.searchParams.set('offset', String(offset));
+
+              const response = await fetch(supaUrl.toString(), {
+                headers: {
+                  Accept: 'application/json',
+                  apikey: supabaseSecret,
+                  Authorization: `Bearer ${supabaseSecret}`
+                }
+              });
+              if (!response.ok) {
+                res.statusCode = 502;
+                res.end(JSON.stringify({ error: 'Falha ao consultar o catalogo no Supabase.' }));
+                return;
+              }
+
+              const page: unknown = await response.json();
+              if (!Array.isArray(page)) {
+                res.statusCode = 502;
+                res.end(JSON.stringify({ error: 'Resposta invalida do catalogo.' }));
+                return;
+              }
+              rows.push(...page);
+              if (page.length < pageSize) break;
+            }
+
+            res.statusCode = 200;
+            res.end(JSON.stringify(rows));
+          } catch (error) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({
+              error: 'Falha ao consultar o catalogo no Vite local.',
+              detail: error instanceof Error ? error.message : String(error)
+            }));
+          }
+          return;
+        }
+
         if (req.method === 'GET' && pathname === '/status_envios_supa') {
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
 
@@ -56,7 +141,7 @@ const createLocalSupabaseSyncPlugin = (env: Record<string, string>): Plugin => {
               .replace(/\/$/, '');
 
             const supaUrl = new URL(`${normalizedSupabaseUrl}/rest/v1/${tableName}`);
-            supaUrl.searchParams.set('select', 'oracle_item_id,protocolo,cod_gemco,cod_barras,serial,status');
+            supaUrl.searchParams.set('select', 'id,oracle_item_id,protocolo,cod_gemco,cod_barras,serial,status,status_text,total_orcamento');
             supaUrl.searchParams.set('cnpj', `eq.${cnpj}`);
             supaUrl.searchParams.set('order', 'atualizado_em.desc');
             supaUrl.searchParams.set('limit', '500');
@@ -79,6 +164,81 @@ const createLocalSupabaseSyncPlugin = (env: Record<string, string>): Plugin => {
               error: 'Falha ao consultar status no Vite local.',
               detail: error instanceof Error ? error.message : String(error)
             }));
+          }
+          return;
+        }
+
+        if (req.method === 'GET' && pathname === '/pagamentos_supa') {
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-store');
+          if (!supabaseUrl || !supabaseSecret) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: 'Variaveis do Supabase nao configuradas no .env local.' }));
+            return;
+          }
+          const cnpj = String(requestUrl?.searchParams.get('cnpj') || '').replace(/\D/g, '');
+          if (!cnpj) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: 'cnpj e obrigatorio.' }));
+            return;
+          }
+          try {
+            const base = supabaseUrl.replace(/\/rest\/v1\/?$/i, '').replace(/\/$/, '');
+            const supaUrl = new URL(`${base}/rest/v1/${tableName}`);
+            supaUrl.searchParams.set('select', 'oracle_item_id,protocolo,cod_gemco,descricao,serial,total_orcamento,status,status_text,pagamento_status,pagamento_referencia,valor_pagamento,nota_fiscal_numero,nota_fiscal_nome,nota_fiscal_drive_link,nota_fiscal_enviada_em,pagamento_solicitado_em,pagamento_validacao_status');
+            supaUrl.searchParams.set('cnpj', `eq.${cnpj}`);
+            supaUrl.searchParams.set('status', 'eq.10');
+            supaUrl.searchParams.set('order', 'atualizado_em.desc');
+            supaUrl.searchParams.set('limit', '500');
+            const response = await fetch(supaUrl.toString(), { headers: { Accept: 'application/json', apikey: supabaseSecret, Authorization: `Bearer ${supabaseSecret}` } });
+            res.statusCode = response.status;
+            res.end(await response.text());
+          } catch (error) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: 'Falha ao consultar pagamentos no Vite local.', detail: error instanceof Error ? error.message : String(error) }));
+          }
+          return;
+        }
+
+        if (req.method === 'POST' && pathname === '/pagamentos_supa/save') {
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          if (!supabaseUrl || !supabaseSecret) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: 'Variaveis do Supabase nao configuradas no .env local.' }));
+            return;
+          }
+          try {
+            const payload = JSON.parse(await readRequestBody(req) || '{}');
+            const itemId = Number(payload?.oracleItemId);
+            const driveLink = String(payload?.notaFiscalDriveLink || '').trim();
+            const fileName = String(payload?.notaFiscalNome || '').trim();
+            const numeroNota = String(payload?.notaFiscalNumero || '').trim();
+            const valorPagamento = Number(payload?.valorPagamento);
+            if (!Number.isFinite(itemId) || itemId <= 0 || !driveLink || !fileName || !numeroNota || !Number.isFinite(valorPagamento) || valorPagamento < 0) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ error: 'Dados da nota fiscal incompletos.' }));
+              return;
+            }
+            const base = supabaseUrl.replace(/\/rest\/v1\/?$/i, '').replace(/\/$/, '');
+            const supaUrl = new URL(`${base}/rest/v1/${tableName}`);
+            supaUrl.searchParams.set('oracle_item_id', `eq.${itemId}`);
+            const validaUrl = new URL(`${base}/rest/v1/${tableName}`);
+            validaUrl.searchParams.set('select', 'total_orcamento');
+            validaUrl.searchParams.set('oracle_item_id', `eq.${itemId}`);
+            const valida = await fetch(validaUrl.toString(), { headers: { Accept: 'application/json', apikey: supabaseSecret, Authorization: `Bearer ${supabaseSecret}` } });
+            const valoresOrcamento = await valida.json() as Array<{ total_orcamento?: number | string }>;
+            const valorOrcamento = Number(valoresOrcamento[0]?.total_orcamento);
+            if (!valoresOrcamento.length || !Number.isFinite(valorOrcamento) || Math.abs(valorPagamento - valorOrcamento) > 0.01) {
+              res.statusCode = 422;
+              res.end(JSON.stringify({ error: 'O valor informado nao confere com o valor final do orcamento.', valorOrcamento, valorInformado: valorPagamento }));
+              return;
+            }
+            const response = await fetch(supaUrl.toString(), { method: 'PATCH', headers: { Accept: 'application/json', 'Content-Type': 'application/json', apikey: supabaseSecret, Authorization: `Bearer ${supabaseSecret}`, Prefer: 'return=representation' }, body: JSON.stringify({ pagamento_status: 'NOTA_ENVIADA', pagamento_referencia: String(payload?.pagamentoReferencia || '').trim(), nota_fiscal_nome: fileName, nota_fiscal_numero: numeroNota, nota_fiscal_drive_link: driveLink, nota_fiscal_enviada_em: new Date().toISOString(), pagamento_solicitado_em: new Date().toISOString(), valor_pagamento: valorPagamento, pagamento_validacao_status: 'VALIDADO' }) });
+            res.statusCode = response.status;
+            res.end(await response.text());
+          } catch (error) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: 'Falha ao salvar pagamento no Vite local.', detail: error instanceof Error ? error.message : String(error) }));
           }
           return;
         }

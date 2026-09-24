@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getStatusLabel } from '../lib/statusMap';
+import { resultadoItem, valorFinalItem, valorAceito } from '../lib/resultadoOrcamento';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 
 type ItemEnvio = {
@@ -14,6 +15,8 @@ type ItemEnvio = {
   linha: string;
   serial: string;
   status: number;
+  supabaseId?: string;
+  statusText?: string | null;
   criadoEm?: string;
   totalOrcamento?: number;
   valPecas?: number;
@@ -37,6 +40,9 @@ type ItemEnvio = {
 };
 
 type StatusSupabaseRow = {
+  id?: number | string | null;
+  status_text?: string | null;
+  total_orcamento?: number | string | null;
   oracle_item_id?: number | string | null;
   protocolo?: string | null;
   cod_gemco?: string | null;
@@ -147,14 +153,16 @@ const MeusEnvios = () => {
   const [respondendo, setRespondendo] = useState<Record<string, boolean>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const requestRef = useRef<AbortController | null>(null);
+  const respostasEmAndamentoRef = useRef(0);
 
-  const carregar = async () => {
+  const carregar = useCallback(async (automatico = false) => {
+    if (requestRef.current || respostasEmAndamentoRef.current > 0) return;
+    const controller = new AbortController();
+    requestRef.current = controller;
     try {
-      setIsLoading(true);
+      if (!automatico) setIsLoading(true);
       setLoadError('');
-      setItems([]);
-      setTotalItensByProtocolo({});
-      setNegociacoesByProtocolo({});
       let cnpj = '';
       const profileRaw = localStorage.getItem('gat_user_profile');
       if (profileRaw) {
@@ -170,6 +178,7 @@ const MeusEnvios = () => {
         const usuario = (localStorage.getItem('gat_user') || '').toLowerCase();
         if (usuario) {
           const res = await oracleApi.get(ORACLE_ENDPOINTS.getUserInf, {
+            signal: controller.signal,
             params: { usuario, _ts: Date.now() },
             responseType: 'arraybuffer',
             headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
@@ -189,16 +198,19 @@ const MeusEnvios = () => {
       if (!cnpj) throw new Error('CNPJ não encontrado.');
       const [res, statusRes, negociacoesRes] = await Promise.all([
         oracleApi.get(ORACLE_ENDPOINTS.getEnvios, {
+          signal: controller.signal,
           params: { cnpj, _ts: Date.now() },
           responseType: 'arraybuffer',
           headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
           validateStatus: (status) => status >= 200 && status < 400
         }),
         oracleApi.get(ORACLE_ENDPOINTS.getEnviosStatusSupabase, {
+          signal: controller.signal,
           params: { cnpj, _ts: Date.now() },
           validateStatus: (status) => status >= 200 && status < 500
         }),
         oracleApi.get(ORACLE_ENDPOINTS.getEnviosNegociacoesSupabase, {
+          signal: controller.signal,
           params: { cnpj, _ts: Date.now() },
           validateStatus: (status) => status >= 200 && status < 500
         })
@@ -212,14 +224,17 @@ const MeusEnvios = () => {
           : [];
 
       const supaRaw = statusRes.data;
+      if (statusRes.status >= 400 || (!Array.isArray(supaRaw) && !Array.isArray(supaRaw?.items))) {
+        throw new Error('Falha ao consultar os resultados dos orcamentos.');
+      }
       const supaList: StatusSupabaseRow[] = Array.isArray(supaRaw)
         ? supaRaw
         : Array.isArray(supaRaw?.items)
           ? supaRaw.items
           : [];
 
-      const statusByOracleId = new Map<number, number>();
-      const statusByKey = new Map<string, number>();
+      const statusByOracleId = new Map<number, StatusSupabaseRow>();
+      const statusByKey = new Map<string, StatusSupabaseRow>();
 
       supaList.forEach((row) => {
         const rawStatus = Number(row.status ?? 0);
@@ -227,7 +242,7 @@ const MeusEnvios = () => {
 
         const oracleItemId = Number(row.oracle_item_id);
         if (Number.isFinite(oracleItemId) && oracleItemId > 0) {
-          statusByOracleId.set(oracleItemId, rawStatus);
+          if (!statusByOracleId.has(oracleItemId)) statusByOracleId.set(oracleItemId, row);
         }
 
         const key = buildItemKey({
@@ -237,11 +252,14 @@ const MeusEnvios = () => {
           serial: String(row.serial ?? '')
         });
         if (key !== '|||') {
-          statusByKey.set(key, rawStatus);
+          if (!statusByKey.has(key)) statusByKey.set(key, row);
         }
       });
 
       const negociacoesRaw = negociacoesRes.data;
+      if (negociacoesRes.status >= 400 || (!Array.isArray(negociacoesRaw) && !Array.isArray(negociacoesRaw?.items))) {
+        throw new Error('Falha ao consultar os valores negociados.');
+      }
       const negociacoesList: NegociacaoSupabaseRow[] = Array.isArray(negociacoesRaw)
         ? negociacoesRaw
         : Array.isArray(negociacoesRaw?.items)
@@ -258,10 +276,14 @@ const MeusEnvios = () => {
       const normalized = list.map((row, index) => normalizeEnvioItem(row, index)).map((item) => {
         const statusById = item.dbId != null ? statusByOracleId.get(item.dbId) : undefined;
         const statusByComposite = statusByKey.get(buildItemKey(item));
+        const atual = statusById ?? statusByComposite;
 
         return {
           ...item,
-          status: statusById ?? statusByComposite ?? Number(item.status || 0)
+          status: Number(atual?.status ?? item.status ?? 0),
+          statusText: atual?.status_text,
+          supabaseId: atual?.id != null ? String(atual.id) : undefined,
+          totalOrcamento: atual?.total_orcamento != null ? Number(atual.total_orcamento) : item.totalOrcamento
         };
       }) as ItemEnvio[];
 
@@ -274,20 +296,35 @@ const MeusEnvios = () => {
         totais[protocolo] = (totais[protocolo] || 0) + 1;
       });
 
+      if (controller.signal.aborted) return;
       setTotalItensByProtocolo(totais);
       setItems(mergedItems.filter(isItemEmEnvio));
       setNegociacoesByProtocolo(nextNegociacoesByProtocolo);
     } catch {
-      setItems([]);
-      setLoadError('Não foi possível consultar os envios no banco. Tente novamente.');
+      if (controller.signal.aborted) return;
+      setLoadError('Não foi possível atualizar os envios. Os dados exibidos podem estar desatualizados.');
     } finally {
-      setIsLoading(false);
+      if (requestRef.current === controller) {
+        requestRef.current = null;
+        setIsLoading(false);
+      }
     }
-  };
+  }, []);
 
   useEffect(() => {
-    carregar();
-  }, []);
+    const atualizarSeVisivel = () => {
+      if (document.visibilityState === 'visible') void carregar(true);
+    };
+    void carregar();
+    const interval = window.setInterval(atualizarSeVisivel, 30000);
+    document.addEventListener('visibilitychange', atualizarSeVisivel);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', atualizarSeVisivel);
+      requestRef.current?.abort();
+      requestRef.current = null;
+    };
+  }, [carregar]);
 
   const grupos = useMemo(() => {
     const map = new Map<string, ItemEnvio[]>();
@@ -318,6 +355,37 @@ const MeusEnvios = () => {
     return numeric.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   };
 
+  const getNegotiatedValue = (negociacao: NegociacaoSupabaseRow) => {
+    const contraproposta = Number(negociacao.valor_contraproposta_posto);
+    if (Number.isFinite(contraproposta) && contraproposta > 0) return contraproposta;
+
+    const propostaAt = Number(negociacao.valor_proposto_at);
+    return Number.isFinite(propostaAt) && propostaAt > 0 ? propostaAt : null;
+  };
+
+  const getNegotiatedValueLabel = (negociacao: NegociacaoSupabaseRow) => {
+    const contraproposta = Number(negociacao.valor_contraproposta_posto);
+    return Number.isFinite(contraproposta) && contraproposta > 0
+      ? 'Sua contraproposta'
+      : 'Proposta em negociação';
+  };
+
+  const parseCurrencyInput = (value: string) => {
+    const normalized = value.replace(/[^\d,.-]/g, '').trim();
+    if (!normalized) return 0;
+    const numeric = normalized.includes(',')
+      ? Number(normalized.replace(/\./g, '').replace(',', '.'))
+      : Number(normalized);
+    return Number.isFinite(numeric) ? numeric : 0;
+  };
+
+  const formatCurrencyInput = (value?: number | string | null) => {
+    const numeric = Number(value ?? 0);
+    return Number.isFinite(numeric) && numeric > 0
+      ? numeric.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : '';
+  };
+
   const formatDateTime = (value?: string | null) => {
     if (!value) return '-';
     const parsed = new Date(String(value));
@@ -341,12 +409,14 @@ const MeusEnvios = () => {
     const negociacao = negociacoesByProtocolo[protocolo];
     if (!negociacao) return;
 
-    const valorContraproposta = Number((contraValores[protocolo] || '').replace(/\./g, '').replace(',', '.'));
+    const valorContraproposta = parseCurrencyInput(contraValores[protocolo] || '');
     if (action === 'CONTRAPROPOSTA' && (!Number.isFinite(valorContraproposta) || valorContraproposta <= 0)) {
       return;
     }
 
     try {
+      respostasEmAndamentoRef.current += 1;
+      requestRef.current?.abort();
       setRespondendo((prev) => ({ ...prev, [protocolo]: true }));
       const response = await oracleApi.post(
         ORACLE_ENDPOINTS.postEnvioNegociacaoResposta,
@@ -380,6 +450,7 @@ const MeusEnvios = () => {
       setContraValores((prev) => ({ ...prev, [protocolo]: '' }));
       setContraObs((prev) => ({ ...prev, [protocolo]: '' }));
     } finally {
+      respostasEmAndamentoRef.current -= 1;
       setRespondendo((prev) => ({ ...prev, [protocolo]: false }));
     }
   };
@@ -390,7 +461,7 @@ const MeusEnvios = () => {
         <h2 className="page-title" style={{ marginBottom: 0, paddingBottom: 5, fontSize: '1.1rem', borderBottom: 'none' }}>
           Meus Envios
         </h2>
-        <button className="btn btn-secondary btn-sm" type="button" onClick={carregar}>
+        <button className="btn btn-secondary btn-sm" type="button" onClick={() => void carregar()} disabled={isLoading}>
           <i className="material-icons" style={{ fontSize: 14, marginRight: 4 }}>refresh</i>
           Atualizar
         </button>
@@ -411,7 +482,7 @@ const MeusEnvios = () => {
         {isLoading && (
           <p style={{ textAlign: 'center', color: '#999', marginTop: 20 }}>Carregando...</p>
         )}
-        {loadError && <p role="alert">{loadError} <button type="button" onClick={carregar}>Tentar novamente</button></p>}
+        {loadError && <p role="alert">{loadError} <button type="button" onClick={() => void carregar()}>Tentar novamente</button></p>}
         {!isLoading && !loadError && filtrados.length === 0 && (
           <p style={{ textAlign: 'center', color: '#999', marginTop: 20 }}>Nenhum registro encontrado.</p>
         )}
@@ -419,12 +490,18 @@ const MeusEnvios = () => {
         {filtrados.map(([protocolo, itens]) => {
           const totalItensNoLote = totalItensByProtocolo[protocolo] || itens.length;
           const loteCompleto = itens.length >= totalItensNoLote;
-          const maxStatus = Math.max(...itens.map((i) => Number(i.status || 0)));
+          const itensPendentes = itens.filter((item) => ![4, 10].includes(Number(item.status)));
+          const maxStatus = Math.max(...(itensPendentes.length ? itensPendentes : itens).map((i) => Number(i.status || 0)));
           const possuiNegociacaoPendente = itens.some((item) => hasNegociacaoPendente(item));
-          const statusAtual = possuiNegociacaoPendente ? 7 : loteCompleto ? maxStatus : Math.max(maxStatus, 8);
+          const statusAtual = possuiNegociacaoPendente ? 7 : !loteCompleto ? 8 : maxStatus;
           const dataEnvio = itens[0]?.criadoEm || '';
           const quantidadeItens = itens.length;
           const negociacao = negociacoesByProtocolo[protocolo];
+          const valorPedido = Number(negociacao?.valor_original);
+          const valorEmNegociacao = negociacao ? getNegotiatedValue(negociacao) : null;
+          const diferencaNegociacao = valorEmNegociacao != null && Number.isFinite(valorPedido)
+            ? valorEmNegociacao - valorPedido
+            : null;
           const mostrarAvisoSemVinculo = possuiNegociacaoPendente && !negociacao;
           return (
             <div key={protocolo} className={`protocolo-card ${abertos[protocolo] ? 'open' : ''}`}>
@@ -447,6 +524,20 @@ const MeusEnvios = () => {
                 </div>
               </div>
               <div className="protocolo-detalhes">
+                <div style={{ marginBottom: 16 }}>
+                  <strong>Total informado pelo posto: </strong>
+                  {formatCurrency(itens.reduce((total, item) => total + Number(item.totalOrcamento || 0), 0))}
+                  {' | '}<strong>Resultado: </strong>
+                  {itens.filter((item) => resultadoItem(item) === 'Aprovado').length} aprovado(s),{' '}
+                  {itens.filter((item) => resultadoItem(item) === 'Reprovado').length} reprovado(s),{' '}
+                  {itens.filter((item) => resultadoItem(item) === 'Aguardando análise').length} aguardando análise
+                  {negociacao && valorAceito(negociacao) != null && (
+                    <div>
+                      <strong>Valor acordado ({negociacao.negotiation_scope === 'LOTE' ? 'lote' : 'itens da negociação'}): </strong>
+                      {formatCurrency(valorAceito(negociacao))}
+                    </div>
+                  )}
+                </div>
                 {mostrarAvisoSemVinculo && (
                   <div
                     className="card"
@@ -476,16 +567,31 @@ const MeusEnvios = () => {
                         <div style={{ fontWeight: 700, color: '#0f172a' }}>{formatDateTime(negociacao.updated_at)}</div>
                       </div>
                     </div>
-                    <div className="lancamento-row lancamento-row-2" style={{ marginBottom: 10 }}>
-                      <div className="lancamento-field">
-                        <label>Valor original</label>
-                        <div style={{ fontWeight: 700, color: '#0f172a' }}>{formatCurrency(negociacao.valor_original)}</div>
+                    <div className="negociacao-valores">
+                      <div className="negociacao-valor-card">
+                        <label>Valor pedido</label>
+                        <strong>{formatCurrency(negociacao.valor_original)}</strong>
                       </div>
-                      <div className="lancamento-field">
-                        <label>Proposta do AT</label>
-                        <div style={{ fontWeight: 700, color: '#0f172a' }}>{formatCurrency(negociacao.valor_proposto_at)}</div>
+                      <div className="negociacao-valor-card negociacao-valor-atual">
+                        <label>{getNegotiatedValueLabel(negociacao)}</label>
+                        <strong>{valorEmNegociacao != null ? formatCurrency(valorEmNegociacao) : '-'}</strong>
+                        {diferencaNegociacao != null && (
+                          <small className={diferencaNegociacao <= 0 ? 'negociacao-economia' : 'negociacao-acrescimo'}>
+                            {diferencaNegociacao === 0
+                              ? 'Mesmo valor do pedido'
+                              : `${formatCurrency(Math.abs(diferencaNegociacao))} ${diferencaNegociacao < 0 ? 'abaixo' : 'acima'} do pedido`}
+                          </small>
+                        )}
                       </div>
                     </div>
+                    {Number(negociacao.valor_contraproposta_posto) > 0 && (
+                      <div className="lancamento-row lancamento-row-1" style={{ marginBottom: 10 }}>
+                        <div className="lancamento-field">
+                          <label>Proposta do AT</label>
+                          <div style={{ color: '#475569' }}>{formatCurrency(negociacao.valor_proposto_at)}</div>
+                        </div>
+                      </div>
+                    )}
                     <div className="lancamento-row lancamento-row-1" style={{ marginBottom: 10 }}>
                       <div className="lancamento-field">
                         <label>Observacao do AT</label>
@@ -497,13 +603,34 @@ const MeusEnvios = () => {
                         <div className="lancamento-row lancamento-row-2">
                           <div className="lancamento-field">
                             <label>Minha contraproposta</label>
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              placeholder="Ex.: 189,90"
-                              value={contraValores[protocolo] || ''}
-                              onChange={(e) => setContraValores((prev) => ({ ...prev, [protocolo]: e.target.value }))}
-                            />
+                            <div className="negociacao-currency-input">
+                              <span>R$</span>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="0,00"
+                                value={contraValores[protocolo] || ''}
+                                onChange={(e) => setContraValores((prev) => ({ ...prev, [protocolo]: e.target.value.replace(/[^\d,.-]/g, '') }))}
+                                onBlur={() => setContraValores((prev) => ({
+                                  ...prev,
+                                  [protocolo]: formatCurrencyInput(parseCurrencyInput(prev[protocolo] || ''))
+                                }))}
+                              />
+                            </div>
+                            <div className="negociacao-atalhos">
+                              <button
+                                type="button"
+                                onClick={() => setContraValores((prev) => ({ ...prev, [protocolo]: formatCurrencyInput(negociacao.valor_proposto_at) }))}
+                              >
+                                Usar proposta do AT
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setContraValores((prev) => ({ ...prev, [protocolo]: formatCurrencyInput(negociacao.valor_original) }))}
+                              >
+                                Usar valor pedido
+                              </button>
+                            </div>
                           </div>
                           <div className="lancamento-field">
                             <label>Observacao do posto</label>
@@ -566,7 +693,10 @@ const MeusEnvios = () => {
                         <th>Mao de Obra</th>
                         <th>Embal.</th>
                         <th>Hig.</th>
-                        <th>Total</th>
+                        <th>Total informado pelo posto</th>
+                        <th>Valor final aprovado</th>
+                        <th>Resultado</th>
+                        <th>Status</th>
                         <th>Acoes</th>
                       </tr>
                     </thead>
@@ -584,7 +714,10 @@ const MeusEnvios = () => {
                           <td>{item.valMaoObra != null ? item.valMaoObra.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
                           <td>{item.valEmb != null ? item.valEmb.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
                           <td>{item.valHig != null ? item.valHig.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
-                          <td>{item.totalOrcamento != null ? item.totalOrcamento.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
+                          <td>{item.totalOrcamento != null ? formatCurrency(item.totalOrcamento) : '-'}</td>
+                          <td>{valorFinalItem(item, negociacao) != null ? formatCurrency(valorFinalItem(item, negociacao)) : '-'}</td>
+                          <td>{resultadoItem(item)}</td>
+                          <td>{getStatusLabel(item.status)}</td>
                           <td>
                             {[0, 1].includes(Number(item.status || 0)) && (
                               <button

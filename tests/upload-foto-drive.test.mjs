@@ -19,6 +19,40 @@ functionModule.paths = Module._nodeModulePaths(path.dirname(modulePath));
 functionModule._compile(outputFiles[0].text, modulePath);
 const { handler } = functionModule.exports;
 
+test('envia PDF com a configuracao local e preserva bytes e tipo do documento', async () => {
+  const originalFetch = globalThis.fetch;
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const localHandler = functionModule.exports.createUploadHandler({
+    GOOGLE_SERVICE_ACCOUNT_EMAIL: 'local@example.com',
+    GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    GOOGLE_DRIVE_PARENT_FOLDER_ID: 'local-parent'
+  });
+  const pdf = Buffer.from('%PDF-1.4\n%%EOF');
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push(String(url));
+    if (String(url).includes('oauth2.googleapis.com')) return Response.json({ access_token: 'local-token' });
+    if (String(url).includes('upload/drive')) {
+      assert.ok(init.body.includes(pdf));
+      assert.ok(init.body.includes(Buffer.from('Content-Type: application/pdf')));
+      assert.ok(init.body.includes(Buffer.from('"parents":["pdf-folder"]')));
+      return Response.json({ id: 'pdf-id', name: 'nota.pdf' });
+    }
+    const metadata = JSON.parse(init.body);
+    assert.deepEqual(metadata.parents, ['local-parent']);
+    assert.equal(metadata.name, 'Pagamento_P1-10');
+    return Response.json({ id: 'pdf-folder' });
+  };
+  try {
+    const response = await localHandler({ httpMethod: 'POST', body: JSON.stringify({
+      folderName: 'Pagamento_P1-10', files: [{ name: 'nota.pdf', mimeType: 'application/pdf', base64: pdf.toString('base64') }]
+    }), isBase64Encoded: false });
+    assert.equal(response.statusCode, 200);
+    assert.equal(JSON.parse(response.body).folderLink, 'https://drive.google.com/drive/folders/pdf-folder');
+    assert.equal(calls.length, 3);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('envia os bytes da foto ao Drive e devolve o link da pasta', async () => {
   const originalFetch = globalThis.fetch;
   const originalEnv = {

@@ -1,0 +1,37 @@
+name: Validar codigo
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validar-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validar:
+    name: TypeScript e build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HUSKY: '0'
+    steps:
+      - name: Baixar codigo
+        uses: actions/checkout@v6
+      - name: Configurar Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Instalar dependencias
+        run: npm ci
+      - name: Verificar TypeScript
+        run: npm run typecheck
+      - name: Compilar aplicacao
+        run: npm run build

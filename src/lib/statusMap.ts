@@ -5,8 +5,8 @@ export const STATUS_MAP = {
   3: 'Em analise',
   8: 'Montagem',
   7: 'Em negociacao',
-  4: 'Aprovado',
-  10: 'Aprovado'
+  4: 'Finalizado',
+  10: 'Finalizado'
 } as const;
 
 export type StatusCode = keyof typeof STATUS_MAP;

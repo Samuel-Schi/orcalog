@@ -1,5 +1,5 @@
 [build]
-  command = "npm run build"
+  command = "npm run typecheck && npm run build"
   publish = "dist"
   functions = "netlify/functions"
   [build.environment]
@@ -7,7 +7,7 @@
     NODE_VERSION = "20"
 
 [dev]
-  command = "node ./node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5173"
+  command = "node scripts/dev.mjs --host 127.0.0.1 --port 5173"
   targetPort = 5173
   port = 8888
 
@@ -47,6 +47,12 @@
 [[redirects]]
   from = "/get_produto_cadastro"
   to = "/.netlify/functions/get-produto-cadastro"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/get_produto_codigo_barras"
+  to = "/.netlify/functions/get-produto-codigo-barras"
   status = 200
   force = true
 
