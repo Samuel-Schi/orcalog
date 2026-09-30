@@ -2,6 +2,8 @@ import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import type { HandlerEvent, HandlerContext } from '@netlify/functions';
 import { createUploadHandler } from './netlify/functions/upload-foto-drive';
+import { createNotificationsHandler } from './netlify/functions/notificacoes-pa';
+import { consolidarPagamentosPorProtocolo, type NegociacaoPagamentoRaw, type PagamentoItemRaw } from './src/lib/pagamentosConsolidado';
 
 const readRequestBody = async (req: NodeJS.ReadableStream) => {
   const chunks: Buffer[] = [];
@@ -33,6 +35,27 @@ const createLocalSupabaseSyncPlugin = (env: Record<string, string>): Plugin => {
       server.middlewares.use(async (req, res, next) => {
         const requestUrl = req.url ? new URL(req.url, 'http://localhost') : null;
         const pathname = requestUrl?.pathname || '';
+
+        if (pathname === '/notificacoes_pa') {
+          try {
+            const result = await createNotificationsHandler(env)({
+              httpMethod: req.method || 'GET',
+              body: req.method === 'POST' ? await readRequestBody(req) : null,
+              queryStringParameters: Object.fromEntries(requestUrl!.searchParams),
+              isBase64Encoded: false
+            } as HandlerEvent, {} as HandlerContext);
+            if (!result) throw new Error('Resposta ausente');
+            res.statusCode = result.statusCode;
+            for (const [key, value] of Object.entries(result.headers || {})) {
+              if (value != null) res.setHeader(key, String(value));
+            }
+            res.end(result.body);
+          } catch {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: 'Não foi possível consultar os avisos.' }));
+          }
+          return;
+        }
 
         if (pathname === '/upload_foto_drive') {
           try {
@@ -185,14 +208,36 @@ const createLocalSupabaseSyncPlugin = (env: Record<string, string>): Plugin => {
           try {
             const base = supabaseUrl.replace(/\/rest\/v1\/?$/i, '').replace(/\/$/, '');
             const supaUrl = new URL(`${base}/rest/v1/${tableName}`);
-            supaUrl.searchParams.set('select', 'oracle_item_id,protocolo,cod_gemco,descricao,serial,total_orcamento,status,status_text,pagamento_status,pagamento_referencia,valor_pagamento,nota_fiscal_numero,nota_fiscal_nome,nota_fiscal_drive_link,nota_fiscal_enviada_em,pagamento_solicitado_em,pagamento_validacao_status');
+            supaUrl.searchParams.set('select', 'id,oracle_item_id,protocolo,cod_gemco,descricao,serial,total_orcamento,status,status_text,pagamento_status,pagamento_referencia,valor_pagamento,kirk_numero,nota_fiscal_numero,nota_fiscal_nome,nota_fiscal_drive_link,nota_fiscal_enviada_em,pagamento_solicitado_em,pagamento_validacao_status');
             supaUrl.searchParams.set('cnpj', `eq.${cnpj}`);
             supaUrl.searchParams.set('status', 'eq.10');
             supaUrl.searchParams.set('order', 'atualizado_em.desc');
             supaUrl.searchParams.set('limit', '500');
             const response = await fetch(supaUrl.toString(), { headers: { Accept: 'application/json', apikey: supabaseSecret, Authorization: `Bearer ${supabaseSecret}` } });
-            res.statusCode = response.status;
-            res.end(await response.text());
+            const text = await response.text();
+            if (!response.ok) {
+              res.statusCode = response.status;
+              res.end(text);
+              return;
+            }
+            const items = JSON.parse(text) as PagamentoItemRaw[];
+            const protocolos = [...new Set(items.map((item) => String(item.protocolo || '').trim()).filter(Boolean))];
+            let negociacoes: NegociacaoPagamentoRaw[] = [];
+            if (protocolos.length) {
+              const negociacoesUrl = new URL(`${base}/rest/v1/orcamento_negociacoes`);
+              negociacoesUrl.searchParams.set('select', 'protocolo,status,negotiation_scope,item_ids,valor_proposto_at');
+              negociacoesUrl.searchParams.set('cnpj', `eq.${cnpj}`);
+              negociacoesUrl.searchParams.set('protocolo', `in.(${protocolos.map((protocolo) => `"${protocolo.replace(/"/g, '\\"')}"`).join(',')})`);
+              const negociacoesResponse = await fetch(negociacoesUrl.toString(), { headers: { Accept: 'application/json', apikey: supabaseSecret, Authorization: `Bearer ${supabaseSecret}` } });
+              if (!negociacoesResponse.ok) {
+                res.statusCode = negociacoesResponse.status;
+                res.end(await negociacoesResponse.text());
+                return;
+              }
+              negociacoes = await negociacoesResponse.json() as NegociacaoPagamentoRaw[];
+            }
+            res.statusCode = 200;
+            res.end(JSON.stringify(consolidarPagamentosPorProtocolo(items, negociacoes)));
           } catch (error) {
             res.statusCode = 500;
             res.end(JSON.stringify({ error: 'Falha ao consultar pagamentos no Vite local.', detail: error instanceof Error ? error.message : String(error) }));
@@ -209,31 +254,70 @@ const createLocalSupabaseSyncPlugin = (env: Record<string, string>): Plugin => {
           }
           try {
             const payload = JSON.parse(await readRequestBody(req) || '{}');
+            if (payload.kirkNumero != null && (typeof payload.kirkNumero !== 'string' || payload.kirkNumero.trim().length > 80)) {
+              res.statusCode = 400;
+              res.end(JSON.stringify({ error: 'O número Kirk deve ter no máximo 80 caracteres.' }));
+              return;
+            }
             const itemId = Number(payload?.oracleItemId);
+            let protocolo = String(payload?.protocolo || '').trim();
+            const cnpj = String(payload?.cnpj || '').replace(/\D/g, '');
             const driveLink = String(payload?.notaFiscalDriveLink || '').trim();
             const fileName = String(payload?.notaFiscalNome || '').trim();
             const numeroNota = String(payload?.notaFiscalNumero || '').trim();
             const valorPagamento = Number(payload?.valorPagamento);
-            if (!Number.isFinite(itemId) || itemId <= 0 || !driveLink || !fileName || !numeroNota || !Number.isFinite(valorPagamento) || valorPagamento < 0) {
+            if ((!protocolo && (!Number.isFinite(itemId) || itemId <= 0)) || !cnpj || !driveLink || !fileName || !numeroNota || !Number.isFinite(valorPagamento) || valorPagamento < 0) {
               res.statusCode = 400;
               res.end(JSON.stringify({ error: 'Dados da nota fiscal incompletos.' }));
               return;
             }
             const base = supabaseUrl.replace(/\/rest\/v1\/?$/i, '').replace(/\/$/, '');
-            const supaUrl = new URL(`${base}/rest/v1/${tableName}`);
-            supaUrl.searchParams.set('oracle_item_id', `eq.${itemId}`);
-            const validaUrl = new URL(`${base}/rest/v1/${tableName}`);
-            validaUrl.searchParams.set('select', 'total_orcamento');
-            validaUrl.searchParams.set('oracle_item_id', `eq.${itemId}`);
-            const valida = await fetch(validaUrl.toString(), { headers: { Accept: 'application/json', apikey: supabaseSecret, Authorization: `Bearer ${supabaseSecret}` } });
-            const valoresOrcamento = await valida.json() as Array<{ total_orcamento?: number | string }>;
-            const valorOrcamento = Number(valoresOrcamento[0]?.total_orcamento);
-            if (!valoresOrcamento.length || !Number.isFinite(valorOrcamento) || Math.abs(valorPagamento - valorOrcamento) > 0.01) {
-              res.statusCode = 422;
-              res.end(JSON.stringify({ error: 'O valor informado nao confere com o valor final do orcamento.', valorOrcamento, valorInformado: valorPagamento }));
+            if (!protocolo) {
+              const protocoloUrl = new URL(`${base}/rest/v1/${tableName}`);
+              protocoloUrl.searchParams.set('select', 'protocolo');
+              protocoloUrl.searchParams.set('oracle_item_id', `eq.${itemId}`);
+              protocoloUrl.searchParams.set('cnpj', `eq.${cnpj}`);
+              protocoloUrl.searchParams.set('limit', '1');
+              const protocoloResponse = await fetch(protocoloUrl.toString(), { headers: { Accept: 'application/json', apikey: supabaseSecret, Authorization: `Bearer ${supabaseSecret}` } });
+              const protocoloRows = await protocoloResponse.json() as Array<{ protocolo?: string }>;
+              protocolo = String(protocoloRows[0]?.protocolo || '').trim();
+            }
+            if (!protocolo) {
+              res.statusCode = 404;
+              res.end(JSON.stringify({ error: 'Protocolo finalizado nao encontrado.' }));
               return;
             }
-            const response = await fetch(supaUrl.toString(), { method: 'PATCH', headers: { Accept: 'application/json', 'Content-Type': 'application/json', apikey: supabaseSecret, Authorization: `Bearer ${supabaseSecret}`, Prefer: 'return=representation' }, body: JSON.stringify({ pagamento_status: 'NOTA_ENVIADA', pagamento_referencia: String(payload?.pagamentoReferencia || '').trim(), nota_fiscal_nome: fileName, nota_fiscal_numero: numeroNota, nota_fiscal_drive_link: driveLink, nota_fiscal_enviada_em: new Date().toISOString(), pagamento_solicitado_em: new Date().toISOString(), valor_pagamento: valorPagamento, pagamento_validacao_status: 'VALIDADO' }) });
+            const validaUrl = new URL(`${base}/rest/v1/${tableName}`);
+            validaUrl.searchParams.set('select', 'id,oracle_item_id,protocolo,cod_gemco,descricao,serial,total_orcamento,status,status_text,pagamento_status,pagamento_referencia,valor_pagamento,kirk_numero,nota_fiscal_numero,nota_fiscal_nome,nota_fiscal_drive_link,nota_fiscal_enviada_em,pagamento_solicitado_em,pagamento_validacao_status');
+            validaUrl.searchParams.set('protocolo', `eq.${protocolo}`);
+            validaUrl.searchParams.set('cnpj', `eq.${cnpj}`);
+            validaUrl.searchParams.set('status', 'eq.10');
+            validaUrl.searchParams.set('limit', '500');
+            const valida = await fetch(validaUrl.toString(), { headers: { Accept: 'application/json', apikey: supabaseSecret, Authorization: `Bearer ${supabaseSecret}` } });
+            const itens = await valida.json() as PagamentoItemRaw[];
+            const negociacoesUrl = new URL(`${base}/rest/v1/orcamento_negociacoes`);
+            negociacoesUrl.searchParams.set('select', 'protocolo,status,negotiation_scope,item_ids,valor_proposto_at');
+            negociacoesUrl.searchParams.set('cnpj', `eq.${cnpj}`);
+            negociacoesUrl.searchParams.set('protocolo', `eq.${protocolo}`);
+            const negociacoesResponse = await fetch(negociacoesUrl.toString(), { headers: { Accept: 'application/json', apikey: supabaseSecret, Authorization: `Bearer ${supabaseSecret}` } });
+            const negociacoes = await negociacoesResponse.json() as NegociacaoPagamentoRaw[];
+            const [consolidado] = consolidarPagamentosPorProtocolo(itens, negociacoes);
+            const valorOrcamento = consolidado?.total_protocolo;
+            if (!itens.length || !Number.isFinite(valorOrcamento)) {
+              res.statusCode = 404;
+              res.end(JSON.stringify({ error: 'Protocolo finalizado nao encontrado.' }));
+              return;
+            }
+            if (valorPagamento - valorOrcamento > 0.01) {
+              res.statusCode = 422;
+              res.end(JSON.stringify({ error: 'O valor informado ultrapassa o valor total aprovado do protocolo.', valorOrcamento, valorInformado: valorPagamento }));
+              return;
+            }
+            const supaUrl = new URL(`${base}/rest/v1/${tableName}`);
+            supaUrl.searchParams.set('protocolo', `eq.${protocolo}`);
+            supaUrl.searchParams.set('cnpj', `eq.${cnpj}`);
+            supaUrl.searchParams.set('status', 'eq.10');
+            const response = await fetch(supaUrl.toString(), { method: 'PATCH', headers: { Accept: 'application/json', 'Content-Type': 'application/json', apikey: supabaseSecret, Authorization: `Bearer ${supabaseSecret}`, Prefer: 'return=representation' }, body: JSON.stringify({ pagamento_status: 'NOTA_ENVIADA', pagamento_referencia: String(payload?.pagamentoReferencia || protocolo).trim(), nota_fiscal_nome: fileName, ...(payload.kirkNumero !== undefined ? { kirk_numero: String(payload.kirkNumero || '').trim() || null } : {}), nota_fiscal_numero: numeroNota, nota_fiscal_drive_link: driveLink, nota_fiscal_enviada_em: new Date().toISOString(), pagamento_solicitado_em: new Date().toISOString(), valor_pagamento: valorPagamento, pagamento_validacao_status: 'VALIDADO' }) });
             res.statusCode = response.status;
             res.end(await response.text());
           } catch (error) {

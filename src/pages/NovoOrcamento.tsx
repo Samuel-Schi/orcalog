@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { BrowserQRCodeReader, type IScannerControls } from '@zxing/browser';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 
 type Item = {
@@ -465,6 +466,7 @@ const NovoOrcamento = () => {
     let cancelled = false;
     let frameId = 0;
     let stream: MediaStream | null = null;
+    let fallbackControls: IScannerControls | null = null;
 
     const start = async () => {
       try {
@@ -476,7 +478,28 @@ const NovoOrcamento = () => {
 
         const BarcodeDetectorCtor = (window as any).BarcodeDetector;
         if (!BarcodeDetectorCtor) {
-          setQrError('Leitura por câmera não é suportada neste navegador. Abra pelo Chrome atualizado ou use o preenchimento manual.');
+          const reader = new BrowserQRCodeReader();
+          fallbackControls = await reader.decodeFromConstraints(
+            {
+              video: {
+                facingMode: { ideal: 'environment' },
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+              },
+              audio: false
+            },
+            videoRef.current,
+            (result, _error, controls) => {
+              const value = result?.getText().trim();
+              if (value && !cancelled) {
+                cancelled = true;
+                controls.stop();
+                handleQrInput(value);
+                setShowQr(false);
+              }
+            }
+          );
+          if (cancelled) fallbackControls.stop();
           return;
         }
 
@@ -488,7 +511,10 @@ const NovoOrcamento = () => {
           },
           audio: false
         });
-        if (cancelled) return;
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
 
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
@@ -502,7 +528,7 @@ const NovoOrcamento = () => {
             try {
               const barcodes = await detector.detect(videoRef.current);
               const value = barcodes?.[0]?.rawValue?.trim();
-              if (value) {
+              if (value && !cancelled) {
                 handleQrInput(value);
                 setShowQr(false);
                 return;
@@ -511,10 +537,11 @@ const NovoOrcamento = () => {
               // A câmera pode ainda estar ajustando foco/exposição; tenta novamente.
             }
           }
-          frameId = requestAnimationFrame(scan);
+          if (!cancelled) frameId = requestAnimationFrame(scan);
         };
         frameId = requestAnimationFrame(scan);
       } catch (error) {
+        stream?.getTracks().forEach((track) => track.stop());
         if (cancelled) return;
         const name = error instanceof DOMException ? error.name : '';
         setQrError(
@@ -530,6 +557,7 @@ const NovoOrcamento = () => {
     return () => {
       cancelled = true;
       cancelAnimationFrame(frameId);
+      fallbackControls?.stop();
       stream?.getTracks().forEach((track) => track.stop());
     };
   }, [showQr]);

@@ -1,5 +1,6 @@
 import CatalogoSelect from '../components/CatalogoSelect';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { BrowserMultiFormatReader, type IScannerControls } from '@zxing/browser';
 import { useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
@@ -557,23 +558,51 @@ const LancarOrcamentos = () => {
   useEffect(() => {
     if (!isScanning) return;
     let cancelled = false;
+    let frameId = 0;
+    let fallbackControls: IScannerControls | null = null;
 
     const start = async () => {
       try {
         setScanError('');
+        const BarcodeDetectorCtor = (window as any).BarcodeDetector;
+        if (!BarcodeDetectorCtor) {
+          if (!scanVideoRef.current) return;
+          const reader = new BrowserMultiFormatReader();
+          fallbackControls = await reader.decodeFromConstraints(
+            {
+              video: {
+                facingMode: { ideal: 'environment' },
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+              },
+              audio: false
+            },
+            scanVideoRef.current,
+            (result, _error, controls) => {
+              const value = result?.getText().trim();
+              if (value && !cancelled) {
+                cancelled = true;
+                controls.stop();
+                handleScan(value);
+                setIsScanning(false);
+              }
+            }
+          );
+          if (cancelled) fallbackControls.stop();
+          return;
+        }
+
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: 'environment' }
         });
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
         scanStreamRef.current = stream;
         if (scanVideoRef.current) {
           scanVideoRef.current.srcObject = stream;
           await scanVideoRef.current.play();
-        }
-
-        const BarcodeDetectorCtor = (window as any).BarcodeDetector;
-        if (!BarcodeDetectorCtor) {
-          setScanError('Leitor nao suportado neste navegador. Use o campo de bip.');
-          return;
         }
 
         const detector = new BarcodeDetectorCtor({
@@ -586,7 +615,7 @@ const LancarOrcamentos = () => {
             const barcodes = await detector.detect(scanVideoRef.current);
             if (barcodes && barcodes.length > 0) {
               const value = barcodes[0].rawValue || '';
-              if (value) {
+              if (value && !cancelled) {
                 handleScan(value);
                 setIsScanning(false);
                 return;
@@ -595,10 +624,12 @@ const LancarOrcamentos = () => {
           } catch {
             // ignore scan errors
           }
-          requestAnimationFrame(scan);
+          if (!cancelled) frameId = requestAnimationFrame(scan);
         };
-        requestAnimationFrame(scan);
+        if (!cancelled) frameId = requestAnimationFrame(scan);
       } catch {
+        if (cancelled) return;
+        scanStreamRef.current?.getTracks().forEach((track) => track.stop());
         setScanError('Não foi possível acessar a câmera.');
       }
     };
@@ -607,6 +638,8 @@ const LancarOrcamentos = () => {
 
     return () => {
       cancelled = true;
+      cancelAnimationFrame(frameId);
+      fallbackControls?.stop();
       if (scanStreamRef.current) {
         scanStreamRef.current.getTracks().forEach((t) => t.stop());
         scanStreamRef.current = null;

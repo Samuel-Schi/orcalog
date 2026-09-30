@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getStatusLabel } from '../lib/statusMap';
 import { resultadoItem, valorFinalItem, valorAceito } from '../lib/resultadoOrcamento';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
@@ -143,7 +143,13 @@ const normalizeEnvioItem = (row: any, index: number): ItemEnvio => ({
 
 const MeusEnvios = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [filtroTexto, setFiltroTexto] = useState('');
+  useEffect(() => {
+    const protocolo = searchParams.get('protocolo') || '';
+    setFiltroTexto(protocolo);
+    if (protocolo) setAbertos((atual) => ({ ...atual, [protocolo]: true }));
+  }, [searchParams]);
   const [abertos, setAbertos] = useState<Record<string, boolean>>({});
   const [items, setItems] = useState<ItemEnvio[]>([]);
   const [totalItensByProtocolo, setTotalItensByProtocolo] = useState<Record<string, number>>({});

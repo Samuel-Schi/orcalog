@@ -165,6 +165,12 @@
   force = true
 
 [[redirects]]
+  from = "/notificacoes_pa"
+  to = "/.netlify/functions/notificacoes-pa"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

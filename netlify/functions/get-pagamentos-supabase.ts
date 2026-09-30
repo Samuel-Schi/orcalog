@@ -1,5 +1,6 @@
 import type { Handler } from '@netlify/functions';
 import { fetchWithTimeout, handleFunctionError, jsonResponse, methodNotAllowed, sanitizeIdentifier, sanitizeQueryParams } from './_shared';
+import { consolidarPagamentosPorProtocolo, type NegociacaoPagamentoRaw, type PagamentoItemRaw } from '../../src/lib/pagamentosConsolidado';
 
 export const handler: Handler = async (event) => {
   try {
@@ -16,7 +17,7 @@ export const handler: Handler = async (event) => {
 
     const baseUrl = supabaseUrl.replace(/\/rest\/v1\/?$/i, '').replace(/\/$/, '');
     const url = new URL(`${baseUrl}/rest/v1/${tableName}`);
-    url.searchParams.set('select', 'oracle_item_id,protocolo,cod_gemco,descricao,serial,total_orcamento,status,status_text,pagamento_status,pagamento_referencia,valor_pagamento,nota_fiscal_numero,nota_fiscal_nome,nota_fiscal_drive_link,nota_fiscal_enviada_em,pagamento_solicitado_em,pagamento_validacao_status');
+    url.searchParams.set('select', 'id,oracle_item_id,protocolo,cod_gemco,descricao,serial,total_orcamento,status,status_text,pagamento_status,pagamento_referencia,valor_pagamento,kirk_numero,nota_fiscal_numero,nota_fiscal_nome,nota_fiscal_drive_link,nota_fiscal_enviada_em,pagamento_solicitado_em,pagamento_validacao_status');
     url.searchParams.set('cnpj', `eq.${cnpj}`);
     url.searchParams.set('status', 'eq.10');
     url.searchParams.set('order', 'atualizado_em.desc');
@@ -27,7 +28,7 @@ export const handler: Handler = async (event) => {
     });
     const text = await response.text();
     if (!response.ok) {
-      const missingPaymentSchema = response.status === 400 && /pagamento_status|nota_fiscal|pagamento_/i.test(text);
+      const missingPaymentSchema = response.status === 400 && /pagamento_status|nota_fiscal|pagamento_|kirk_numero/i.test(text);
       return jsonResponse(response.status, {
         error: missingPaymentSchema
           ? 'A tabela de pagamentos ainda nao foi configurada no Supabase. Execute supabase/pagamentos_setup.sql no SQL Editor.'
@@ -35,7 +36,26 @@ export const handler: Handler = async (event) => {
         detail: text || null
       });
     }
-    return { statusCode: 200, body: text, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } };
+    const items = JSON.parse(text) as PagamentoItemRaw[];
+    const protocolos = [...new Set(items.map((item) => String(item.protocolo || '').trim()).filter(Boolean))];
+    let negociacoes: NegociacaoPagamentoRaw[] = [];
+
+    if (protocolos.length) {
+      const negociacoesTable = sanitizeIdentifier(process.env.SUPABASE_ORCAMENTOS_NEGOCIACOES_TABLE || 'orcamento_negociacoes', 'orcamento_negociacoes');
+      const negociacoesUrl = new URL(`${baseUrl}/rest/v1/${negociacoesTable}`);
+      negociacoesUrl.searchParams.set('select', 'protocolo,status,negotiation_scope,item_ids,valor_proposto_at');
+      negociacoesUrl.searchParams.set('cnpj', `eq.${cnpj}`);
+      negociacoesUrl.searchParams.set('protocolo', `in.(${protocolos.map((protocolo) => `"${protocolo.replace(/"/g, '\\"')}"`).join(',')})`);
+
+      const negociacoesResponse = await fetchWithTimeout(negociacoesUrl.toString(), {
+        headers: { Accept: 'application/json', apikey: supabaseSecret, Authorization: `Bearer ${supabaseSecret}` }
+      });
+      const negociacoesText = await negociacoesResponse.text();
+      if (!negociacoesResponse.ok) return jsonResponse(negociacoesResponse.status, { error: 'Falha ao consultar negociacoes dos pagamentos.', detail: negociacoesText || null });
+      negociacoes = JSON.parse(negociacoesText) as NegociacaoPagamentoRaw[];
+    }
+
+    return jsonResponse(200, consolidarPagamentosPorProtocolo(items, negociacoes));
   } catch (error) {
     return handleFunctionError(error);
   }

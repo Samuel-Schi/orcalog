@@ -2089,3 +2089,9 @@ body.dark-mode .sidebar {
 .catalogo-select-empty { color: #777; }
 body.dark-mode .catalogo-select-list { background: #252a34; color: #eee; }
 body.dark-mode .catalogo-select-option.is-active { background: #34465f; color: #fff; }
+.pa-avisos { position: relative; display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.pa-avisos-lista { position: absolute; top: 100%; right: 0; z-index: 100; width: min(420px, 100%); max-height: 65vh; overflow: auto; padding: 16px; background: white; color: #172033; border: 1px solid #ccd4df; border-radius: 8px; box-shadow: 0 6px 20px #0002; }
+.pa-avisos-lista article { padding: 12px 0; border-bottom: 1px solid #ddd; overflow-wrap: anywhere; }
+.pa-avisos-lista article p { margin: 6px 0; }
+.pa-avisos-lista article div { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 8px; }
+.pa-avisos-lista button { padding: 6px 10px; cursor: pointer; }

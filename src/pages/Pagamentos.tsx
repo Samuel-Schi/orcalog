@@ -4,9 +4,10 @@ import { oracleApi, ORACLE_ENDPOINTS } from '../lib/oracle';
 import '../styles/pagamentos.css';
 
 type Pagamento = {
-  oracle_item_id: number; protocolo: string; cod_gemco?: string; descricao?: string; serial?: string;
+  oracle_item_id: number | null; protocolo: string; cod_gemco?: string; descricao?: string; serial?: string;
+  total_protocolo?: number; quantidade_itens?: number; itens_aprovados?: number; itens_reprovados?: number; item_ids?: number[];
   pagamento_status?: string; nota_fiscal_nome?: string; nota_fiscal_drive_link?: string;
-  valor_pagamento?: number; nota_fiscal_numero?: string;
+  valor_pagamento?: number; nota_fiscal_numero?: string; kirk_numero?: string;
 };
 type UploadResponse = { folderLink?: string; files?: Array<{ id?: string }> };
 const labels: Record<string, string> = { AGUARDANDO_NOTA: 'Aguardando nota', NOTA_ENVIADA: 'Nota enviada', EM_PAGAMENTO: 'Em pagamento', PAGO: 'Pago' };
@@ -34,6 +35,7 @@ export default function Pagamentos() {
   const [busca, setBusca] = useState('');
   const [valor, setValor] = useState('');
   const [numero, setNumero] = useState('');
+  const [kirk, setKirk] = useState('');
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [etapa, setEtapa] = useState('');
@@ -42,7 +44,8 @@ export default function Pagamentos() {
   const inputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const sendingRef = useRef(false);
-  const uploadedRef = useRef<{ file: File; item: number; link: string } | null>(null);
+  const uploadedRef = useRef<{ file: File; protocolo: string; link: string } | null>(null);
+  const cnpjRef = useRef('');
 
   const carregar = useCallback(async () => {
     setLoading(true); setLoadError('');
@@ -50,6 +53,7 @@ export default function Pagamentos() {
       const profile = JSON.parse(localStorage.getItem('gat_user_profile') || '{}');
       const cnpj = String(profile.cnpj || '').replace(/\D/g, '');
       if (!cnpj) throw new Error('Não foi possível identificar seu CNPJ. Entre novamente no sistema.');
+      cnpjRef.current = cnpj;
       const response = await oracleApi.get<Pagamento[]>(ORACLE_ENDPOINTS.getPagamentosSupabase, { params: { cnpj, _ts: Date.now() } });
       if (!Array.isArray(response.data)) throw new Error('Resposta inválida ao consultar os pagamentos.');
       setPagamentos(response.data);
@@ -61,6 +65,7 @@ export default function Pagamentos() {
   const selecionar = (pagamento: Pagamento) => {
     if (enviando) return;
     setSelected(pagamento); setValor(pagamento.valor_pagamento != null ? String(pagamento.valor_pagamento) : '');
+    setKirk(pagamento.kirk_numero || '');
     setNumero(pagamento.nota_fiscal_numero || ''); setArquivo(null); setAviso(null);
     uploadedRef.current = null;
     if (inputRef.current) inputRef.current.value = '';
@@ -82,10 +87,13 @@ export default function Pagamentos() {
     if (!numero.trim() || !valor.trim() || !Number.isFinite(valorInformado) || valorInformado < 0 || !arquivo) {
       setAviso({ tipo: 'error', texto: 'Preencha o número e o valor da nota e anexe o PDF.' }); return;
     }
+    if (valorInformado - Number(selected.total_protocolo || 0) > 0.01) {
+      setAviso({ tipo: 'error', texto: 'O valor da nota não pode ultrapassar o total aprovado do protocolo.' }); return;
+    }
     sendingRef.current = true; setEnviando(true); setAviso(null);
     try {
-      const referencia = selected.protocolo + '-' + selected.oracle_item_id;
-      let link = uploadedRef.current?.file === arquivo && uploadedRef.current.item === selected.oracle_item_id ? uploadedRef.current.link : '';
+      const referencia = selected.protocolo;
+      let link = uploadedRef.current?.file === arquivo && uploadedRef.current.protocolo === selected.protocolo ? uploadedRef.current.link : '';
       if (!link) {
         setEtapa('Enviando PDF…');
         const base64 = await toBase64(arquivo);
@@ -95,13 +103,13 @@ export default function Pagamentos() {
         }, { timeout: 55000 });
         link = driveLink(upload.data?.folderLink);
         if (!link || !upload.data?.files?.[0]?.id) throw new Error('O envio do PDF não foi confirmado.');
-        uploadedRef.current = { file: arquivo, item: selected.oracle_item_id, link };
+        uploadedRef.current = { file: arquivo, protocolo: selected.protocolo, link };
       }
       setEtapa('Registrando nota…');
       await oracleApi.post(ORACLE_ENDPOINTS.savePagamentoSupabase, {
-        oracleItemId: selected.oracle_item_id, pagamentoReferencia: referencia,
+        protocolo: selected.protocolo, cnpj: cnpjRef.current, pagamentoReferencia: referencia,
         notaFiscalNome: arquivo.name, notaFiscalDriveLink: link,
-        valorPagamento: valorInformado, notaFiscalNumero: numero.trim()
+        valorPagamento: valorInformado, notaFiscalNumero: numero.trim(), kirkNumero: kirk.trim()
       });
       setAviso({ tipo: 'success', texto: 'Nota ' + numero.trim() + ' enviada para o orçamento ' + selected.protocolo + '.' });
       setSelected(null); setArquivo(null); uploadedRef.current = null;
@@ -113,11 +121,11 @@ export default function Pagamentos() {
   return (
     <div className="view-section pagamentos-page">
       <header className="pg-heading">
-        <div><span className="pg-eyebrow">FINANCEIRO</span><h2>Pagamentos</h2><p>Selecione um orçamento finalizado e envie sua nota fiscal.</p></div>
+        <div><span className="pg-eyebrow">FINANCEIRO</span><h2>Pagamentos</h2><p>Selecione um protocolo finalizado e envie sua nota fiscal.</p></div>
         <button className="btn btn-secondary" type="button" disabled={loading || enviando} onClick={() => void carregar()}>Atualizar lista</button>
       </header>
       <div className="pg-summary">
-        <div><span>Orçamentos finalizados</span><strong>{loading ? '—' : pagamentos.length}</strong></div>
+        <div><span>Protocolos finalizados</span><strong>{loading ? '—' : pagamentos.length}</strong></div>
         <div><span>Aguardando nota</span><strong>{loading ? '—' : pagamentos.filter((p) => !p.pagamento_status || p.pagamento_status === 'AGUARDANDO_NOTA').length}</strong></div>
         <div><span>Notas enviadas / em pagamento</span><strong>{loading ? '—' : pagamentos.filter((p) => ['NOTA_ENVIADA', 'EM_PAGAMENTO'].includes(p.pagamento_status || '')).length}</strong></div>
       </div>
@@ -125,17 +133,18 @@ export default function Pagamentos() {
       {aviso && <div className={'pg-notice ' + aviso.tipo} role={aviso.tipo === 'error' ? 'alert' : 'status'}>{aviso.texto}</div>}
       <div className="pg-layout">
         <section className="pg-panel" aria-label="Orçamentos finalizados">
-          <div className="pg-panel-heading"><div><h3>Seus orçamentos</h3><p>Escolha um item para preencher a nota.</p></div><span className="pg-count">{filtrados.length}</span></div>
-          <label className="pg-search"><span>Buscar orçamento</span><input type="search" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Protocolo, produto ou serial" /></label>
+          <div className="pg-panel-heading"><div><h3>Seus protocolos</h3><p>Escolha um protocolo para preencher a nota.</p></div><span className="pg-count">{filtrados.length}</span></div>
+          <label className="pg-search"><span>Buscar protocolo</span><input type="search" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Protocolo, produto ou serial" /></label>
           <div className="pg-table-wrap"><table className="pg-table">
-            <thead><tr><th>Orçamento / produto</th><th>Nota fiscal</th><th>Pagamento</th><th>Ação</th></tr></thead>
+            <thead><tr><th>Protocolo / itens</th><th>Total aprovado</th><th>Nota fiscal</th><th>Pagamento</th><th>Ação</th></tr></thead>
             <tbody>
-              {loading ? <tr><td colSpan={4} className="pg-empty" role="status">Carregando orçamentos…</td></tr> : filtrados.length === 0 ? <tr><td colSpan={4} className="pg-empty">{busca ? 'Nenhum orçamento corresponde à busca.' : 'Os orçamentos finalizados aparecerão aqui.'}</td></tr> : filtrados.map((p) => (
-                <tr key={p.oracle_item_id} className={selected?.oracle_item_id === p.oracle_item_id ? 'is-selected' : ''}>
-                  <td><strong>{p.protocolo}</strong><span>{p.descricao || p.cod_gemco || 'Produto sem descrição'}</span><small>Item {p.oracle_item_id} · Serial {p.serial || '—'}</small></td>
-                  <td>{p.nota_fiscal_numero ? <><strong>Nº {p.nota_fiscal_numero}</strong><span>{Number(p.valor_pagamento || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span></> : <small>Não enviada</small>}{driveLink(p.nota_fiscal_drive_link) && <a href={driveLink(p.nota_fiscal_drive_link)} target="_blank" rel="noreferrer">Abrir documento ↗</a>}</td>
+              {loading ? <tr><td colSpan={5} className="pg-empty" role="status">Carregando protocolos…</td></tr> : filtrados.length === 0 ? <tr><td colSpan={5} className="pg-empty">{busca ? 'Nenhum protocolo corresponde à busca.' : 'Os protocolos finalizados aparecerão aqui.'}</td></tr> : filtrados.map((p) => (
+                <tr key={p.protocolo} className={selected?.protocolo === p.protocolo ? 'is-selected' : ''}>
+                  <td><strong>{p.protocolo}</strong><span>{p.descricao || p.cod_gemco || 'Produto sem descrição'}</span><small>{p.quantidade_itens || 1} item(ns) · {p.itens_aprovados || 0} aprovado(s){p.itens_reprovados ? ' · ' + p.itens_reprovados + ' reprovado(s)' : ''}</small></td>
+                  <td><strong>{Number(p.total_protocolo || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong><small>Limite máximo da nota</small></td>
+                  <td>{p.kirk_numero && <small>Chamado Kirk: {p.kirk_numero}</small>}{p.nota_fiscal_numero ? <><strong>Nº {p.nota_fiscal_numero}</strong><span>{Number(p.valor_pagamento || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span></> : <small>Não enviada</small>}{driveLink(p.nota_fiscal_drive_link) && <a href={driveLink(p.nota_fiscal_drive_link)} target="_blank" rel="noreferrer">Abrir documento ↗</a>}</td>
                   <td><span className={'pg-badge ' + (p.pagamento_status === 'PAGO' ? 'paid' : p.pagamento_status === 'NOTA_ENVIADA' ? 'sent' : '')}>{labels[p.pagamento_status || 'AGUARDANDO_NOTA'] || p.pagamento_status}</span></td>
-                  <td><button type="button" className="pg-select" disabled={enviando} aria-pressed={selected?.oracle_item_id === p.oracle_item_id} onClick={() => selecionar(p)}>{selected?.oracle_item_id === p.oracle_item_id ? 'Selecionado' : 'Selecionar'}</button></td>
+                  <td><button type="button" className="pg-select" disabled={enviando} aria-pressed={selected?.protocolo === p.protocolo} onClick={() => selecionar(p)}>{selected?.protocolo === p.protocolo ? 'Selecionado' : 'Selecionar'}</button></td>
                 </tr>
               ))}
             </tbody>
@@ -144,19 +153,20 @@ export default function Pagamentos() {
         <form className="pg-panel pg-form" ref={formRef} onSubmit={(event) => { event.preventDefault(); void enviar(); }}>
           <div className="pg-panel-heading"><div><span className="pg-eyebrow">ENVIO DE DOCUMENTO</span><h3>Nota fiscal</h3></div><i className="material-icons" aria-hidden="true">description</i></div>
           {selected ? <>
-            <div className="pg-selected"><small>Orçamento selecionado</small><strong>{selected.protocolo} · Item {selected.oracle_item_id}</strong><span>{selected.descricao || selected.cod_gemco}</span></div>
+            <div className="pg-selected"><small>Protocolo selecionado</small><strong>{selected.protocolo}</strong><span>{Number(selected.total_protocolo || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} aprovados · {selected.quantidade_itens || 1} item(ns)</span></div>
             <fieldset disabled={enviando}>
               <label htmlFor="pg-numero">Número da nota fiscal<input id="pg-numero" required maxLength={80} value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="Ex.: 000123" /></label>
-              <label htmlFor="pg-valor">Valor da nota (R$)<input id="pg-valor" required type="number" min="0" step="0.01" inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="0,00" /></label>
+              <label htmlFor="pg-kirk">Número do chamado Kirk (opcional)<input id="pg-kirk" maxLength={80} value={kirk} onChange={(e) => setKirk(e.target.value)} placeholder="Número gerado ao abrir o chamado" /></label>
+              <label htmlFor="pg-valor">Valor da nota (R$)<input id="pg-valor" required type="number" min="0" max={selected.total_protocolo || undefined} step="0.01" inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="0,00" /></label>
               <div className="pg-file-box"><i className="material-icons" aria-hidden="true">upload_file</i><strong>{arquivo ? arquivo.name : 'Anexe a nota fiscal'}</strong><small>{arquivo ? (arquivo.size / 1024).toFixed(0) + ' KB · Pronto para enviar' : 'Arquivo PDF · Até 3 MB'}</small>
                 <button className="btn btn-secondary btn-sm" type="button" onClick={() => inputRef.current?.click()}>{arquivo ? 'Trocar arquivo' : 'Selecionar PDF'}</button>
                 <input ref={inputRef} type="file" accept="application/pdf,.pdf" hidden aria-label="Anexar nota fiscal em PDF" onChange={(e) => { anexar(e.target.files?.[0]); e.currentTarget.value = ''; }} />
               </div>
-              <p className="pg-help">Confira os dados antes de enviar. O documento ficará vinculado a este orçamento.</p>
+              <p className="pg-help">O valor pode ser parcial, mas não pode ultrapassar o total aprovado do protocolo.</p>
               <button className="btn btn-primary pg-submit" type="submit" disabled={!arquivo || !numero.trim() || !valor.trim()}>{enviando ? etapa : 'Enviar nota fiscal'}</button>
             </fieldset>
             {enviando && <p role="status" className="pg-help">{etapa} Aguarde a confirmação.</p>}
-          </> : <div className="pg-form-empty"><i className="material-icons" aria-hidden="true">receipt_long</i><strong>Comece selecionando um orçamento</strong><p>Depois, informe o número e o valor da nota e anexe o PDF.</p></div>}
+          </> : <div className="pg-form-empty"><i className="material-icons" aria-hidden="true">receipt_long</i><strong>Comece selecionando um protocolo</strong><p>Depois, informe o número e o valor da nota e anexe o PDF.</p></div>}
         </form>
       </div>
     </div>

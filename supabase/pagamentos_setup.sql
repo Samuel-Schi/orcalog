@@ -1,5 +1,7 @@
 -- Execute este script no SQL Editor do Supabase antes de publicar a tela de pagamentos.
 alter table public.orcamentos_finalizados
+  add column if not exists kirk_numero varchar(80);
+alter table public.orcamentos_finalizados
   add column if not exists pagamento_status text not null default 'AGUARDANDO_NOTA',
   add column if not exists pagamento_referencia text,
   add column if not exists nota_fiscal_nome text,
