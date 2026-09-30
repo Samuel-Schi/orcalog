@@ -17,6 +17,7 @@ type ItemEnvio = {
   status: number;
   supabaseId?: string;
   statusText?: string | null;
+  retificacao?: { motivo: string; responsavel: string; data: string; original?: { total_orcamento?: number } } | null;
   criadoEm?: string;
   totalOrcamento?: number;
   valPecas?: number;
@@ -40,6 +41,7 @@ type ItemEnvio = {
 };
 
 type StatusSupabaseRow = {
+  retificacao?: ItemEnvio['retificacao'];
   id?: number | string | null;
   status_text?: string | null;
   total_orcamento?: number | string | null;
@@ -288,6 +290,7 @@ const MeusEnvios = () => {
           ...item,
           status: Number(atual?.status ?? item.status ?? 0),
           statusText: atual?.status_text,
+          retificacao: atual?.retificacao,
           supabaseId: atual?.id != null ? String(atual.id) : undefined,
           totalOrcamento: atual?.total_orcamento != null ? Number(atual.total_orcamento) : item.totalOrcamento
         };
@@ -531,16 +534,18 @@ const MeusEnvios = () => {
               </div>
               <div className="protocolo-detalhes">
                 <div style={{ marginBottom: 16 }}>
-                  <strong>Total informado pelo posto: </strong>
+                  <strong>{itens.some(item => item.retificacao) ? 'Total após retificações: ' : 'Total informado pelo posto: '}</strong>
                   {formatCurrency(itens.reduce((total, item) => total + Number(item.totalOrcamento || 0), 0))}
                   {' | '}<strong>Resultado: </strong>
                   {itens.filter((item) => resultadoItem(item) === 'Aprovado').length} aprovado(s),{' '}
                   {itens.filter((item) => resultadoItem(item) === 'Reprovado').length} reprovado(s),{' '}
+                  {itens.filter((item) => resultadoItem(item) === 'Retificado').length} retificado(s),{' '}
                   {itens.filter((item) => resultadoItem(item) === 'Aguardando análise').length} aguardando análise
                   {negociacao && valorAceito(negociacao) != null && (
                     <div>
                       <strong>Valor acordado ({negociacao.negotiation_scope === 'LOTE' ? 'lote' : 'itens da negociação'}): </strong>
                       {formatCurrency(valorAceito(negociacao))}
+                      {itens.some(item => item.retificacao) && <p>Negociação anterior à retificação, preservada para consulta. Confira os itens retificados abaixo.</p>}
                     </div>
                   )}
                 </div>
@@ -722,7 +727,11 @@ const MeusEnvios = () => {
                           <td>{item.valHig != null ? item.valHig.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
                           <td>{item.totalOrcamento != null ? formatCurrency(item.totalOrcamento) : '-'}</td>
                           <td>{valorFinalItem(item, negociacao) != null ? formatCurrency(valorFinalItem(item, negociacao)) : '-'}</td>
-                          <td>{resultadoItem(item)}</td>
+                          <td>{resultadoItem(item)}{item.retificacao && <div>
+                            <p>{item.retificacao.motivo === 'DEVOLUCAO' ? 'Devolução' : 'Desconsiderar reparo'}</p>
+                            <p>Valor anterior: {formatCurrency(item.retificacao.original?.total_orcamento ?? 0)} · Valor atual: {formatCurrency(0)}</p>
+                            <p>{item.retificacao.responsavel} · {new Date(item.retificacao.data).toLocaleString('pt-BR')}</p>
+                          </div>}</td>
                           <td>{getStatusLabel(item.status)}</td>
                           <td>
                             {[0, 1].includes(Number(item.status || 0)) && (

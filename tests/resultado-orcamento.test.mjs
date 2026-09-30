@@ -9,6 +9,12 @@ const { resultadoItem, valorFinalItem, valorAceito } = await import(`data:text/j
 const item = { supabaseId: '47', status: 10, statusText: 'APROVADO', totalOrcamento: 1000 };
 const negociacao = { status: 'ACEITA_POSTO', negotiation_scope: 'ITEM', item_ids: ['47'], valor_proposto_at: 500, valor_contraproposta_posto: 800 };
 
+test('retificacao zera o valor mesmo com negociacao aceita anterior', () => {
+  const retificado = { ...item, statusText: 'RETIFICADO' };
+  assert.equal(resultadoItem(retificado), 'Retificado');
+  assert.equal(valorFinalItem(retificado, negociacao), 0);
+});
+
 test('separa original e acordo aceito, mesmo havendo contraproposta antiga', () => {
   assert.equal(valorFinalItem(item, negociacao), 500);
   assert.equal(item.totalOrcamento, 1000);

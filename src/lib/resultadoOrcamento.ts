@@ -15,6 +15,7 @@ export type NegociacaoResultado = {
 
 export const resultadoItem = (item: ItemResultado) => {
   const decisao = String(item.statusText || '').trim().toUpperCase();
+  if (decisao === 'RETIFICADO') return 'Retificado';
   if (decisao === 'REPROVADO') return 'Reprovado';
   if (decisao === 'APROVADO') return 'Aprovado';
   return 'Aguardando análise';
@@ -37,6 +38,7 @@ export const negociacaoDoItem = (item: ItemResultado, negociacao?: NegociacaoRes
 
 export const valorFinalItem = (item: ItemResultado, negociacao?: NegociacaoResultado): number | null => {
   const resultado = resultadoItem(item);
+  if (resultado === 'Retificado') return 0;
   if (resultado === 'Reprovado') return 0;
   if (resultado !== 'Aprovado') return null;
   if (negociacao && negociacaoDoItem(item, negociacao)) {
