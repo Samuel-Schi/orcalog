@@ -37,6 +37,37 @@ const createLocalSupabaseSyncPlugin = (env: Record<string, string>): Plugin => {
         const requestUrl = req.url ? new URL(req.url, 'http://localhost') : null;
         const pathname = requestUrl?.pathname || '';
 
+        const rotasPosto = {
+          '/sync_orcamento_supabase': () => import('./netlify/functions/sync-orcamento-supabase'),
+          '/.netlify/functions/lote-posto': () => import('./netlify/functions/lote-posto'),
+          '/salvar-orcamento': () => import('./netlify/functions/salvar-orcamento'),
+          '/get_envios': () => import('./netlify/functions/get-envios'),
+          '/get_orcamentos_analise': () => import('./netlify/functions/get-orcamentos-analise'),
+          '/status_envios_supa': () => import('./netlify/functions/get-envios-status-supabase'),
+          '/lancamento_rascunho_supa': () => import('./netlify/functions/get-lancamento-drafts-supabase'),
+          '/lancamento_rascunho_supa/save': () => import('./netlify/functions/upsert-lancamento-draft-supabase')
+        };
+        const carregarRota = rotasPosto[pathname as keyof typeof rotasPosto];
+        if (carregarRota) {
+          try {
+            const { handler } = await carregarRota();
+            const result = await handler({
+              httpMethod: req.method || 'GET', body: await readRequestBody(req), isBase64Encoded: false,
+              queryStringParameters: Object.fromEntries(requestUrl!.searchParams)
+            } as HandlerEvent, {} as HandlerContext);
+            if (!result) throw new Error('Resposta ausente.');
+            res.statusCode = result.statusCode;
+            for (const [key, value] of Object.entries(result.headers || {})) {
+              if (value != null) res.setHeader(key, String(value));
+            }
+            res.end(result.body);
+          } catch {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: 'Nao foi possivel atualizar o lote.' }));
+          }
+          return;
+        }
+
         if (pathname === '/notificacoes_pa') {
           try {
             const result = await createNotificationsHandler(env)({
@@ -191,7 +222,7 @@ const createLocalSupabaseSyncPlugin = (env: Record<string, string>): Plugin => {
               .replace(/\/$/, '');
 
             const supaUrl = new URL(`${normalizedSupabaseUrl}/rest/v1/${tableName}`);
-            supaUrl.searchParams.set('select', 'id,oracle_item_id,protocolo,cod_gemco,cod_barras,serial,status,status_text,total_orcamento');
+            supaUrl.searchParams.set('select', 'id,oracle_item_id,protocolo,cod_gemco,cod_barras,serial,status,status_text,total_orcamento,envio_finalizado');
             supaUrl.searchParams.set('cnpj', `eq.${cnpj}`);
             supaUrl.searchParams.set('order', 'atualizado_em.desc');
             supaUrl.searchParams.set('limit', '500');

@@ -1,5 +1,5 @@
 import type { Handler } from '@netlify/functions';
-import { concluirLote, rpcLote } from './_lote-envio';
+import { rpcLote } from './_lote-envio';
 import { jsonResponse, methodNotAllowed, parseJsonBody } from './_shared';
 
 export const handler: Handler = async (event) => {
@@ -17,11 +17,7 @@ export const handler: Handler = async (event) => {
     }
 
     if (acao === 'CONCLUIR') {
-      const ids = [...new Set((Array.isArray(body.ids) ? body.ids : [])
-        .map((id) => String(id).trim())
-        .filter((id) => /^\d+$/.test(id)))];
-      if (!ids.length) return jsonResponse(400, { error: 'Nenhum item valido foi informado para finalizar o lote.' });
-      const completo = await concluirLote(cnpj, protocolo, ids);
+      const completo = await rpcLote('finalizar_montagem_posto', { p_protocolo: protocolo, p_cnpj: cnpj });
       return jsonResponse(completo ? 200 : 409, {
         ok: completo,
         error: completo ? undefined : 'Ainda existem itens nao enviados ou cancelados neste lote.'
@@ -29,7 +25,7 @@ export const handler: Handler = async (event) => {
     }
 
     if (!/^[1-9]\d*$/.test(String(body.id))) return jsonResponse(400, { error: 'Item invalido.' });
-    const item = await rpcLote('cancelar_lancamento_posto', { p_id: body.id, p_cnpj: cnpj });
+    const item = await rpcLote('cancelar_montagem_posto', { p_id: String(body.id), p_cnpj: cnpj, p_protocolo: protocolo });
     return jsonResponse(200, { ok: true, item });
   } catch (error) {
     return jsonResponse(409, { error: error instanceof Error ? error.message : 'Nao foi possivel atualizar o lote.' });

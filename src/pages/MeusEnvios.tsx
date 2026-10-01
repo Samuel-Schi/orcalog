@@ -6,6 +6,8 @@ import { resultadoItem, valorFinalItem, valorAceito } from '../lib/resultadoOrca
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 
 type ItemEnvio = {
+  envioRecebido?: boolean;
+  envioFinalizado?: boolean;
   negociacaoAplicada?: boolean;
   id: string;
   dbId?: number;
@@ -43,6 +45,7 @@ type ItemEnvio = {
 };
 
 type StatusSupabaseRow = {
+  envio_finalizado?: boolean;
   negociacao_aplicada?: boolean;
   retificacao?: ItemEnvio['retificacao'];
   id?: number | string | null;
@@ -109,6 +112,7 @@ const isItemEmEnvio = (item: Partial<ItemEnvio>) =>
   );
 
 const normalizeEnvioItem = (row: any, index: number): ItemEnvio => ({
+  envioRecebido: row.envio_recebido,
   id: String(row.id ?? row.ID ?? `${row.protocolo ?? row.PROTOCOLO ?? 'p'}-${index}`),
   dbId: (() => {
     const rawId = row.id ?? row.ID ?? row.dbId ?? row.oracle_item_id ?? row.ORACLE_ITEM_ID;
@@ -158,6 +162,7 @@ const MeusEnvios = () => {
   const [abertos, setAbertos] = useState<Record<string, boolean>>({});
   const [items, setItems] = useState<ItemEnvio[]>([]);
   const [cnpjPosto, setCnpjPosto] = useState('');
+  const [idsLotePorProtocolo, setIdsLotePorProtocolo] = useState<Record<string, string[]>>({});
   const [totalItensByProtocolo, setTotalItensByProtocolo] = useState<Record<string, number>>({});
   const [negociacoesByProtocolo, setNegociacoesByProtocolo] = useState<Record<string, NegociacaoSupabaseRow>>({});
   const [contraValores, setContraValores] = useState<Record<string, string>>({});
@@ -245,6 +250,12 @@ const MeusEnvios = () => {
         : Array.isArray(supaRaw?.items)
           ? supaRaw.items
           : [];
+      const idsPorProtocolo: Record<string, string[]> = {};
+      supaList.forEach((row) => {
+        const protocolo = normalizeProtocolKey(row.protocolo);
+        const id = String(row.oracle_item_id ?? '').trim();
+        if (protocolo && /^\d+$/.test(id)) (idsPorProtocolo[protocolo] ||= []).push(id);
+      });
 
       const statusByOracleId = new Map<number, StatusSupabaseRow>();
       const statusByKey = new Map<string, StatusSupabaseRow>();
@@ -293,6 +304,8 @@ const MeusEnvios = () => {
 
         return {
           ...item,
+          envioFinalizado: atual?.envio_finalizado,
+          dbId: atual?.oracle_item_id != null ? Number(atual.oracle_item_id) : item.dbId,
           status: Number(atual?.status ?? item.status ?? 0),
           statusText: atual?.status_text,
           negociacaoAplicada: atual?.negociacao_aplicada,
@@ -313,6 +326,7 @@ const MeusEnvios = () => {
 
       if (controller.signal.aborted) return;
       setTotalItensByProtocolo(totais);
+      setIdsLotePorProtocolo(idsPorProtocolo);
       setItems(mergedItems.filter(isItemEmEnvio));
       setNegociacoesByProtocolo(nextNegociacoesByProtocolo);
     } catch {
@@ -507,8 +521,8 @@ const MeusEnvios = () => {
           const loteCompleto = itens.length >= totalItensNoLote;
           const itensPendentes = itens.filter((item) => ![4, 10].includes(Number(item.status)));
           const maxStatus = Math.max(...(itensPendentes.length ? itensPendentes : itens).map((i) => Number(i.status || 0)));
-          const podeFinalizar = itens.every((item) => [0, 1].includes(Number(item.status)));
-          const idsLote = itens
+          const podeFinalizar = loteCompleto && itens.every((item) => [0, 1, 8].includes(Number(item.status)) && item.envioFinalizado !== true);
+          const idsLote = idsLotePorProtocolo[normalizeProtocolKey(protocolo)] || itens
             .map((item) => item.dbId == null ? '' : String(item.dbId))
             .filter((id) => /^\d+$/.test(id));
           const cnpjLote = String(itens[0]?.cnpj || cnpjPosto || '').replace(/\D/g, '');
@@ -747,7 +761,7 @@ const MeusEnvios = () => {
                           </div>}</td>
                           <td>{item.statusText === 'CANCELADO_POSTO' ? 'Cancelado pelo posto — editar para relançar' : getStatusLabel(item.status)}</td>
                           <td>
-                            {[0, 1].includes(Number(item.status || 0)) && (
+                            {[0, 1, 8].includes(Number(item.status || 0)) && item.envioFinalizado !== true && (
                               <button
                                 className="btn btn-secondary btn-sm"
                                 type="button"
@@ -757,7 +771,7 @@ const MeusEnvios = () => {
                                 Editar / relançar
                               </button>
                             )}
-                            {[0,1].includes(Number(item.status)) && item.supabaseId && item.statusText !== 'CANCELADO_POSTO' && <AcaoLotePosto acao="CANCELAR" protocolo={protocolo} cnpj={String(item.cnpj || '').replace(/\D/g, '')} id={item.supabaseId} onSaved={()=>void carregar(true)} />}
+                            {item.envioRecebido && item.envioFinalizado !== true && item.dbId && <AcaoLotePosto acao="CANCELAR" protocolo={protocolo} cnpj={cnpjLote} id={String(item.dbId)} onSaved={()=>void carregar(true)} />}
                           </td>
                         </tr>
                       ))}

@@ -7,6 +7,7 @@ import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 import { agruparCatalogo, getCatalogoByLinha, type CatalogoLinha, type CatalogoRegistro } from '../lib/catalogoPadrao';
 
 type OrcamentoItem = {
+  envioRecebido?: boolean;
   id: string;
   dbId?: number;
   protocolo: string;
@@ -53,6 +54,7 @@ type DriveUploadResponse = {
 };
 
 type StatusSupabaseRow = {
+  envio_finalizado?: boolean;
   oracle_item_id?: number | string | null;
   status?: number | string | null;
 };
@@ -68,7 +70,7 @@ const getDriveLink = (...values: Array<string | undefined>) =>
   }) || '';
 
 const isStatusPendente = (status: number | string | null | undefined) =>
-  [0, 1].includes(Number(status ?? 0));
+  [0, 1, 8].includes(Number(status ?? 0));
 
 type PecaComValor = {
   nome: string;
@@ -272,6 +274,7 @@ const uploadFotosDrive = async (item: OrcamentoItem, files: File[]) => {
 };
 
 const normalizeOrcamentoItem = (row: any, index: number): OrcamentoItem => ({
+  envioRecebido: row.envio_recebido,
   id: String(row.id ?? row.ID ?? `${row.protocolo ?? row.PROTOCOLO ?? 'p'}-${index}`),
   dbId: (() => {
     const rawId = row.dbId ?? row.id ?? row.ID;
@@ -312,7 +315,7 @@ const normalizeOrcamentoItem = (row: any, index: number): OrcamentoItem => ({
 });
 
 const hasLancamentoRegistrado = (item: Partial<OrcamentoItem>) =>
-  Boolean(
+  item.envioRecebido ?? Boolean(
     Number(item.status || 0) >= 2 ||
     item.totalOrcamento ||
     item.valPecas ||
@@ -942,9 +945,9 @@ const LancarOrcamentos = () => {
           validateStatus: (status) => status >= 200 && status < 400
         });
         const statusAtual = (Array.isArray(statusResponse.data) ? statusResponse.data : [])
-          .find((row) => Number(row.oracle_item_id) === selected.dbId)?.status;
+          .find((row) => Number(row.oracle_item_id) === selected.dbId);
 
-        if (statusAtual !== undefined && !isStatusPendente(statusAtual)) {
+        if (statusAtual && (statusAtual.envio_finalizado === true || !isStatusPendente(statusAtual.status))) {
           setToast({ type: 'error', message: 'Este orçamento já está em análise e não pode mais ser editado.' });
           return;
         }
@@ -969,7 +972,7 @@ const LancarOrcamentos = () => {
       const acessDetalhesPayload = serializeItensComValor(acessoriosComValores);
       const fotoLinkDrive = fotos.length > 0 ? await uploadFotosDrive(selected, fotos) : linkDriveExistente;
 
-      const submittedStatus = 2;
+      const submittedStatus = 8;
       const payload = {
         id: selected.dbId,
         itemId: selected.dbId,
@@ -1018,58 +1021,17 @@ const LancarOrcamentos = () => {
         ]
       };
 
-      await oracleApi.post(ORACLE_ENDPOINTS.updateValores, payload, {
+      await oracleApi.post(ORACLE_ENDPOINTS.syncOrcamentoSupabase, payload, {
         headers: { 'Content-Type': 'application/json' }
       });
-
-      let syncWarning = '';
-      try {
-        // No Supabase, o orçamento deve aguardar a atribuição de um analista.
-        // Mantemos o status enviado ao Oracle, mas iniciamos a fila do Supabase
-        // como pendente.
-        const supabasePayload = {
-          ...payload,
-          itens: payload.itens.map((item) => ({ ...item, status: 0 }))
-        };
-        await oracleApi.post(ORACLE_ENDPOINTS.syncOrcamentoSupabase, supabasePayload, {
-          headers: { 'Content-Type': 'application/json' }
-        });
-      } catch (syncError) {
-        if (axios.isAxiosError(syncError)) {
-          const syncStatus = syncError.response?.status;
-          const syncData = syncError.response?.data;
-          console.error('Erro ao sincronizar orcamento no Supabase:', syncStatus, syncData);
-        } else {
-          console.error('Erro ao sincronizar orcamento no Supabase:', syncError);
-        }
-        throw new Error('Os valores foram salvos no Oracle, mas o envio não foi concluído no Supabase. Tente enviar novamente o mesmo item; o protocolo será preservado.');
-      }
 
       const remaining = items.filter((item) => item.id !== selected.id);
       setItems(remaining);
 
-      if ((localStorage.getItem('gat_user') || '').trim() && selected.dbId != null) {
-        try {
-          await oracleApi.post(
-            ORACLE_ENDPOINTS.saveLancamentoDraftSupabase,
-            {
-              paUsuario: localStorage.getItem('gat_user') || '',
-              oracleItemId: selected.dbId,
-              protocolo: selected.protocolo,
-              cnpj,
-              status: 'FINALIZADO',
-              payload: {}
-            },
-            { headers: { 'Content-Type': 'application/json' } }
-          );
-        } catch {
-          // ignore draft cleanup errors
-        }
-      }
       limparFormulario();
       setToast({
-        type: syncWarning ? 'error' : 'success',
-        message: `${isEditingItem ? 'Lançamento atualizado com sucesso.' : 'Valores lançados com sucesso.'}${syncWarning}`
+        type: 'success',
+        message: 'Valores salvos em Montagem. Finalize o lote em Meus Envios para enviar à AT.'
       });
     } catch (err) {
       if (axios.isAxiosError(err)) {
@@ -1150,7 +1112,7 @@ const LancarOrcamentos = () => {
         },
         { headers: { 'Content-Type': 'application/json' } }
       ).catch(() => {
-        // ignore draft save errors
+        setToast({ type: 'error', message: 'Não foi possível salvar o rascunho. Mantenha a tela aberta e tente Salvar valores novamente.' });
       });
     }, 800);
 

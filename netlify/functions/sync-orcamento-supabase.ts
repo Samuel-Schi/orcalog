@@ -1,5 +1,5 @@
 import type { Handler } from '@netlify/functions';
-import { concluirLote, rpcLote } from './_lote-envio';
+import { rpcLote } from './_lote-envio';
 import {
   handleFunctionError,
   jsonResponse,
@@ -9,7 +9,7 @@ import {
   trimText
 } from './_shared';
 
-type SyncPayload = {
+export type SyncPayload = {
   id?: number;
   itemId?: number;
   protocolo?: string;
@@ -36,8 +36,10 @@ type SyncPayload = {
     linkDrive?: string;
     link_drive?: string;
     pecasDesc?: string;
+    pecasDetalhes?: string;
     valPecas?: number;
     acessDesc?: string;
+    acessDetalhes?: string;
     valAcess?: number;
     valMaoObra?: number;
     valEmb?: number;
@@ -55,7 +57,7 @@ const toNumber = (value: unknown) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const buildRecord = (
+export const buildRecord = (
   payload: SyncPayload,
   item: NonNullable<SyncPayload['itens']>[number]
 ) => {
@@ -67,7 +69,7 @@ const buildRecord = (
     oracle_item_id: oracleItemId,
     protocolo: trimText(payload.protocolo || item.protocolo || '', 80),
     pa_usuario: trimText(payload.paUsuario || '', 80),
-    cnpj: trimText(payload.cnpj || '', 20),
+    cnpj: trimText(payload.cnpj || '', 20).replace(/\D/g, ''),
     razao_social: trimText(payload.razaoSocial || '', 180),
     unidade: trimText(payload.unidade || '', 120),
     email_retorno: trimText(payload.emailRetorno || '', 180),
@@ -83,8 +85,10 @@ const buildRecord = (
     foto_nome: trimText(item.fotoNome || linkDrive, 180),
     link_drive: linkDrive,
     pecas_desc: trimText(item.pecasDesc || '', 250),
+    pecas_detalhes: item.pecasDetalhes || '',
     val_pecas: toNumber(item.valPecas),
     acess_desc: trimText(item.acessDesc || '', 250),
+    acess_detalhes: item.acessDetalhes || '',
     val_acess: toNumber(item.valAcess),
     val_mao_obra: toNumber(item.valMaoObra),
     val_emb: toNumber(item.valEmb),
@@ -140,13 +144,9 @@ export const handler: Handler = async (event) => {
        sobre um orçamento que já entrou em análise. */
     if (tableName !== 'orcamentos_finalizados') return jsonResponse(500, { error: 'Tabela incompatível com a RPC de envio seguro.' });
     const recebidos = [];
-    for (const record of records) recebidos.push(await rpcLote('receber_item_posto', { p_item: record }));
-    const idsEsperados = [...new Set((payload.idsLote || records.map((record) => record.oracle_item_id))
-      .map((id) => String(id).trim())
-      .filter((id) => /^\d+$/.test(id)))];
-    if (!idsEsperados.length) return jsonResponse(400, { error: 'Informe os itens esperados do lote.' });
-    const lotes = new Map(records.map(record => [record.protocolo, record.cnpj]));
-    for (const [protocolo, cnpj] of lotes) await concluirLote(cnpj, protocolo, idsEsperados);
+    for (const record of records) recebidos.push(await rpcLote('salvar_item_montagem', { p_item: record, p_confirmado: true }));
+    // O posto pode salvar cada item sem liberar o lote. A mudanca de
+    // MONTAGEM para EM_ANALISE acontece apenas no botao "Finalizar".
     return jsonResponse(200, recebidos);
   } catch (err) {
     return handleFunctionError(err);
