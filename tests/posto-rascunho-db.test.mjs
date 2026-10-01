@@ -28,8 +28,10 @@ test('rascunhos ficam fora da AT; finalizar transfere o lote completo atomicamen
     await save(drafts[0]);
     await db.query('SELECT salvar_item_montagem($1::jsonb,false)',[JSON.stringify({...drafts[0],rascunho:{valPecas:999}})]);
     assert.equal(Number((await listar())[0].total_orcamento),53);
-    // Finalizar nao confirma valores: ele apenas libera o lote inteiro como
-    // estiver no momento, inclusive itens que ainda nao receberam valores.
+    // Finalizar nao confirma valores, mas fica bloqueado ate que todos os
+    // produtos tenham o seu orcamento efetivamente salvo na montagem.
+    await assert.rejects(finish(),/orcamento salvo/);
+    await save(drafts[1]);
     assert.equal((await finish()).rows[0].ok,true);
     assert.equal((await finish()).rows[0].ok,true);
     const enviados=await listar();

@@ -84,8 +84,12 @@ BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended(p_protocolo,0));
 
   IF EXISTS(SELECT 1 FROM orcamento_lancamento_rascunhos WHERE protocolo=p_protocolo AND cnpj=p_cnpj) THEN
-    -- Nao exige que cada item tenha passado por uma confirmacao individual.
-    -- Montagem e apenas o espaco de lancamento antes da liberacao do lote.
+    -- Nao existe confirmacao extra de valor. Porem, cada produto precisa ter
+    -- o seu orcamento efetivamente salvo antes de o lote ser liberado ao AT.
+    IF EXISTS(SELECT 1 FROM orcamento_lancamento_rascunhos WHERE protocolo=p_protocolo
+      AND (cnpj IS DISTINCT FROM p_cnpj OR status NOT IN('MONTAGEM','FINALIZADO'))) THEN
+      RAISE EXCEPTION 'Todos os itens precisam ter o orcamento salvo antes de finalizar.';
+    END IF;
     FOR r IN SELECT * FROM orcamento_lancamento_rascunhos
       WHERE protocolo=p_protocolo AND cnpj=p_cnpj AND status<>'FINALIZADO' ORDER BY id FOR UPDATE LOOP
       -- As colunas financeiras da tabela final sao obrigatorias. Se o posto
@@ -142,7 +146,8 @@ SELECT coalesce(jsonb_agg(item),'[]'::jsonb) FROM (
  SELECT item FROM (
   SELECT d.payload || jsonb_build_object('id',d.oracle_item_id,'oracle_item_id',d.oracle_item_id,
     'protocolo',d.protocolo,'cnpj',d.cnpj,'status',8,'status_text','MONTAGEM',
-    'envio_finalizado',false,'envio_recebido',d.status='MONTAGEM','criado_em',d.criado_em) item
+    'envio_finalizado',false,'envio_recebido',d.status='MONTAGEM',
+    'orcamento_pronto',d.status='MONTAGEM','criado_em',d.criado_em) item
   FROM orcamento_lancamento_rascunhos d WHERE d.cnpj=p_cnpj AND d.status<>'FINALIZADO'
   UNION ALL
   SELECT to_jsonb(o) || jsonb_build_object('id',o.oracle_item_id,'supabase_id',o.id,'val_acess',coalesce(to_jsonb(o)->'val_access',to_jsonb(o)->'val_acess'))
