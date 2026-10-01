@@ -1,22 +1,17 @@
 import type { Handler } from '@netlify/functions';
-import { fetchWithTimeout, handleFunctionError, methodNotAllowed, proxyResponse } from './_shared';
-
-const URL = 'https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/salvar-orcamento';
+import { rpcLote } from './_lote-envio';
+import { buildRecord, type SyncPayload } from './sync-orcamento-supabase';
+import { handleFunctionError, jsonResponse, methodNotAllowed, parseJsonBody } from './_shared';
 
 export const handler: Handler = async (event) => {
+  if (event.httpMethod !== 'POST') return methodNotAllowed(['POST']);
+  const parsed = parseJsonBody(event);
+  if (!parsed.ok) return parsed.response;
   try {
-    if (event.httpMethod !== 'POST') {
-      return methodNotAllowed(['POST']);
-    }
-
-    const res = await fetchWithTimeout(URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: event.body || '{}'
-    });
-
-    return proxyResponse(res);
-  } catch (err) {
-    return handleFunctionError(err);
-  }
+    const body = parsed.value as SyncPayload;
+    if (!Array.isArray(body?.itens) || !body.itens.length) return jsonResponse(400, { error: 'Informe os produtos do lote.' });
+    // O banco gera IDs; o valor abaixo serve apenas para normalizar o cadastro.
+    const itens = body.itens.map((item) => buildRecord(body, { ...item, itemId: 1 }));
+    return jsonResponse(200, await rpcLote('registrar_lote_posto', { p_itens: itens }));
+  } catch (error) { return handleFunctionError(error); }
 };

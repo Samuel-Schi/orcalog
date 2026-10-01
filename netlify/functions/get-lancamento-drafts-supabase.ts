@@ -69,7 +69,7 @@ export const handler: Handler = async (event) => {
 
     return {
       statusCode: 200,
-      body: text,
+      body: JSON.stringify((JSON.parse(text || '[]') as Array<{payload?: Record<string, unknown>}>).map(row => ({...row, payload: row.payload?.rascunho || row.payload}))),
       headers: {
         'Content-Type': response.headers.get('content-type') || 'application/json; charset=utf-8',
         'Cache-Control': 'no-store',

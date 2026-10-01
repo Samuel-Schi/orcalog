@@ -6,6 +6,7 @@ import { resultadoItem, valorFinalItem, valorAceito } from '../lib/resultadoOrca
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 
 type ItemEnvio = {
+  envioRecebido?: boolean;
   envioFinalizado?: boolean;
   negociacaoAplicada?: boolean;
   id: string;
@@ -111,6 +112,7 @@ const isItemEmEnvio = (item: Partial<ItemEnvio>) =>
   );
 
 const normalizeEnvioItem = (row: any, index: number): ItemEnvio => ({
+  envioRecebido: row.envio_recebido,
   id: String(row.id ?? row.ID ?? `${row.protocolo ?? row.PROTOCOLO ?? 'p'}-${index}`),
   dbId: (() => {
     const rawId = row.id ?? row.ID ?? row.dbId ?? row.oracle_item_id ?? row.ORACLE_ITEM_ID;
@@ -769,7 +771,7 @@ const MeusEnvios = () => {
                                 Editar / relançar
                               </button>
                             )}
-                            {[0,1,8].includes(Number(item.status)) && item.envioFinalizado !== true && item.supabaseId && item.statusText !== 'CANCELADO_POSTO' && <AcaoLotePosto acao="CANCELAR" protocolo={protocolo} cnpj={cnpjLote} id={item.supabaseId} onSaved={()=>void carregar(true)} />}
+                            {item.envioRecebido && item.envioFinalizado !== true && item.dbId && <AcaoLotePosto acao="CANCELAR" protocolo={protocolo} cnpj={cnpjLote} id={String(item.dbId)} onSaved={()=>void carregar(true)} />}
                           </td>
                         </tr>
                       ))}
