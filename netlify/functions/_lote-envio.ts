@@ -8,9 +8,13 @@ export function configuracaoLote() {
   return { base, headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } };
 }
 
-export async function rpcLote(nome: string, payload: Record<string, unknown>) {
+export async function rpcLote(nome: string, payload: Record<string, unknown>, timeoutMs?: number) {
   const {base,headers} = configuracaoLote();
-  const response = await fetchWithTimeout(`${base}/rest/v1/rpc/${nome}`, { method:'POST',headers,body:JSON.stringify(payload) });
+  const response = await fetchWithTimeout(
+    `${base}/rest/v1/rpc/${nome}`,
+    { method:'POST',headers,body:JSON.stringify(payload) },
+    timeoutMs
+  );
   // RPCs que retornam void recebem 204 sem corpo no PostgREST. A leitura
   // abaixo evita que uma resposta vazia interrompa o envio com erro de JSON.
   const texto = await response.text();
