@@ -71,7 +71,41 @@ BEGIN
     payload=CASE WHEN p_confirmado THEN (payload - 'rascunho') || p_item ELSE payload || jsonb_build_object('rascunho',p_item->'rascunho') END,
     status=CASE WHEN p_confirmado THEN 'MONTAGEM' ELSE 'RASCUNHO' END, atualizado_em=now()
   WHERE id=r.id RETURNING * INTO r;
+  -- O item salvo ja entra na tabela de orcamentos em MONTAGEM. Assim, o
+  -- botao Finalizar do lote so precisa trocar o status, sem copiar valores.
+  IF p_confirmado THEN
+    PERFORM receber_item_posto(r.payload || jsonb_build_object(
+      'oracle_item_id',r.oracle_item_id,'protocolo',r.protocolo,'cnpj',r.cnpj,'pa_usuario',r.pa_usuario
+    ));
+    UPDATE orcamentos_finalizados SET pecas_detalhes=r.payload->>'pecas_detalhes',acess_detalhes=r.payload->>'acess_detalhes'
+      WHERE oracle_item_id::text=r.oracle_item_id::text AND protocolo=r.protocolo;
+  END IF;
   RETURN to_jsonb(r);
+END $$;
+
+-- Atualiza os lotes ja salvos em MONTAGEM antes desta versao. Isso permite
+-- que, depois da migracao, o botao Finalizar tambem seja apenas status.
+DO $$
+DECLARE r orcamento_lancamento_rascunhos%ROWTYPE; item_para_at jsonb;
+BEGIN
+  FOR r IN SELECT * FROM orcamento_lancamento_rascunhos
+    WHERE status='MONTAGEM' AND NOT EXISTS(
+      SELECT 1 FROM orcamentos_finalizados o WHERE o.protocolo=orcamento_lancamento_rascunhos.protocolo
+        AND o.oracle_item_id::text=orcamento_lancamento_rascunhos.oracle_item_id::text
+    ) LOOP
+    item_para_at:=coalesce(r.payload,'{}'::jsonb) || jsonb_build_object(
+      'val_pecas',coalesce((r.payload->>'val_pecas')::numeric,0),
+      'val_acess',coalesce((r.payload->>'val_acess')::numeric,0),
+      'val_mao_obra',coalesce((r.payload->>'val_mao_obra')::numeric,0),
+      'val_emb',coalesce((r.payload->>'val_emb')::numeric,0),
+      'val_hig',coalesce((r.payload->>'val_hig')::numeric,0),
+      'total_orcamento',coalesce((r.payload->>'total_orcamento')::numeric,0),
+      'oracle_item_id',r.oracle_item_id,'protocolo',r.protocolo,'cnpj',r.cnpj,'pa_usuario',r.pa_usuario
+    );
+    PERFORM receber_item_posto(item_para_at);
+    UPDATE orcamentos_finalizados SET pecas_detalhes=r.payload->>'pecas_detalhes',acess_detalhes=r.payload->>'acess_detalhes'
+      WHERE oracle_item_id::text=r.oracle_item_id::text AND protocolo=r.protocolo;
+  END LOOP;
 END $$;
 
 -- Finalizar nao confirma nem recalcula valores: apenas libera o lote para a AT.
@@ -79,7 +113,7 @@ END $$;
 -- exatamente como esta para a tabela de analise com status 0 / PENDENTE.
 CREATE OR REPLACE FUNCTION public.finalizar_montagem_posto(p_protocolo text,p_cnpj text) RETURNS boolean
 LANGUAGE plpgsql SECURITY INVOKER SET search_path=public AS $$
-DECLARE r orcamento_lancamento_rascunhos%ROWTYPE; ids text[]; completo boolean; itens_legacy integer; item_para_at jsonb;
+DECLARE itens_esperados integer; itens_prontos integer; itens_liberados integer; itens_legacy integer;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended(p_protocolo,0));
 
@@ -90,28 +124,22 @@ BEGIN
       AND (cnpj IS DISTINCT FROM p_cnpj OR status NOT IN('MONTAGEM','FINALIZADO'))) THEN
       RAISE EXCEPTION 'Todos os itens precisam ter o orcamento salvo antes de finalizar.';
     END IF;
-    FOR r IN SELECT * FROM orcamento_lancamento_rascunhos
-      WHERE protocolo=p_protocolo AND cnpj=p_cnpj AND status<>'FINALIZADO' ORDER BY id FOR UPDATE LOOP
-      -- As colunas financeiras da tabela final sao obrigatorias. Se o posto
-      -- ainda nao informou um campo, o valor que segue e R$ 0,00 — sem pedir
-      -- uma confirmacao adicional e sem alterar valores ja preenchidos.
-      item_para_at:=coalesce(r.payload,'{}'::jsonb) || jsonb_build_object(
-        'val_pecas',coalesce((r.payload->>'val_pecas')::numeric,0),
-        'val_acess',coalesce((r.payload->>'val_acess')::numeric,0),
-        'val_mao_obra',coalesce((r.payload->>'val_mao_obra')::numeric,0),
-        'val_emb',coalesce((r.payload->>'val_emb')::numeric,0),
-        'val_hig',coalesce((r.payload->>'val_hig')::numeric,0),
-        'total_orcamento',coalesce((r.payload->>'total_orcamento')::numeric,0),
-        'oracle_item_id',r.oracle_item_id,'protocolo',r.protocolo,'cnpj',r.cnpj,'pa_usuario',r.pa_usuario
+    SELECT count(*) INTO itens_esperados FROM orcamento_lancamento_rascunhos
+      WHERE protocolo=p_protocolo AND cnpj=p_cnpj;
+    SELECT count(*) INTO itens_prontos FROM orcamentos_finalizados o
+      WHERE o.protocolo=p_protocolo AND o.cnpj=p_cnpj AND o.oracle_item_id::text IN (
+        SELECT oracle_item_id::text FROM orcamento_lancamento_rascunhos WHERE protocolo=p_protocolo AND cnpj=p_cnpj
       );
-      PERFORM receber_item_posto(item_para_at);
-      UPDATE orcamentos_finalizados SET pecas_detalhes=r.payload->>'pecas_detalhes',acess_detalhes=r.payload->>'acess_detalhes'
-        WHERE oracle_item_id::text=r.oracle_item_id::text AND protocolo=p_protocolo;
-    END LOOP;
-    SELECT array_agg(oracle_item_id::text) INTO ids
-      FROM orcamento_lancamento_rascunhos WHERE protocolo=p_protocolo AND cnpj=p_cnpj;
-    completo:=concluir_envio_lote(p_protocolo,p_cnpj,ids);
-    IF NOT completo THEN RAISE EXCEPTION 'Nao foi possivel liberar este lote para analise.'; END IF;
+    IF itens_prontos <> itens_esperados THEN RAISE EXCEPTION 'Existem itens sem orcamento salvo neste lote.'; END IF;
+    -- Finalizar e somente uma troca de estado: MONTAGEM -> PENDENTE / 0.
+    UPDATE orcamentos_finalizados SET envio_finalizado=true,status=0,status_text='PENDENTE'
+      WHERE protocolo=p_protocolo AND cnpj=p_cnpj AND oracle_item_id::text IN (
+        SELECT oracle_item_id::text FROM orcamento_lancamento_rascunhos WHERE protocolo=p_protocolo AND cnpj=p_cnpj
+      ) AND status IN(0,1,8) AND coalesce(envio_finalizado,false)=false;
+    GET DIAGNOSTICS itens_liberados = ROW_COUNT;
+    IF itens_liberados=0 AND NOT EXISTS(SELECT 1 FROM orcamentos_finalizados WHERE protocolo=p_protocolo AND cnpj=p_cnpj AND envio_finalizado) THEN
+      RAISE EXCEPTION 'Nao foi possivel liberar este lote para analise.';
+    END IF;
     UPDATE orcamento_lancamento_rascunhos SET status='FINALIZADO',atualizado_em=now()
       WHERE protocolo=p_protocolo AND cnpj=p_cnpj;
     RETURN true;
