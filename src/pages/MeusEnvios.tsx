@@ -222,18 +222,16 @@ const MeusEnvios = () => {
 
       if (!cnpj) throw new Error('CNPJ não encontrado.');
       setCnpjPosto(cnpj.replace(/\D/g, ''));
-      const [res, statusRes, negociacoesRes] = await Promise.all([
+      // getEnvios ja e a leitura do Supabase. Nao chame a mesma consulta uma
+      // segunda vez pelo endpoint de status: isso atrasava a pagina e podia
+      // concorrer com a finalizacao do lote.
+      const [res, negociacoesRes] = await Promise.all([
         oracleApi.get(ORACLE_ENDPOINTS.getEnvios, {
           signal: controller.signal,
           params: { cnpj, _ts: Date.now() },
           responseType: 'arraybuffer',
           headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
           validateStatus: (status) => status >= 200 && status < 400
-        }),
-        oracleApi.get(ORACLE_ENDPOINTS.getEnviosStatusSupabase, {
-          signal: controller.signal,
-          params: { cnpj, _ts: Date.now() },
-          validateStatus: (status) => status >= 200 && status < 500
         }),
         oracleApi.get(ORACLE_ENDPOINTS.getEnviosNegociacoesSupabase, {
           signal: controller.signal,
@@ -249,15 +247,7 @@ const MeusEnvios = () => {
           ? data
           : [];
 
-      const supaRaw = statusRes.data;
-      if (statusRes.status >= 400 || (!Array.isArray(supaRaw) && !Array.isArray(supaRaw?.items))) {
-        throw new Error('Falha ao consultar os resultados dos orcamentos.');
-      }
-      const supaList: StatusSupabaseRow[] = Array.isArray(supaRaw)
-        ? supaRaw
-        : Array.isArray(supaRaw?.items)
-          ? supaRaw.items
-          : [];
+      const supaList: StatusSupabaseRow[] = list;
       const idsPorProtocolo: Record<string, string[]> = {};
       supaList.forEach((row) => {
         const protocolo = normalizeProtocolKey(row.protocolo);
@@ -350,15 +340,8 @@ const MeusEnvios = () => {
   }, []);
 
   useEffect(() => {
-    const atualizarSeVisivel = () => {
-      if (document.visibilityState === 'visible') void carregar(true);
-    };
     void carregar();
-    const interval = window.setInterval(atualizarSeVisivel, 30000);
-    document.addEventListener('visibilitychange', atualizarSeVisivel);
     return () => {
-      window.clearInterval(interval);
-      document.removeEventListener('visibilitychange', atualizarSeVisivel);
       requestRef.current?.abort();
       requestRef.current = null;
     };
