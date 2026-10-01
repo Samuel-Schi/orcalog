@@ -17,7 +17,7 @@ export const handler: Handler = async (event) => {
 
     const baseUrl = supabaseUrl.replace(/\/rest\/v1\/?$/i, '').replace(/\/$/, '');
     const url = new URL(`${baseUrl}/rest/v1/${tableName}`);
-    url.searchParams.set('select', 'id,oracle_item_id,protocolo,cod_gemco,descricao,serial,total_orcamento,status,status_text,pagamento_status,pagamento_referencia,valor_pagamento,kirk_numero,nota_fiscal_numero,nota_fiscal_nome,nota_fiscal_drive_link,nota_fiscal_enviada_em,pagamento_solicitado_em,pagamento_validacao_status');
+    url.searchParams.set('select', 'id,oracle_item_id,protocolo,cod_gemco,descricao,serial,total_orcamento,val_pecas,val_access,val_emb,val_mao_obra,val_hig,valor_produtos_aprovado,valor_servicos_aprovado,notas_fiscais,status,status_text,pagamento_status,pagamento_referencia,valor_pagamento,kirk_numero,nota_fiscal_numero,nota_fiscal_nome,nota_fiscal_drive_link,nota_fiscal_enviada_em,pagamento_solicitado_em,pagamento_validacao_status,negociacao_aplicada');
     url.searchParams.set('cnpj', `eq.${cnpj}`);
     url.searchParams.set('status', 'eq.10');
     url.searchParams.set('order', 'atualizado_em.desc');

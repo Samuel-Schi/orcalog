@@ -32,6 +32,13 @@
 .pg-badge.paid { background: #e0f5e9; color: #216b41; }
 .pg-selected { display: flex; flex-direction: column; gap: 7px; background: var(--pg-soft); margin: 20px; padding: 14px; border-radius: 8px; font-size: 12px; }
 .pg-selected small { color: var(--pg-muted); }
+.pg-financeiro-resumo { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: -4px 20px 20px; }
+.pg-financeiro-resumo > div { display: flex; flex-direction: column; gap: 5px; border: 1px solid var(--pg-border); border-radius: 8px; padding: 12px; background: #f8fbff; font-size: 12px; }
+.pg-financeiro-resumo span { color: var(--pg-muted); font-size: 11px; }
+.pg-financeiro-resumo b { color: #17643a; }
+.pg-tipo-nota { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 18px; }
+.pg-tipo-nota button { min-height: 40px; border: 1px solid var(--pg-border); border-radius: 7px; background: var(--pg-surface); color: var(--pg-text); cursor: pointer; font-weight: 600; }
+.pg-tipo-nota button[aria-pressed=true] { border-color: #2563eb; background: #eaf2ff; color: #1d4ed8; }
 .pg-form fieldset { border: 0; padding: 0 20px 20px; margin: 0; min-width: 0; }
 .pg-form label { margin-bottom: 18px; }
 .pg-file-box { border: 1px dashed var(--pg-border); background: var(--pg-soft); border-radius: 10px; padding: 22px 12px; display: flex; align-items: center; flex-direction: column; gap: 10px; text-align: center; }
@@ -50,4 +57,4 @@
 .pg-notice.success { background: #e8f6ed; color: #24663b; border: 1px solid #bfdfcb; }
 body.dark-mode .pagamentos-page { --pg-surface: #252a34; --pg-text: #e2e8f0; --pg-muted: #a7b4c6; --pg-border: #424b5b; --pg-soft: #2e3542; }
 @media (max-width: 1150px) { .pg-layout { grid-template-columns: 1fr; } }
-@media (max-width: 600px) { .pg-summary { gap: 8px; } .pg-summary > div { padding: 14px 10px; } .pg-summary strong { font-size: 23px; } .pg-summary span { font-size: 10px; } .pg-heading { align-items: flex-start; } .pg-heading h2 { font-size: 24px; } .pg-heading .btn { font-size: 11px; } .pg-panel-heading { padding: 18px; } }
+@media (max-width: 600px) { .pg-summary { gap: 8px; } .pg-summary > div { padding: 14px 10px; } .pg-summary strong { font-size: 23px; } .pg-summary span { font-size: 10px; } .pg-heading { align-items: flex-start; } .pg-heading h2 { font-size: 24px; } .pg-heading .btn { font-size: 11px; } .pg-panel-heading { padding: 18px; } .pg-financeiro-resumo { grid-template-columns: 1fr; } }

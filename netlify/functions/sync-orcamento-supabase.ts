@@ -1,6 +1,6 @@
 import type { Handler } from '@netlify/functions';
+import { concluirLote, rpcLote } from './_lote-envio';
 import {
-  fetchWithTimeout,
   handleFunctionError,
   jsonResponse,
   methodNotAllowed,
@@ -135,41 +135,14 @@ export const handler: Handler = async (event) => {
       return jsonResponse(400, { error: 'Payload sem item para sincronizar.' });
     }
 
-    const normalizedSupabaseUrl = supabaseUrl
-      .replace(/\/rest\/v1\/?$/i, '')
-      .replace(/\/$/, '');
-
-    const restUrl = `${normalizedSupabaseUrl}/rest/v1/${tableName}?on_conflict=${encodeURIComponent('oracle_item_id')}`;
-    const res = await fetchWithTimeout(restUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: supabaseSecret,
-        Authorization: `Bearer ${supabaseSecret}`,
-        Prefer: 'resolution=merge-duplicates,return=representation'
-      },
-      body: JSON.stringify(records)
-    });
-
-    const text = await res.text();
-    if (!res.ok) {
-      return jsonResponse(res.status, {
-        error: 'Falha ao sincronizar orcamento no Supabase.',
-        detail: text || null,
-        table: tableName,
-        records: records.length
-      });
-    }
-
-    return {
-      statusCode: res.status,
-      body: text,
-      headers: {
-        'Content-Type': res.headers.get('content-type') || 'application/json; charset=utf-8',
-        'Cache-Control': 'no-store',
-        'X-Content-Type-Options': 'nosniff'
-      }
-    };
+    /* Cada envio é validado e salvo sob trava no servidor. Não faz upsert
+       sobre um orçamento que já entrou em análise. */
+    if (tableName !== 'orcamentos_finalizados') return jsonResponse(500, { error: 'Tabela incompatível com a RPC de envio seguro.' });
+    const recebidos = [];
+    for (const record of records) recebidos.push(await rpcLote('receber_item_posto', { p_item: record }));
+    const lotes = new Map(records.map(record => [record.protocolo, record.cnpj]));
+    for (const [protocolo, cnpj] of lotes) await concluirLote(cnpj, protocolo);
+    return jsonResponse(200, recebidos);
   } catch (err) {
     return handleFunctionError(err);
   }
