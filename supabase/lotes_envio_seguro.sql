@@ -67,7 +67,7 @@ BEGIN
     foto_nome=r.foto_nome,link_drive=r.link_drive,pecas_desc=r.pecas_desc,acess_desc=r.acess_desc,
     val_pecas=r.val_pecas,val_mao_obra=r.val_mao_obra,val_emb=r.val_emb,val_hig=r.val_hig,
     total_orcamento=r.total_orcamento,defeito_funcional=r.defeito_funcional,garantia=r.garantia,tipo_orc=r.tipo_orc,
-    status=0,status_text='PENDENTE',envio_recebido=true,envio_finalizado=false,cancelamento=NULL
+    status=8,status_text='MONTAGEM',envio_recebido=true,envio_finalizado=false,cancelamento=NULL
   WHERE id=r.id RETURNING to_jsonb(orcamentos_finalizados.*) INTO resultado;
   -- As instalações usam nomes diferentes para acessórios.
   IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='orcamentos_finalizados' AND column_name='val_access') THEN
@@ -92,7 +92,13 @@ BEGIN
     AND bool_and(oracle_item_id::text=ANY(p_ids))
     AND bool_and(regexp_replace(cnpj,'\D','','g')=regexp_replace(p_cnpj,'\D','','g'))
     INTO completo FROM public.orcamentos_finalizados WHERE protocolo=p_protocolo;
-  UPDATE public.orcamentos_finalizados SET envio_finalizado=coalesce(completo,false) WHERE protocolo=p_protocolo;
+  -- Enquanto o posto lancar itens, o lote permanece em MONTAGEM. Somente a
+  -- acao explicita "Finalizar" promove todos os itens para EM_ANALISE.
+  UPDATE public.orcamentos_finalizados SET
+    envio_finalizado=coalesce(completo,false),
+    status=case when coalesce(completo,false) then 3 else 8 end,
+    status_text=case when coalesce(completo,false) then 'EM_ANALISE' else 'MONTAGEM' end
+  WHERE protocolo=p_protocolo;
   RETURN coalesce(completo,false);
 END; $$;
 
