@@ -37,6 +37,27 @@ const createLocalSupabaseSyncPlugin = (env: Record<string, string>): Plugin => {
         const requestUrl = req.url ? new URL(req.url, 'http://localhost') : null;
         const pathname = requestUrl?.pathname || '';
 
+        if (pathname === '/sync_orcamento_supabase' || pathname === '/.netlify/functions/lote-posto') {
+          try {
+            const { handler } = pathname === '/sync_orcamento_supabase'
+              ? await import('./netlify/functions/sync-orcamento-supabase')
+              : await import('./netlify/functions/lote-posto');
+            const result = await handler({
+              httpMethod: req.method || 'GET', body: await readRequestBody(req), isBase64Encoded: false
+            } as HandlerEvent, {} as HandlerContext);
+            if (!result) throw new Error('Resposta ausente.');
+            res.statusCode = result.statusCode;
+            for (const [key, value] of Object.entries(result.headers || {})) {
+              if (value != null) res.setHeader(key, String(value));
+            }
+            res.end(result.body);
+          } catch {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: 'Nao foi possivel atualizar o lote.' }));
+          }
+          return;
+        }
+
         if (pathname === '/notificacoes_pa') {
           try {
             const result = await createNotificationsHandler(env)({
@@ -191,7 +212,7 @@ const createLocalSupabaseSyncPlugin = (env: Record<string, string>): Plugin => {
               .replace(/\/$/, '');
 
             const supaUrl = new URL(`${normalizedSupabaseUrl}/rest/v1/${tableName}`);
-            supaUrl.searchParams.set('select', 'id,oracle_item_id,protocolo,cod_gemco,cod_barras,serial,status,status_text,total_orcamento');
+            supaUrl.searchParams.set('select', 'id,oracle_item_id,protocolo,cod_gemco,cod_barras,serial,status,status_text,total_orcamento,envio_finalizado');
             supaUrl.searchParams.set('cnpj', `eq.${cnpj}`);
             supaUrl.searchParams.set('order', 'atualizado_em.desc');
             supaUrl.searchParams.set('limit', '500');

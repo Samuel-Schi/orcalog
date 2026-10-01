@@ -53,6 +53,7 @@ type DriveUploadResponse = {
 };
 
 type StatusSupabaseRow = {
+  envio_finalizado?: boolean;
   oracle_item_id?: number | string | null;
   status?: number | string | null;
 };
@@ -68,7 +69,7 @@ const getDriveLink = (...values: Array<string | undefined>) =>
   }) || '';
 
 const isStatusPendente = (status: number | string | null | undefined) =>
-  [0, 1].includes(Number(status ?? 0));
+  [0, 1, 8].includes(Number(status ?? 0));
 
 type PecaComValor = {
   nome: string;
@@ -942,9 +943,9 @@ const LancarOrcamentos = () => {
           validateStatus: (status) => status >= 200 && status < 400
         });
         const statusAtual = (Array.isArray(statusResponse.data) ? statusResponse.data : [])
-          .find((row) => Number(row.oracle_item_id) === selected.dbId)?.status;
+          .find((row) => Number(row.oracle_item_id) === selected.dbId);
 
-        if (statusAtual !== undefined && !isStatusPendente(statusAtual)) {
+        if (statusAtual && (statusAtual.envio_finalizado === true || !isStatusPendente(statusAtual.status))) {
           setToast({ type: 'error', message: 'Este orçamento já está em análise e não pode mais ser editado.' });
           return;
         }

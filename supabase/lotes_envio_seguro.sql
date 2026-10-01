@@ -34,7 +34,7 @@ LANGUAGE plpgsql SECURITY INVOKER SET search_path=public AS $$
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended(p_protocolo,0));
   IF EXISTS(SELECT 1 FROM public.orcamentos_finalizados WHERE protocolo=p_protocolo AND
-    (status NOT IN (0,1) OR regexp_replace(cnpj,'\D','','g')<>regexp_replace(p_cnpj,'\D','','g'))) THEN
+    (status NOT IN (0,1,8) OR envio_finalizado OR regexp_replace(cnpj,'\D','','g')<>regexp_replace(p_cnpj,'\D','','g'))) THEN
     RAISE EXCEPTION 'Lote já está em análise ou não pertence ao posto.' USING ERRCODE='40001';
   END IF;
   UPDATE public.orcamentos_finalizados SET envio_finalizado=false WHERE protocolo=p_protocolo;
@@ -49,7 +49,7 @@ BEGIN
     RAISE EXCEPTION 'Item ou protocolo inválido.';
   END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended(p_item->>'protocolo', 0));
-  IF EXISTS (SELECT 1 FROM public.orcamentos_finalizados WHERE protocolo = p_item->>'protocolo' AND status NOT IN (0,1)) THEN
+  IF EXISTS (SELECT 1 FROM public.orcamentos_finalizados WHERE protocolo = p_item->>'protocolo' AND (status NOT IN (0,1,8) OR envio_finalizado)) THEN
     RAISE EXCEPTION 'Lote já está em análise; envio ou edição bloqueados.' USING ERRCODE = '40001';
   END IF;
   SELECT * INTO anterior FROM public.orcamentos_finalizados WHERE oracle_item_id::text = p_item->>'oracle_item_id' FOR UPDATE;
@@ -85,7 +85,7 @@ DECLARE completo boolean;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended(p_protocolo,0));
   IF cardinality(p_ids) IS NULL OR cardinality(p_ids)=0 THEN RETURN false; END IF;
-  IF EXISTS(SELECT 1 FROM public.orcamentos_finalizados WHERE protocolo=p_protocolo AND status NOT IN (0,1)) THEN
+  IF EXISTS(SELECT 1 FROM public.orcamentos_finalizados WHERE protocolo=p_protocolo AND status NOT IN (0,1,8)) THEN
     RETURN false;
   END IF;
   SELECT count(*)=cardinality(p_ids) AND bool_and(envio_recebido AND cancelamento IS NULL)
@@ -93,11 +93,13 @@ BEGIN
     AND bool_and(regexp_replace(cnpj,'\D','','g')=regexp_replace(p_cnpj,'\D','','g'))
     INTO completo FROM public.orcamentos_finalizados WHERE protocolo=p_protocolo;
   -- Enquanto o posto lancar itens, o lote permanece em MONTAGEM. Somente a
-  -- acao explicita "Finalizar" promove todos os itens para EM_ANALISE.
+  -- acao explicita "Finalizar" promove todos os itens para PENDENTE na AT.
+  -- Uma tentativa incompleta nao pode reabrir nem alterar o lote.
+  IF NOT coalesce(completo,false) THEN RETURN false; END IF;
   UPDATE public.orcamentos_finalizados SET
     envio_finalizado=coalesce(completo,false),
-    status=case when coalesce(completo,false) then 3 else 8 end,
-    status_text=case when coalesce(completo,false) then 'EM_ANALISE' else 'MONTAGEM' end
+    status=case when coalesce(completo,false) then 0 else 8 end,
+    status_text=case when coalesce(completo,false) then 'PENDENTE' else 'MONTAGEM' end
   WHERE protocolo=p_protocolo;
   RETURN coalesce(completo,false);
 END; $$;
@@ -109,7 +111,7 @@ BEGIN
   SELECT * INTO r FROM public.orcamentos_finalizados WHERE id=p_id;
   IF NOT FOUND OR regexp_replace(r.cnpj,'\D','','g')<>regexp_replace(p_cnpj,'\D','','g') THEN RAISE EXCEPTION 'Item não encontrado para este posto.'; END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended(r.protocolo,0));
-  IF EXISTS(SELECT 1 FROM public.orcamentos_finalizados WHERE protocolo=r.protocolo AND status NOT IN (0,1))
+  IF EXISTS(SELECT 1 FROM public.orcamentos_finalizados WHERE protocolo=r.protocolo AND (status NOT IN (0,1,8) OR envio_finalizado))
     OR EXISTS(SELECT 1 FROM public.orcamento_negociacoes WHERE protocolo=r.protocolo) THEN
     RAISE EXCEPTION 'Lote já está em análise ou negociação; cancelamento bloqueado.' USING ERRCODE='40001';
   END IF;
