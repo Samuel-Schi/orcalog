@@ -769,17 +769,16 @@ const MeusEnvios = () => {
                           </div>}</td>
                           <td>{item.statusText === 'CANCELADO_POSTO' ? 'Cancelado pelo posto — editar para relançar' : getStatusLabel(item.status)}</td>
                           <td>
-                            {[0, 1, 8].includes(Number(item.status || 0)) && item.envioFinalizado !== true && (
+                            {isItemEmMontagem(item) && item.envioFinalizado !== true && (
                               <button
                                 className="btn btn-secondary btn-sm"
                                 type="button"
                                 onClick={() => navigate('/lancar-orcamentos', { state: { item } })}
                               >
                                 <i className="material-icons" style={{ fontSize: 14, marginRight: 4 }}>edit</i>
-                                Editar / relançar
+                                Editar valores
                               </button>
                             )}
-                            {item.envioRecebido && item.envioFinalizado !== true && item.dbId && <AcaoLotePosto acao="CANCELAR" protocolo={protocolo} cnpj={cnpjLote} id={String(item.dbId)} onSaved={()=>void carregar(true)} />}
                           </td>
                         </tr>
                       ))}
