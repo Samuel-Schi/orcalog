@@ -18,6 +18,7 @@ type SyncPayload = {
   razaoSocial?: string;
   unidade?: string;
   emailRetorno?: string;
+  idsLote?: Array<number | string>;
   itens?: Array<{
     id?: number;
     itemId?: number;
@@ -140,8 +141,12 @@ export const handler: Handler = async (event) => {
     if (tableName !== 'orcamentos_finalizados') return jsonResponse(500, { error: 'Tabela incompatível com a RPC de envio seguro.' });
     const recebidos = [];
     for (const record of records) recebidos.push(await rpcLote('receber_item_posto', { p_item: record }));
+    const idsEsperados = [...new Set((payload.idsLote || records.map((record) => record.oracle_item_id))
+      .map((id) => String(id).trim())
+      .filter((id) => /^\d+$/.test(id)))];
+    if (!idsEsperados.length) return jsonResponse(400, { error: 'Informe os itens esperados do lote.' });
     const lotes = new Map(records.map(record => [record.protocolo, record.cnpj]));
-    for (const [protocolo, cnpj] of lotes) await concluirLote(cnpj, protocolo);
+    for (const [protocolo, cnpj] of lotes) await concluirLote(cnpj, protocolo, idsEsperados);
     return jsonResponse(200, recebidos);
   } catch (err) {
     return handleFunctionError(err);
