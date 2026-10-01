@@ -74,24 +74,55 @@ BEGIN
   RETURN to_jsonb(r);
 END $$;
 
+-- Finalizar nao confirma nem recalcula valores: apenas libera o lote para a AT.
+-- Tudo que o posto ja tiver preenchido (inclusive valores em branco) e enviado
+-- exatamente como esta para a tabela de analise com status 0 / PENDENTE.
 CREATE OR REPLACE FUNCTION public.finalizar_montagem_posto(p_protocolo text,p_cnpj text) RETURNS boolean
 LANGUAGE plpgsql SECURITY INVOKER SET search_path=public AS $$
-DECLARE r orcamento_lancamento_rascunhos%ROWTYPE; ids text[]; completo boolean;
+DECLARE r orcamento_lancamento_rascunhos%ROWTYPE; ids text[]; completo boolean; itens_legacy integer; item_para_at jsonb;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended(p_protocolo,0));
-  IF NOT EXISTS(SELECT 1 FROM orcamento_lancamento_rascunhos WHERE protocolo=p_protocolo AND cnpj=p_cnpj) THEN RAISE EXCEPTION 'Lote nao encontrado para este posto.'; END IF;
-  IF EXISTS(SELECT 1 FROM orcamento_lancamento_rascunhos WHERE protocolo=p_protocolo AND (cnpj IS DISTINCT FROM p_cnpj OR status NOT IN('MONTAGEM','FINALIZADO'))) THEN RAISE EXCEPTION 'Salve os valores de todos os produtos antes de finalizar.'; END IF;
-  IF NOT EXISTS(SELECT 1 FROM orcamento_lancamento_rascunhos WHERE protocolo=p_protocolo AND status<>'FINALIZADO') THEN RETURN true; END IF;
-  FOR r IN SELECT * FROM orcamento_lancamento_rascunhos WHERE protocolo=p_protocolo ORDER BY id FOR UPDATE LOOP
-    PERFORM receber_item_posto(r.payload || jsonb_build_object('oracle_item_id',r.oracle_item_id,'protocolo',r.protocolo,'cnpj',r.cnpj,'pa_usuario',r.pa_usuario));
-    UPDATE orcamentos_finalizados SET pecas_detalhes=r.payload->>'pecas_detalhes',acess_detalhes=r.payload->>'acess_detalhes'
-      WHERE oracle_item_id::text=r.oracle_item_id::text AND protocolo=p_protocolo;
-  END LOOP;
-  SELECT array_agg(oracle_item_id::text) INTO ids FROM orcamento_lancamento_rascunhos WHERE protocolo=p_protocolo;
-  completo:=concluir_envio_lote(p_protocolo,p_cnpj,ids);
-  IF NOT completo THEN RAISE EXCEPTION 'Os itens do lote nao conferem. Nenhuma finalizacao foi aplicada.'; END IF;
-  UPDATE orcamento_lancamento_rascunhos SET status='FINALIZADO',atualizado_em=now() WHERE protocolo=p_protocolo;
-  RETURN true;
+
+  IF EXISTS(SELECT 1 FROM orcamento_lancamento_rascunhos WHERE protocolo=p_protocolo AND cnpj=p_cnpj) THEN
+    -- Nao exige que cada item tenha passado por uma confirmacao individual.
+    -- Montagem e apenas o espaco de lancamento antes da liberacao do lote.
+    FOR r IN SELECT * FROM orcamento_lancamento_rascunhos
+      WHERE protocolo=p_protocolo AND cnpj=p_cnpj AND status<>'FINALIZADO' ORDER BY id FOR UPDATE LOOP
+      -- As colunas financeiras da tabela final sao obrigatorias. Se o posto
+      -- ainda nao informou um campo, o valor que segue e R$ 0,00 — sem pedir
+      -- uma confirmacao adicional e sem alterar valores ja preenchidos.
+      item_para_at:=coalesce(r.payload,'{}'::jsonb) || jsonb_build_object(
+        'val_pecas',coalesce((r.payload->>'val_pecas')::numeric,0),
+        'val_acess',coalesce((r.payload->>'val_acess')::numeric,0),
+        'val_mao_obra',coalesce((r.payload->>'val_mao_obra')::numeric,0),
+        'val_emb',coalesce((r.payload->>'val_emb')::numeric,0),
+        'val_hig',coalesce((r.payload->>'val_hig')::numeric,0),
+        'total_orcamento',coalesce((r.payload->>'total_orcamento')::numeric,0),
+        'oracle_item_id',r.oracle_item_id,'protocolo',r.protocolo,'cnpj',r.cnpj,'pa_usuario',r.pa_usuario
+      );
+      PERFORM receber_item_posto(item_para_at);
+      UPDATE orcamentos_finalizados SET pecas_detalhes=r.payload->>'pecas_detalhes',acess_detalhes=r.payload->>'acess_detalhes'
+        WHERE oracle_item_id::text=r.oracle_item_id::text AND protocolo=p_protocolo;
+    END LOOP;
+    SELECT array_agg(oracle_item_id::text) INTO ids
+      FROM orcamento_lancamento_rascunhos WHERE protocolo=p_protocolo AND cnpj=p_cnpj;
+    completo:=concluir_envio_lote(p_protocolo,p_cnpj,ids);
+    IF NOT completo THEN RAISE EXCEPTION 'Nao foi possivel liberar este lote para analise.'; END IF;
+    UPDATE orcamento_lancamento_rascunhos SET status='FINALIZADO',atualizado_em=now()
+      WHERE protocolo=p_protocolo AND cnpj=p_cnpj;
+    RETURN true;
+  END IF;
+
+  -- Compatibilidade para lotes antigos que ja estavam em MONTAGEM na tabela
+  -- final antes da criacao da tabela de rascunhos.
+  UPDATE orcamentos_finalizados SET envio_finalizado=true,status=0,status_text='PENDENTE'
+    WHERE protocolo=p_protocolo AND regexp_replace(cnpj,'\\D','','g')=regexp_replace(p_cnpj,'\\D','','g')
+      AND status IN(0,1,8) AND coalesce(envio_finalizado,false)=false;
+  GET DIAGNOSTICS itens_legacy = ROW_COUNT;
+  IF itens_legacy > 0 THEN RETURN true; END IF;
+  IF EXISTS(SELECT 1 FROM orcamentos_finalizados WHERE protocolo=p_protocolo
+    AND regexp_replace(cnpj,'\\D','','g')=regexp_replace(p_cnpj,'\\D','','g') AND envio_finalizado) THEN RETURN true; END IF;
+  RAISE EXCEPTION 'Lote nao encontrado para este posto.';
 END $$;
 
 CREATE OR REPLACE FUNCTION public.cancelar_montagem_posto(p_protocolo text,p_cnpj text,p_id text) RETURNS boolean

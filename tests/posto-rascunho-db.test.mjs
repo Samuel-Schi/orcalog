@@ -28,17 +28,14 @@ test('rascunhos ficam fora da AT; finalizar transfere o lote completo atomicamen
     await save(drafts[0]);
     await db.query('SELECT salvar_item_montagem($1::jsonb,false)',[JSON.stringify({...drafts[0],rascunho:{valPecas:999}})]);
     assert.equal(Number((await listar())[0].total_orcamento),53);
-    await assert.rejects(finish(),/todos os produtos/);
-    assert.equal((await db.query('SELECT count(*)::int n FROM orcamentos_finalizados')).rows[0].n,0);
-    await save(drafts[1]);
-    await db.query("SELECT cancelar_montagem_posto('STAGE-1',$1,$2)",[cnpj,String(drafts[1].oracle_item_id)]);
-    await assert.rejects(finish(),/todos os produtos/);
-    await save(drafts[1]);
+    // Finalizar nao confirma valores: ele apenas libera o lote inteiro como
+    // estiver no momento, inclusive itens que ainda nao receberam valores.
     assert.equal((await finish()).rows[0].ok,true);
     assert.equal((await finish()).rows[0].ok,true);
     const enviados=await listar();
     assert.equal(enviados.length,2);
-    assert.ok(enviados.every(r=>r.status===0 && r.envio_finalizado && Number(r.total_orcamento)===53));
+    assert.ok(enviados.every(r=>r.status===0 && r.envio_finalizado));
+    assert.ok(enviados.some(r=>Number(r.total_orcamento)===53));
     await assert.rejects(save(drafts[0]),/enviado/);
     await assert.rejects(db.query("SELECT finalizar_montagem_posto('STAGE-1','99999999999999')"),/nao encontrado/);
   } finally {await db.close();}
