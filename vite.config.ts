@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import type { HandlerEvent, HandlerContext } from '@netlify/functions';
 import { createUploadHandler } from './netlify/functions/upload-foto-drive';
 import { createNotificationsHandler } from './netlify/functions/notificacoes-pa';
+import { handler as lancarValoresHandler } from './netlify/functions/lancar-valores-orcamento';
 import { consolidarPagamentosPorProtocolo, type NegociacaoPagamentoRaw, type PagamentoItemRaw } from './src/lib/pagamentosConsolidado';
 
 const readRequestBody = async (req: NodeJS.ReadableStream) => {
@@ -73,6 +74,32 @@ const createLocalSupabaseSyncPlugin = (env: Record<string, string>): Plugin => {
             res.statusCode = 500;
             res.setHeader('Content-Type', 'application/json; charset=utf-8');
             res.end(JSON.stringify({ error: 'Nao foi possivel enviar o arquivo.' }));
+          }
+          return;
+        }
+
+        // No deploy, esta rota passa pela Function lancar-valores-orcamento.
+        // Mantemos o mesmo caminho no Vite para que o teste local tambem
+        // execute a trava do lote e trate respostas HTTP 204 corretamente.
+        if (req.method === 'POST' && pathname === '/update_valores') {
+          try {
+            const body = await readRequestBody(req);
+            const result = await lancarValoresHandler({
+              httpMethod: 'POST', body, isBase64Encoded: false
+            } as HandlerEvent, {} as HandlerContext);
+            if (!result) throw new Error('Resposta ausente ao salvar valores.');
+            res.statusCode = result.statusCode;
+            for (const [key, value] of Object.entries(result.headers || {})) {
+              if (value != null) res.setHeader(key, String(value));
+            }
+            res.end(result.body);
+          } catch (error) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify({
+              error: 'Falha ao salvar valores no ambiente local.',
+              detail: error instanceof Error ? error.message : String(error)
+            }));
           }
           return;
         }
@@ -552,6 +579,9 @@ const createLocalSupabaseSyncPlugin = (env: Record<string, string>): Plugin => {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
+  // As Functions usam process.env; no Vite local, disponibilizamos o mesmo
+  // conjunto de variaveis carregado pelo .env para reproduzir a producao.
+  Object.assign(process.env, env);
   const ORDS_BASE_URL =
     env.VITE_ORDS_BASE_URL ||
     'https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1';
@@ -607,11 +637,6 @@ export default defineConfig(({ mode }) => {
           }
         },
         '/salvar-orcamento': {
-          target: ORDS_BASE_URL,
-          changeOrigin: true,
-          secure: true
-        },
-        '/update_valores': {
           target: ORDS_BASE_URL,
           changeOrigin: true,
           secure: true
