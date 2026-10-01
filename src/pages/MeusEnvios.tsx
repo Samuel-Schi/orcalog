@@ -94,6 +94,12 @@ const buildItemKey = (item: Partial<ItemEnvio>) =>
 
 const hasNegociacaoPendente = (item: Partial<ItemEnvio>) => Number(item.status || 0) === 7;
 
+// O lote só pode ser liberado para o AT enquanto ainda está em montagem.
+// "Pendente" (status 0) já significa que ele foi finalizado pelo posto e
+// está na fila da análise orçamentária.
+const isItemEmMontagem = (item: Partial<ItemEnvio>) =>
+  Number(item.status) === 8 || String(item.statusText || '').trim().toUpperCase() === 'MONTAGEM';
+
 const isItemEmEnvio = (item: Partial<ItemEnvio>) =>
   Boolean(
     [2, 8, 3, 7, 4, 10].includes(Number(item.status || 0)) ||
@@ -521,7 +527,9 @@ const MeusEnvios = () => {
           const loteCompleto = itens.length >= totalItensNoLote;
           const itensPendentes = itens.filter((item) => ![4, 10].includes(Number(item.status)));
           const maxStatus = Math.max(...(itensPendentes.length ? itensPendentes : itens).map((i) => Number(i.status || 0)));
-          const podeFinalizar = loteCompleto && itens.every((item) => [0, 1, 8].includes(Number(item.status)) && item.envioFinalizado !== true);
+          const podeFinalizar = loteCompleto
+            && itens.length > 0
+            && itens.every((item) => isItemEmMontagem(item) && item.envioFinalizado !== true);
           const idsLote = idsLotePorProtocolo[normalizeProtocolKey(protocolo)] || itens
             .map((item) => item.dbId == null ? '' : String(item.dbId))
             .filter((id) => /^\d+$/.test(id));
