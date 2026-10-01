@@ -362,6 +362,7 @@ const LancarOrcamentos = () => {
   );
   const edicaoBloqueada = Boolean(editableItem && !isStatusPendente(editableItem.status));
   const draftsHydratedRef = useRef(false);
+  const loteItemIdsRef = useRef<Record<string, string[]>>({});
   const [items, setItems] = useState<OrcamentoItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -741,6 +742,12 @@ const LancarOrcamentos = () => {
           .map((row, index) => normalizeOrcamentoItem(row, index))
           .map((item) => applyDraftToItem(item, item.dbId != null ? draftsMap.get(item.dbId) ?? null : null))
           .filter((item) => !hasLancamentoRegistrado(item)) as OrcamentoItem[];
+        loteItemIdsRef.current = normalized.reduce<Record<string, string[]>>((porLote, item) => {
+          const protocolo = String(item.protocolo || '').trim();
+          const id = item.dbId == null ? '' : String(item.dbId);
+          if (protocolo && /^\d+$/.test(id)) (porLote[protocolo] ||= []).push(id);
+          return porLote;
+        }, {});
 
         const enviadosData = parseMaybeJson(enviadosRes.data);
         const enviadosList: any[] = Array.isArray(enviadosData?.items)
@@ -972,6 +979,7 @@ const LancarOrcamentos = () => {
         razaoSocial,
         unidade,
         emailRetorno,
+        idsLote: loteItemIdsRef.current[selected.protocolo] || [String(selected.dbId)],
         linkDrive: fotoLinkDrive,
         link_drive: fotoLinkDrive,
         fotoNome: fotoLinkDrive,
