@@ -505,6 +505,11 @@ const MeusEnvios = () => {
           const loteCompleto = itens.length >= totalItensNoLote;
           const itensPendentes = itens.filter((item) => ![4, 10].includes(Number(item.status)));
           const maxStatus = Math.max(...(itensPendentes.length ? itensPendentes : itens).map((i) => Number(i.status || 0)));
+          const podeFinalizar = itens.every((item) => [0, 1].includes(Number(item.status)));
+          const idsLote = itens
+            .map((item) => item.dbId == null ? '' : String(item.dbId))
+            .filter((id) => /^\d+$/.test(id));
+          const cnpjLote = String(itens[0]?.cnpj || '').replace(/\D/g, '');
           const possuiNegociacaoPendente = itens.some((item) => hasNegociacaoPendente(item));
           const statusAtual = possuiNegociacaoPendente ? 7 : !loteCompleto ? 8 : maxStatus;
           const dataEnvio = itens[0]?.criadoEm || '';
@@ -533,12 +538,12 @@ const MeusEnvios = () => {
                   <span className="status-badge" style={{ background: statusCor(statusAtual) }}>
                     {getStatusLabel(statusAtual)}
                   </span>
+                  {podeFinalizar && <AcaoLotePosto acao="CONCLUIR" protocolo={protocolo} cnpj={cnpjLote} ids={idsLote} onSaved={() => void carregar(true)} />}
                   <i className="material-icons arrow-icon">keyboard_arrow_down</i>
                 </div>
               </div>
               <div className="protocolo-detalhes">
                 {itens.some(item => item.negociacaoAplicada) && <p><strong>Valor oficial aprovado: </strong>{formatCurrency(itens.reduce((total,item)=>total+(valorFinalItem(item,negociacao) ?? 0),0))}</p>}
-                {itens.every(item => [0,1].includes(Number(item.status))) && <AcaoLotePosto acao="CONCLUIR" protocolo={protocolo} onSaved={()=>void carregar(true)} />}
                 <div style={{ marginBottom: 16 }}>
                   <strong>{itens.some(item => item.retificacao) ? 'Total após retificações: ' : itens.some(item => item.negociacaoAplicada) ? 'Total atualizado dos itens: ' : 'Total informado pelo posto: '}</strong>
                   {formatCurrency(itens.reduce((total, item) => total + Number(item.totalOrcamento || 0), 0))}
@@ -750,7 +755,7 @@ const MeusEnvios = () => {
                                 Editar / relançar
                               </button>
                             )}
-                            {[0,1].includes(Number(item.status)) && item.supabaseId && item.statusText !== 'CANCELADO_POSTO' && <AcaoLotePosto acao="CANCELAR" protocolo={protocolo} id={item.supabaseId} onSaved={()=>void carregar(true)} />}
+                            {[0,1].includes(Number(item.status)) && item.supabaseId && item.statusText !== 'CANCELADO_POSTO' && <AcaoLotePosto acao="CANCELAR" protocolo={protocolo} cnpj={String(item.cnpj || '').replace(/\D/g, '')} id={item.supabaseId} onSaved={()=>void carregar(true)} />}
                           </td>
                         </tr>
                       ))}

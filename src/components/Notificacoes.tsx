@@ -24,7 +24,6 @@ export default function Notificacoes() {
   useEffect(() => {
     if (!cnpj) return;
     let stopped = false;
-    let timer: ReturnType<typeof setTimeout>;
     const carregar = async () => {
       try {
         const response = await oracleApi.get<Aviso[]>('/notificacoes_pa', { params: { cnpj } });
@@ -34,11 +33,10 @@ export default function Notificacoes() {
         if (!stopped) setErro('Não foi possível atualizar os avisos. Tentaremos novamente.');
       } finally {
         if (!stopped) setCarregando(false);
-        if (!stopped) timer = setTimeout(carregar, 30000);
       }
     };
     void carregar();
-    return () => { stopped = true; clearTimeout(timer); };
+    return () => { stopped = true; };
   }, [cnpj]);
   const marcar = async (id: number) => {
     setOcupado(id);
@@ -60,7 +58,7 @@ export default function Notificacoes() {
       <span className="pa-sr-only" role="status">{!carregando && !erro && `${avisos.length} notificações não lidas`}</span>
       {createPortal(<dialog ref={dialogo} id="pa-avisos-lista" className="pa-avisos-lista" aria-labelledby="pa-avisos-titulo" onCancel={() => setAberto(false)} onClose={() => setAberto(false)}>
         <header className="pa-avisos-header"><h3 id="pa-avisos-titulo">Notificações do posto</h3><button type="button" autoFocus onClick={() => setAberto(false)} aria-label="Fechar notificações">✕</button></header>
-        <p className="pa-avisos-ajuda">Mudanças de status e propostas de negociação. Atualização automática a cada 30 segundos.</p>
+        <p className="pa-avisos-ajuda">Mudanças de status e propostas de negociação. Os avisos são consultados ao entrar no sistema.</p>
         {erro && <p role="alert">{erro}</p>}
         {!cnpj && <p>Entre novamente para identificar seu posto.</p>}
         {cnpj && carregando && <p>Carregando notificações…</p>}
