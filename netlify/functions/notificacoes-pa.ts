@@ -36,8 +36,19 @@ export const createNotificationsHandler = (env: Record<string, string | undefine
       method: event.httpMethod === 'GET' ? 'GET' : 'PATCH', headers,
       ...(event.httpMethod === 'POST' ? { body: JSON.stringify({ lida_em: new Date().toISOString() }) } : {})
     });
-    if (!response.ok) return jsonResponse(503, { error: 'Não foi possível consultar ou atualizar os avisos. Tente novamente.' });
-    return jsonResponse(200, await response.json());
+    const texto = await response.text();
+    if (!response.ok) {
+      return jsonResponse(503, {
+        error: 'Não foi possível consultar ou atualizar os avisos. Tente novamente.',
+        detail: texto.slice(0, 300)
+      });
+    }
+    if (!texto.trim()) return jsonResponse(200, []);
+    try {
+      return jsonResponse(200, JSON.parse(texto));
+    } catch {
+      return jsonResponse(502, { error: 'Resposta inválida do serviço de notificações.' });
+    }
   } catch (error) { return handleFunctionError(error); }
 };
 export const handler = createNotificationsHandler(process.env);

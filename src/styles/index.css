@@ -2090,6 +2090,9 @@ body.dark-mode .sidebar {
 body.dark-mode .catalogo-select-list { background: #252a34; color: #eee; }
 body.dark-mode .catalogo-select-option.is-active { background: #34465f; color: #fff; }
 .pa-avisos { position: relative; margin-bottom: 8px; }
+.acao-lote-posto { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.acao-lote-posto .btn { white-space: nowrap; }
+.acao-lote-posto small { color: #b42318; max-width: 220px; }
 .pa-sininho { position: relative; width: 100%; border: 0; cursor: pointer; font: inherit; text-align: left; }
 .pa-contador { position: absolute; right: 5px; top: 2px; min-width: 20px; padding: 2px 5px; border-radius: 12px; background: #dc2626; color: white; font-size: 11px; line-height: 16px; text-align: center; }
 .pa-avisos-lista { position: fixed; inset: 0; margin: auto; width: min(460px, calc(100vw - 24px)); max-height: 80vh; overflow: auto; padding: 20px; background: white; color: #172033; border: 1px solid #ccd4df; border-radius: 14px; box-shadow: 0 12px 40px #0003; }
