@@ -43,3 +43,8 @@ test('sem negociacao usa o total aprovado e preserva zero', () => {
   assert.equal(valorFinalItem(item), 1000);
   assert.equal(valorFinalItem({ ...item, totalOrcamento: 0 }), 0);
 });
+
+test('rateio persistido é o valor oficial mesmo com negociação coletiva', () => {
+  assert.equal(valorFinalItem({...item,negociacaoAplicada:true,totalOrcamento:83.34},{...negociacao,negotiation_scope:'LOTE'}),83.34);
+  assert.equal(valorFinalItem({...item,negociacaoAplicada:true,totalOrcamento:0,statusText:'RETIFICADO'},negociacao),0);
+});

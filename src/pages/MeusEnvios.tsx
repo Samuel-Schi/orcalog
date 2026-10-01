@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getStatusLabel } from '../lib/statusMap';
+import AcaoLotePosto from '../components/AcaoLotePosto';
 import { resultadoItem, valorFinalItem, valorAceito } from '../lib/resultadoOrcamento';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 
 type ItemEnvio = {
+  negociacaoAplicada?: boolean;
   id: string;
   dbId?: number;
   protocolo: string;
@@ -41,6 +43,7 @@ type ItemEnvio = {
 };
 
 type StatusSupabaseRow = {
+  negociacao_aplicada?: boolean;
   retificacao?: ItemEnvio['retificacao'];
   id?: number | string | null;
   status_text?: string | null;
@@ -290,6 +293,7 @@ const MeusEnvios = () => {
           ...item,
           status: Number(atual?.status ?? item.status ?? 0),
           statusText: atual?.status_text,
+          negociacaoAplicada: atual?.negociacao_aplicada,
           retificacao: atual?.retificacao,
           supabaseId: atual?.id != null ? String(atual.id) : undefined,
           totalOrcamento: atual?.total_orcamento != null ? Number(atual.total_orcamento) : item.totalOrcamento
@@ -533,8 +537,10 @@ const MeusEnvios = () => {
                 </div>
               </div>
               <div className="protocolo-detalhes">
+                {itens.some(item => item.negociacaoAplicada) && <p><strong>Valor oficial aprovado: </strong>{formatCurrency(itens.reduce((total,item)=>total+(valorFinalItem(item,negociacao) ?? 0),0))}</p>}
+                {itens.every(item => [0,1].includes(Number(item.status))) && <AcaoLotePosto acao="CONCLUIR" protocolo={protocolo} onSaved={()=>void carregar(true)} />}
                 <div style={{ marginBottom: 16 }}>
-                  <strong>{itens.some(item => item.retificacao) ? 'Total após retificações: ' : 'Total informado pelo posto: '}</strong>
+                  <strong>{itens.some(item => item.retificacao) ? 'Total após retificações: ' : itens.some(item => item.negociacaoAplicada) ? 'Total atualizado dos itens: ' : 'Total informado pelo posto: '}</strong>
                   {formatCurrency(itens.reduce((total, item) => total + Number(item.totalOrcamento || 0), 0))}
                   {' | '}<strong>Resultado: </strong>
                   {itens.filter((item) => resultadoItem(item) === 'Aprovado').length} aprovado(s),{' '}
@@ -732,7 +738,7 @@ const MeusEnvios = () => {
                             <p>Valor anterior: {formatCurrency(item.retificacao.original?.total_orcamento ?? 0)} · Valor atual: {formatCurrency(0)}</p>
                             <p>{item.retificacao.responsavel} · {new Date(item.retificacao.data).toLocaleString('pt-BR')}</p>
                           </div>}</td>
-                          <td>{getStatusLabel(item.status)}</td>
+                          <td>{item.statusText === 'CANCELADO_POSTO' ? 'Cancelado pelo posto — editar para relançar' : getStatusLabel(item.status)}</td>
                           <td>
                             {[0, 1].includes(Number(item.status || 0)) && (
                               <button
@@ -741,9 +747,10 @@ const MeusEnvios = () => {
                                 onClick={() => navigate('/lancar-orcamentos', { state: { item } })}
                               >
                                 <i className="material-icons" style={{ fontSize: 14, marginRight: 4 }}>edit</i>
-                                Editar
+                                Editar / relançar
                               </button>
                             )}
+                            {[0,1].includes(Number(item.status)) && item.supabaseId && item.statusText !== 'CANCELADO_POSTO' && <AcaoLotePosto acao="CANCELAR" protocolo={protocolo} id={item.supabaseId} onSaved={()=>void carregar(true)} />}
                           </td>
                         </tr>
                       ))}

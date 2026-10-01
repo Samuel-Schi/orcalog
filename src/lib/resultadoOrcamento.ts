@@ -1,4 +1,5 @@
 export type ItemResultado = {
+  negociacaoAplicada?: boolean;
   supabaseId?: string;
   status: number;
   statusText?: string | null;
@@ -41,6 +42,7 @@ export const valorFinalItem = (item: ItemResultado, negociacao?: NegociacaoResul
   if (resultado === 'Retificado') return 0;
   if (resultado === 'Reprovado') return 0;
   if (resultado !== 'Aprovado') return null;
+  if (item.negociacaoAplicada) return item.totalOrcamento ?? null;
   if (negociacao && negociacaoDoItem(item, negociacao)) {
     // O valor de um lote ou de varios itens nao pode ser repetido em cada linha.
     if (negociacao.negotiation_scope !== 'ITEM' || negociacao.item_ids?.length !== 1) return null;

@@ -80,6 +80,7 @@ const SidebarLayout = () => {
         </nav>
 
         <div className="sidebar-footer">
+          <Notificacoes />
           <button className="nav-item btn-sair-sidebar" onClick={logout}>
             <i className="material-icons">logout</i>
             <span>Sair</span>
@@ -88,7 +89,6 @@ const SidebarLayout = () => {
       </aside>
 
       <main className="content-body">
-        <Notificacoes />
         <Outlet />
       </main>
     </div>

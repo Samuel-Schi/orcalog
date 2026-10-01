@@ -1034,7 +1034,7 @@ const LancarOrcamentos = () => {
         } else {
           console.error('Erro ao sincronizar orcamento no Supabase:', syncError);
         }
-        syncWarning = ' Valores salvos no portal, mas a sincronização do Supabase falhou.';
+        throw new Error('Os valores foram salvos no Oracle, mas o envio não foi concluído no Supabase. Tente enviar novamente o mesmo item; o protocolo será preservado.');
       }
 
       const remaining = items.filter((item) => item.id !== selected.id);

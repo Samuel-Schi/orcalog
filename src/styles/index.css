@@ -2089,8 +2089,16 @@ body.dark-mode .sidebar {
 .catalogo-select-empty { color: #777; }
 body.dark-mode .catalogo-select-list { background: #252a34; color: #eee; }
 body.dark-mode .catalogo-select-option.is-active { background: #34465f; color: #fff; }
-.pa-avisos { position: relative; display: flex; justify-content: flex-end; margin-bottom: 12px; }
-.pa-avisos-lista { position: absolute; top: 100%; right: 0; z-index: 100; width: min(420px, 100%); max-height: 65vh; overflow: auto; padding: 16px; background: white; color: #172033; border: 1px solid #ccd4df; border-radius: 8px; box-shadow: 0 6px 20px #0002; }
+.pa-avisos { position: relative; margin-bottom: 8px; }
+.pa-sininho { position: relative; width: 100%; border: 0; cursor: pointer; font: inherit; text-align: left; }
+.pa-contador { position: absolute; right: 5px; top: 2px; min-width: 20px; padding: 2px 5px; border-radius: 12px; background: #dc2626; color: white; font-size: 11px; line-height: 16px; text-align: center; }
+.pa-avisos-lista { position: fixed; inset: 0; margin: auto; width: min(460px, calc(100vw - 24px)); max-height: 80vh; overflow: auto; padding: 20px; background: white; color: #172033; border: 1px solid #ccd4df; border-radius: 14px; box-shadow: 0 12px 40px #0003; }
+.pa-avisos-lista::backdrop { background: #0f172a80; }
+.pa-avisos-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.pa-avisos-header h3 { margin: 0; }
+.pa-avisos-ajuda { color: #64748b; font-size: 13px; margin: 12px 0; }
+.pa-aviso-tipo { display: block; color: #1d4ed8; font-weight: 600; margin-bottom: 6px; }
+.pa-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
 .pa-avisos-lista article { padding: 12px 0; border-bottom: 1px solid #ddd; overflow-wrap: anywhere; }
 .pa-avisos-lista article p { margin: 6px 0; }
 .pa-avisos-lista article div { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 8px; }

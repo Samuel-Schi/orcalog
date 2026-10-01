@@ -1,4 +1,5 @@
 export type PagamentoItemRaw = {
+  negociacao_aplicada?: boolean;
   id?: number | string | null;
   oracle_item_id?: number | string | null;
   protocolo?: string | null;
@@ -6,6 +7,14 @@ export type PagamentoItemRaw = {
   descricao?: string | null;
   serial?: string | null;
   total_orcamento?: number | string | null;
+  val_pecas?: number | string | null;
+  val_access?: number | string | null;
+  val_emb?: number | string | null;
+  val_mao_obra?: number | string | null;
+  val_hig?: number | string | null;
+  valor_produtos_aprovado?: number | string | null;
+  valor_servicos_aprovado?: number | string | null;
+  notas_fiscais?: Array<{tipo?: string; valor?: number | string; arquivo_id?: string; url?: string; numero?: string; nome?: string}> | null;
   status?: number | string | null;
   status_text?: string | null;
   pagamento_status?: string | null;
@@ -49,6 +58,14 @@ export type PagamentoProtocolo = {
   nota_fiscal_enviada_em?: string;
   pagamento_solicitado_em?: string;
   pagamento_validacao_status?: string;
+  produto_aprovado: number;
+  servico_aprovado: number;
+  produto_faturado: number;
+  servico_faturado: number;
+  produto_saldo: number;
+  servico_saldo: number;
+  notas_fiscais: NonNullable<PagamentoItemRaw['notas_fiscais']>;
+  possui_nota_sem_valor: boolean;
 };
 
 const toNumber = (value: unknown): number | null => {
@@ -83,6 +100,10 @@ const latestPayment = (items: PagamentoItemRaw[]) =>
 
 const totalAprovadoProtocolo = (items: PagamentoItemRaw[], negociacoes: NegociacaoPagamentoRaw[]) => {
   const aprovados = items.filter(isAprovado);
+  // Novos acordos já têm rateio oficial persistido. Não reaplicar o valor coletivo.
+  if (items.some(item => item.negociacao_aplicada)) {
+    return aprovados.reduce((total,item) => total + Math.max(0,toNumber(item.total_orcamento) ?? 0),0);
+  }
   const coveredByGroup = new Set<string>();
   const itemOverrides = new Map<string, number>();
   let totalColetivo = 0;
@@ -121,6 +142,23 @@ const totalAprovadoProtocolo = (items: PagamentoItemRaw[], negociacoes: Negociac
   }, totalColetivo);
 };
 
+const notasUnicas = (items: PagamentoItemRaw[]) => {
+  const unicas = new Map<string, NonNullable<PagamentoItemRaw['notas_fiscais']>[number]>();
+  for (const item of items) for (const nota of item.notas_fiscais || []) {
+    const chave = String(nota.arquivo_id || `${nota.tipo}|${nota.numero}|${nota.url || ''}`).trim();
+    if (chave && !unicas.has(chave)) unicas.set(chave, nota);
+  }
+  return [...unicas.values()];
+};
+const valoresPorTipo = (items: PagamentoItemRaw[], tipo: 'PRODUTO' | 'SERVICO') => items.reduce((total, item) => {
+  const oficial = tipo === 'PRODUTO' ? toNumber(item.valor_produtos_aprovado) : toNumber(item.valor_servicos_aprovado);
+  if (oficial != null) return total + Math.max(0, oficial);
+  const legado = tipo === 'PRODUTO'
+    ? (toNumber(item.val_pecas) ?? 0) + (toNumber(item.val_access) ?? 0) + (toNumber(item.val_emb) ?? 0)
+    : (toNumber(item.val_mao_obra) ?? 0) + (toNumber(item.val_hig) ?? 0);
+  return total + Math.max(0, legado);
+}, 0);
+
 export const consolidarPagamentosPorProtocolo = (
   items: PagamentoItemRaw[],
   negociacoes: NegociacaoPagamentoRaw[] = []
@@ -142,6 +180,11 @@ export const consolidarPagamentosPorProtocolo = (
       .filter((id): id is number => id != null);
 
     const valorPagamento = toNumber(pagamento?.valor_pagamento);
+    const notas = notasUnicas(grupo);
+    const produtoAprovado = Number(valoresPorTipo(grupo, 'PRODUTO').toFixed(2));
+    const servicoAprovado = Number(valoresPorTipo(grupo, 'SERVICO').toFixed(2));
+    const produtoFaturado = Number(notas.filter(nota => String(nota.tipo).toUpperCase() === 'PRODUTO').reduce((total, nota) => total + (toNumber(nota.valor) ?? 0), 0).toFixed(2));
+    const servicoFaturado = Number(notas.filter(nota => String(nota.tipo).toUpperCase() === 'SERVICO').reduce((total, nota) => total + (toNumber(nota.valor) ?? 0), 0).toFixed(2));
     return {
       protocolo,
       oracle_item_id: itemIds[0] ?? null,
@@ -162,7 +205,12 @@ export const consolidarPagamentosPorProtocolo = (
       nota_fiscal_drive_link: String(pagamento?.nota_fiscal_drive_link || ''),
       nota_fiscal_enviada_em: String(pagamento?.nota_fiscal_enviada_em || ''),
       pagamento_solicitado_em: String(pagamento?.pagamento_solicitado_em || ''),
-      pagamento_validacao_status: String(pagamento?.pagamento_validacao_status || '')
+      pagamento_validacao_status: String(pagamento?.pagamento_validacao_status || ''),
+      produto_aprovado: produtoAprovado, servico_aprovado: servicoAprovado,
+      produto_faturado: produtoFaturado, servico_faturado: servicoFaturado,
+      produto_saldo: Number(Math.max(0, produtoAprovado - produtoFaturado).toFixed(2)),
+      servico_saldo: Number(Math.max(0, servicoAprovado - servicoFaturado).toFixed(2)),
+      notas_fiscais: notas, possui_nota_sem_valor: notas.some(nota => toNumber(nota.valor) == null)
     };
   }).sort((a, b) => a.protocolo.localeCompare(b.protocolo, 'pt-BR'));
 };
