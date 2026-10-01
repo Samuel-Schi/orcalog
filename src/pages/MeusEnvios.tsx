@@ -111,7 +111,7 @@ const isItemEmEnvio = (item: Partial<ItemEnvio>) =>
 const normalizeEnvioItem = (row: any, index: number): ItemEnvio => ({
   id: String(row.id ?? row.ID ?? `${row.protocolo ?? row.PROTOCOLO ?? 'p'}-${index}`),
   dbId: (() => {
-    const rawId = row.id ?? row.ID ?? row.dbId;
+    const rawId = row.id ?? row.ID ?? row.dbId ?? row.oracle_item_id ?? row.ORACLE_ITEM_ID;
     if (rawId === null || rawId === undefined || rawId === '') return undefined;
     const parsed = Number(rawId);
     return Number.isFinite(parsed) ? parsed : undefined;
@@ -157,6 +157,7 @@ const MeusEnvios = () => {
   }, [searchParams]);
   const [abertos, setAbertos] = useState<Record<string, boolean>>({});
   const [items, setItems] = useState<ItemEnvio[]>([]);
+  const [cnpjPosto, setCnpjPosto] = useState('');
   const [totalItensByProtocolo, setTotalItensByProtocolo] = useState<Record<string, number>>({});
   const [negociacoesByProtocolo, setNegociacoesByProtocolo] = useState<Record<string, NegociacaoSupabaseRow>>({});
   const [contraValores, setContraValores] = useState<Record<string, string>>({});
@@ -207,6 +208,7 @@ const MeusEnvios = () => {
       }
 
       if (!cnpj) throw new Error('CNPJ não encontrado.');
+      setCnpjPosto(cnpj.replace(/\D/g, ''));
       const [res, statusRes, negociacoesRes] = await Promise.all([
         oracleApi.get(ORACLE_ENDPOINTS.getEnvios, {
           signal: controller.signal,
@@ -509,7 +511,7 @@ const MeusEnvios = () => {
           const idsLote = itens
             .map((item) => item.dbId == null ? '' : String(item.dbId))
             .filter((id) => /^\d+$/.test(id));
-          const cnpjLote = String(itens[0]?.cnpj || '').replace(/\D/g, '');
+          const cnpjLote = String(itens[0]?.cnpj || cnpjPosto || '').replace(/\D/g, '');
           const possuiNegociacaoPendente = itens.some((item) => hasNegociacaoPendente(item));
           const statusAtual = possuiNegociacaoPendente ? 7 : !loteCompleto ? 8 : maxStatus;
           const dataEnvio = itens[0]?.criadoEm || '';
