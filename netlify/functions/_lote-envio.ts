@@ -49,11 +49,28 @@ export function configuracaoLote() {
 export async function rpcLote(nome: string, payload: Record<string, unknown>) {
   const {base,headers} = configuracaoLote();
   const response = await fetchWithTimeout(`${base}/rest/v1/rpc/${nome}`, { method:'POST',headers,body:JSON.stringify(payload) });
-  if (!response.ok) {
-    const error = await response.json().catch(() => null);
-    throw new Error(error?.message || 'Falha ao atualizar lote. Confira a migração de envio seguro.');
+  // RPCs que retornam void recebem 204 sem corpo no PostgREST. A leitura
+  // abaixo evita que uma resposta vazia interrompa o envio com erro de JSON.
+  const texto = await response.text();
+  let resultado: unknown = null;
+  if (texto.trim()) {
+    try {
+      resultado = JSON.parse(texto);
+    } catch {
+      resultado = texto;
+    }
   }
-  return response.json();
+  if (!response.ok) {
+    const erro = resultado && typeof resultado === 'object'
+      ? resultado as { message?: unknown }
+      : null;
+    throw new Error(
+      typeof erro?.message === 'string'
+        ? erro.message
+        : texto || 'Falha ao atualizar lote. Confira a configuracao de envio seguro.'
+    );
+  }
+  return resultado;
 }
 
 export async function concluirLote(cnpj: string, protocolo: string) {
