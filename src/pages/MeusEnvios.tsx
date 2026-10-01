@@ -8,6 +8,7 @@ import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 type ItemEnvio = {
   envioRecebido?: boolean;
   envioFinalizado?: boolean;
+  orcamentoPronto?: boolean;
   negociacaoAplicada?: boolean;
   id: string;
   dbId?: number;
@@ -46,6 +47,7 @@ type ItemEnvio = {
 
 type StatusSupabaseRow = {
   envio_finalizado?: boolean;
+  orcamento_pronto?: boolean;
   negociacao_aplicada?: boolean;
   retificacao?: ItemEnvio['retificacao'];
   id?: number | string | null;
@@ -311,6 +313,7 @@ const MeusEnvios = () => {
         return {
           ...item,
           envioFinalizado: atual?.envio_finalizado,
+          orcamentoPronto: atual?.orcamento_pronto,
           dbId: atual?.oracle_item_id != null ? Number(atual.oracle_item_id) : item.dbId,
           status: Number(atual?.status ?? item.status ?? 0),
           statusText: atual?.status_text,
@@ -529,7 +532,7 @@ const MeusEnvios = () => {
           const maxStatus = Math.max(...(itensPendentes.length ? itensPendentes : itens).map((i) => Number(i.status || 0)));
           const podeFinalizar = loteCompleto
             && itens.length > 0
-            && itens.every((item) => isItemEmMontagem(item) && item.envioFinalizado !== true);
+            && itens.every((item) => isItemEmMontagem(item) && item.orcamentoPronto !== false && item.envioFinalizado !== true);
           const idsLote = idsLotePorProtocolo[normalizeProtocolKey(protocolo)] || itens
             .map((item) => item.dbId == null ? '' : String(item.dbId))
             .filter((id) => /^\d+$/.test(id));
