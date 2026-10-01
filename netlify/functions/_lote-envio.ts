@@ -16,8 +16,22 @@ export async function idsDoLote(cnpj: string, protocolo: string): Promise<string
     url.searchParams.set('offset', String(offset));
     const response = await fetchWithTimeout(url.toString(), { headers: { Accept: 'application/json' } });
     if (!response.ok) throw new Error('Não foi possível conferir todos os itens do lote no Oracle.');
-    const data = await response.json();
-    const rows = Array.isArray(data) ? data : data.items;
+    // O ORDS pode retornar 200 sem corpo quando ainda nao ha itens nesta
+    // fonte. Trate isso como uma lista vazia em vez de quebrar o envio com
+    // "Unexpected end of JSON input".
+    const texto = await response.text();
+    let data: unknown = [];
+    if (texto.trim()) {
+      try {
+        data = JSON.parse(texto);
+      } catch {
+        throw new Error('Resposta invalida do Oracle ao conferir os itens do lote.');
+      }
+    }
+    const pagina = data && typeof data === 'object'
+      ? data as { items?: unknown; links?: unknown; hasMore?: unknown }
+      : null;
+    const rows = Array.isArray(data) ? data : pagina?.items;
     if (!Array.isArray(rows)) throw new Error('Lista de itens inválida. Lote não liberado.');
     const assinatura = JSON.stringify(rows);
     if (rows.length && paginas.has(assinatura)) throw new Error('Paginação repetida; lote não liberado.');
@@ -29,8 +43,8 @@ export async function idsDoLote(cnpj: string, protocolo: string): Promise<string
       idsFonte.add(id);
       ids.add(id);
     }
-    const temProxima = Array.isArray(data.links) && data.links.some((link: {rel?:string}) => link.rel === 'next');
-    if (data.hasMore === false || (data.hasMore == null && !temProxima && rows.length < 200)) { terminou = true; break; }
+    const temProxima = Array.isArray(pagina?.links) && pagina.links.some((link: {rel?:string}) => link.rel === 'next');
+    if (pagina?.hasMore === false || (pagina?.hasMore == null && !temProxima && rows.length < 200)) { terminou = true; break; }
     if (!rows.length) throw new Error('Paginação incompleta; lote não liberado.');
   }
   if (!terminou) throw new Error('Limite de consulta excedido; lote não liberado.');
