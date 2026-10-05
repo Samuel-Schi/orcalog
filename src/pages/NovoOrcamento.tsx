@@ -166,6 +166,8 @@ const parseMarkerBasedQrFields = (raw: string) => {
   return fields.UUID || fields.LEGACYID || fields.EAN ? fields : null;
 };
 
+const draftKey = (paUsuario: string) => `orcamento_rascunho:${paUsuario}`;
+
 const NovoOrcamento = () => {
   const [protocolo, setProtocolo] = useState('');
   const [razaoSocial, setRazaoSocial] = useState('');
@@ -267,7 +269,8 @@ const NovoOrcamento = () => {
   useEffect(() => {
     let cancelled = false;
 
-    const loadDraftFromSupabase = async () => {
+    // Rascunho fica so no navegador: nao gera requisicao (nem log) no Supabase.
+    const loadDraftLocal = async () => {
       const paUsuario = (localStorage.getItem('gat_user') || '').trim();
       if (!paUsuario) {
         setProtocolo(gerarProtocolo());
@@ -275,16 +278,9 @@ const NovoOrcamento = () => {
       }
 
       try {
-        const response = await oracleApi.get(ORACLE_ENDPOINTS.getOrcamentoDraftSupabase, {
-          params: { paUsuario, _ts: Date.now() },
-          headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
-          validateStatus: (status) => status >= 200 && status < 500
-        });
-
-        const rows = Array.isArray(response.data) ? response.data : [];
-        const row = rows[0];
-        const draft = row?.payload && typeof row.payload === 'object'
-          ? row.payload as Partial<{
+        const salvo = JSON.parse(localStorage.getItem(draftKey(paUsuario)) || 'null');
+        const draft = salvo && typeof salvo === 'object'
+          ? salvo as Partial<{
             protocolo: string;
             cnpj: string;
             razaoSocial: string;
@@ -396,7 +392,7 @@ const NovoOrcamento = () => {
     };
 
     void (async () => {
-      await loadDraftFromSupabase();
+      await loadDraftLocal();
       await loadUserInfo();
       if (!cancelled) {
         draftHydratedRef.current = true;
@@ -429,33 +425,25 @@ const NovoOrcamento = () => {
     if (!hasDraftContent) return;
 
     const handle = window.setTimeout(() => {
-      void oracleApi.post(
-        ORACLE_ENDPOINTS.saveOrcamentoDraftSupabase,
-        {
-          paUsuario,
-          cnpj,
+      try {
+        localStorage.setItem(draftKey(paUsuario), JSON.stringify({
           protocolo,
-          status: 'RASCUNHO',
-          payload: {
-            protocolo,
-            cnpj,
-            razaoSocial,
-            email,
-            unidade,
-            uuid,
-            ean,
-            codGemco,
-            descProd,
-            fornecedor,
-            linha,
-            serial,
-            itens
-          }
-        },
-        { headers: { 'Content-Type': 'application/json' } }
-      ).catch(() => {
+          cnpj,
+          razaoSocial,
+          email,
+          unidade,
+          uuid,
+          ean,
+          codGemco,
+          descProd,
+          fornecedor,
+          linha,
+          serial,
+          itens
+        }));
+      } catch {
         // silencioso: mantem a tela responsiva se o rascunho falhar
-      });
+      }
     }, 800);
 
     return () => window.clearTimeout(handle);
@@ -1007,19 +995,9 @@ const NovoOrcamento = () => {
       setSerial('');
       setProtocolo(gerarProtocolo());
       try {
-        await oracleApi.post(
-          ORACLE_ENDPOINTS.saveOrcamentoDraftSupabase,
-          {
-            paUsuario: localStorage.getItem('gat_user') || '',
-            cnpj,
-            protocolo,
-            status: 'FINALIZADO',
-            payload: {}
-          },
-          { headers: { 'Content-Type': 'application/json' } }
-        );
+        localStorage.removeItem(draftKey((localStorage.getItem('gat_user') || '').trim()));
       } catch {
-        // ignore remote draft cleanup errors
+        // ignore local draft cleanup errors
       }
     } catch {
       setToast({ type: 'error', message: 'Não foi possível enviar. Tente novamente.' });

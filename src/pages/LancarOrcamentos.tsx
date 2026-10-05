@@ -356,6 +356,27 @@ const applyDraftToItem = (item: OrcamentoItem, payload?: Record<string, unknown>
   };
 };
 
+// Rascunhos ficam so no navegador: o autosave nao gera requisicao (nem log) no Supabase.
+type LocalDrafts = Record<string, Record<string, unknown>>;
+const localDraftsKey = (paUsuario: string) => `lancamento_rascunhos:${paUsuario}`;
+
+const readLocalDrafts = (paUsuario: string): LocalDrafts => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(localDraftsKey(paUsuario)) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed as LocalDrafts : {};
+  } catch {
+    return {};
+  }
+};
+
+const writeLocalDrafts = (paUsuario: string, drafts: LocalDrafts) => {
+  try {
+    localStorage.setItem(localDraftsKey(paUsuario), JSON.stringify(drafts));
+  } catch {
+    // armazenamento cheio ou bloqueado: segue sem rascunho
+  }
+};
+
 const LancarOrcamentos = () => {
   const location = useLocation();
   const locationState = (location.state as LancarOrcamentosLocationState | null) ?? null;
@@ -740,11 +761,23 @@ const LancarOrcamentos = () => {
             draftsMap.set(draftItemId, payload);
           }
         });
+        // O rascunho local e mais recente que o do Supabase.
+        const localDrafts = paUsuario ? readLocalDrafts(paUsuario) : {};
+        Object.entries(localDrafts).forEach(([id, payload]) => {
+          if (Number(id)) draftsMap.set(Number(id), payload);
+        });
 
         const normalized = list
           .map((row, index) => normalizeOrcamentoItem(row, index))
           .map((item) => applyDraftToItem(item, item.dbId != null ? draftsMap.get(item.dbId) ?? null : null))
           .filter((item) => !hasLancamentoRegistrado(item)) as OrcamentoItem[];
+        if (paUsuario && !editableItem) {
+          // Descarta rascunhos de itens que ja sairam da lista (salvos ou enviados).
+          const idsAtivos = new Set(normalized.map((item) => String(item.dbId)));
+          writeLocalDrafts(paUsuario, Object.fromEntries(
+            Object.entries(localDrafts).filter(([id]) => idsAtivos.has(id))
+          ));
+        }
         loteItemIdsRef.current = normalized.reduce<Record<string, string[]>>((porLote, item) => {
           const protocolo = String(item.protocolo || '').trim();
           const id = item.dbId == null ? '' : String(item.dbId);
@@ -1028,6 +1061,11 @@ const LancarOrcamentos = () => {
       const remaining = items.filter((item) => item.id !== selected.id);
       setItems(remaining);
 
+      const usuarioRascunho = (localStorage.getItem('gat_user') || '').trim();
+      if (usuarioRascunho) {
+        const { [String(selected.dbId)]: _salvo, ...outros } = readLocalDrafts(usuarioRascunho);
+        writeLocalDrafts(usuarioRascunho, outros);
+      }
       limparFormulario();
       setToast({
         type: 'success',
@@ -1099,21 +1137,9 @@ const LancarOrcamentos = () => {
 
     if (!hasDraftContent) return;
 
+    const itemId = String(selected.dbId);
     const handle = window.setTimeout(() => {
-      void oracleApi.post(
-        ORACLE_ENDPOINTS.saveLancamentoDraftSupabase,
-        {
-          paUsuario,
-          oracleItemId: selected.dbId,
-          protocolo: selected.protocolo,
-          cnpj: selected.cnpj || '',
-          status: 'RASCUNHO',
-          payload: draftPayload
-        },
-        { headers: { 'Content-Type': 'application/json' } }
-      ).catch(() => {
-        setToast({ type: 'error', message: 'Não foi possível salvar o rascunho. Mantenha a tela aberta e tente Salvar valores novamente.' });
-      });
+      writeLocalDrafts(paUsuario, { ...readLocalDrafts(paUsuario), [itemId]: draftPayload });
     }, 800);
 
     return () => window.clearTimeout(handle);
