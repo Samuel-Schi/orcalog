@@ -14,7 +14,7 @@ export type PagamentoItemRaw = {
   val_hig?: number | string | null;
   valor_produtos_aprovado?: number | string | null;
   valor_servicos_aprovado?: number | string | null;
-  notas_fiscais?: Array<{tipo?: string; valor?: number | string; arquivo_id?: string; url?: string; numero?: string; nome?: string}> | null;
+  notas_fiscais?: Array<{tipo?: string; valor?: number | string; arquivo_id?: string; url?: string; numero?: string; nome?: string; pasta_id?: string; pasta_url?: string}> | null;
   status?: number | string | null;
   status_text?: string | null;
   pagamento_status?: string | null;

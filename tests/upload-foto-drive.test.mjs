@@ -53,6 +53,75 @@ test('envia PDF com a configuracao local e preserva bytes e tipo do documento', 
   } finally { globalThis.fetch = originalFetch; }
 });
 
+const comCredenciais = (parent = 'local-parent') => {
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  return functionModule.exports.createUploadHandler({
+    GOOGLE_SERVICE_ACCOUNT_EMAIL: 'local@example.com',
+    GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    GOOGLE_DRIVE_PARENT_FOLDER_ID: parent
+  });
+};
+const pdfBody = (extra) => JSON.stringify({
+  folderName: 'Pagamento_P1', files: [{ name: 'nota.pdf', mimeType: 'application/pdf', base64: Buffer.from('%PDF').toString('base64') }], ...extra
+});
+
+test('reaproveita a pasta do protocolo e a deixa aberta para quem tiver o link', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init = {}) => {
+    const target = String(url);
+    calls.push(`${init.method || 'GET'} ${target}`);
+    if (target.includes('oauth2')) return Response.json({ access_token: 't' });
+    if (target.includes('/permissions')) {
+      assert.deepEqual(JSON.parse(init.body), { type: 'anyone', role: 'reader' });
+      return Response.json({ id: 'anyoneWithLink' });
+    }
+    if (target.includes('upload/drive')) {
+      assert.ok(init.body.includes(Buffer.from('"parents":["pastaExistente01"]')));
+      return Response.json({ id: 'arquivo-2' });
+    }
+    if (target.includes('/files/pastaExistente01?')) {
+      return Response.json({ id: 'pastaExistente01', mimeType: 'application/vnd.google-apps.folder', parents: ['local-parent'] });
+    }
+    throw new Error('Não deveria criar nova pasta: ' + target);
+  };
+  try {
+    const response = await comCredenciais()({ httpMethod: 'POST', body: pdfBody({ folderId: 'pastaExistente01', publicFolder: true }) });
+    const body = JSON.parse(response.body);
+    assert.equal(response.statusCode, 200);
+    assert.equal(body.folderId, 'pastaExistente01');
+    assert.equal(body.folderReused, true);
+    assert.equal(body.folderPublic, true);
+    assert.ok(calls.some((c) => c.includes('/permissions')));
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('cria nova pasta quando o folderId informado não pertence à pasta raiz', async () => {
+  const originalFetch = globalThis.fetch;
+  let criou = false;
+  globalThis.fetch = async (url, init = {}) => {
+    const target = String(url);
+    if (target.includes('oauth2')) return Response.json({ access_token: 't' });
+    if (target.includes('/files/pastaDeOutroLugar?')) {
+      return Response.json({ id: 'pastaDeOutroLugar', mimeType: 'application/vnd.google-apps.folder', parents: ['outra-raiz'] });
+    }
+    if (target.includes('upload/drive')) {
+      assert.ok(init.body.includes(Buffer.from('"parents":["nova-pasta"]')));
+      return Response.json({ id: 'arquivo-1' });
+    }
+    criou = true;
+    assert.deepEqual(JSON.parse(init.body).parents, ['local-parent']);
+    return Response.json({ id: 'nova-pasta' });
+  };
+  try {
+    const response = await comCredenciais()({ httpMethod: 'POST', body: pdfBody({ folderId: 'pastaDeOutroLugar' }) });
+    assert.equal(response.statusCode, 200);
+    assert.equal(JSON.parse(response.body).folderId, 'nova-pasta');
+    assert.equal(JSON.parse(response.body).folderReused, false);
+    assert.equal(criou, true);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('envia os bytes da foto ao Drive e devolve o link da pasta', async () => {
   const originalFetch = globalThis.fetch;
   const originalEnv = {

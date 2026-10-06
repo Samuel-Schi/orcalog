@@ -14,6 +14,8 @@ export const handler: Handler = async (event) => {
     const nome = trimText(body.notaFiscalNome, 180);
     const arquivoId = trimText(body.notaFiscalArquivoId, 100);
     const valor = Number(body.valorPagamento);
+    const pastaId = trimText(body.notaFiscalPastaId, 100);
+    const pasta = /^[A-Za-z0-9_-]+$/.test(pastaId) ? { pasta_id: pastaId, pasta_url: `https://drive.google.com/drive/folders/${pastaId}` } : {};
     if (!protocolo || cnpj.length !== 14 || !['PRODUTO','SERVICO'].includes(tipo) || !numero || !nome || !/^[A-Za-z0-9_-]+$/.test(arquivoId) || !Number.isFinite(valor) || valor <= 0) {
       return jsonResponse(400, { error: 'Informe tipo, número, valor positivo e PDF válido da nota.' });
     }
@@ -33,7 +35,7 @@ export const handler: Handler = async (event) => {
     if (!['AGUARDANDO_NOTA','EM_VALIDACAO'].includes(statusAnterior)) return jsonResponse(409,{error:'Este lote não aceita novas notas nesta etapa.'});
     const resposta=await fetchWithTimeout(`${base}/rest/v1/rpc/atualizar_pagamento_lote`,{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({
       p_protocolo:protocolo,p_status_anterior:statusAnterior,p_status:'EM_VALIDACAO',p_referencia:trimText(body.pagamentoReferencia,120)||protocolo,
-      p_nota:{tipo,numero,nome,arquivo_id:arquivoId,valor:Math.round(valor*100)/100,url:`https://drive.google.com/file/d/${arquivoId}/view`}
+      p_nota:{tipo,numero,nome,arquivo_id:arquivoId,valor:Math.round(valor*100)/100,url:`https://drive.google.com/file/d/${arquivoId}/view`,...pasta}
     })});
     const resultado=await resposta.json().catch(()=>({}));
     if (!resposta.ok) {

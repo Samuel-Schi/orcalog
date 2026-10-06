@@ -129,6 +129,40 @@ const criarPastaDrive = async (token: string, folderName: string, env: UploadEnv
   };
 };
 
+const DRIVE_FOLDER_MIME = 'application/vnd.google-apps.folder';
+const DRIVE_ID_PATTERN = /^[A-Za-z0-9_-]{10,100}$/;
+
+// Reaproveita somente pastas criadas pelo portal, dentro da pasta raiz configurada.
+const buscarPastaExistente = async (token: string, folderId: string, env: UploadEnv) => {
+  if (!DRIVE_ID_PATTERN.test(folderId)) return null;
+  const { parentFolderId } = getGoogleDriveConfig(env);
+  const response = await fetch(
+    `${DRIVE_FILES_URL}/${folderId}?supportsAllDrives=true&fields=id,mimeType,parents,trashed,webViewLink`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!response.ok) return null;
+  const data = await response.json().catch(() => ({}));
+  const parents = Array.isArray(data.parents) ? data.parents.map(String) : [];
+  if (data.mimeType !== DRIVE_FOLDER_MIME || data.trashed || !parents.includes(parentFolderId)) return null;
+  return {
+    id: String(data.id),
+    link: String(data.webViewLink || `https://drive.google.com/drive/folders/${data.id}`)
+  };
+};
+
+const compartilharComQualquerUm = async (token: string, folderId: string) => {
+  try {
+    const response = await fetch(`${DRIVE_FILES_URL}/${folderId}/permissions?supportsAllDrives=true`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ type: 'anyone', role: 'reader' })
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+};
+
 const uploadArquivoDrive = async (
   token: string,
   folderId: string,
@@ -183,7 +217,7 @@ export const createUploadHandler = (env: UploadEnv): Handler => async (event) =>
     const parsedBody = parseJsonBody(event, MAX_UPLOAD_BODY_BYTES);
     if (!parsedBody.ok) return parsedBody.response;
 
-    const body = parsedBody.value as { folderName?: string; files?: DriveUploadFile[] };
+    const body = parsedBody.value as { folderName?: string; folderId?: string; publicFolder?: boolean; files?: DriveUploadFile[] };
     const files = Array.isArray(body.files) ? body.files : [];
     const validFiles = files
       .map((file) => ({
@@ -199,7 +233,9 @@ export const createUploadHandler = (env: UploadEnv): Handler => async (event) =>
 
     const folderName = sanitizeDriveName(body.folderName, `Portal_AT_${Date.now()}`);
     const token = await getGoogleAccessToken(env);
-    const folder = await criarPastaDrive(token, folderName, env);
+    const existente = body.folderId ? await buscarPastaExistente(token, String(body.folderId).trim(), env) : null;
+    const folder = existente || await criarPastaDrive(token, folderName, env);
+    const folderPublic = body.publicFolder === true ? await compartilharComQualquerUm(token, folder.id) : false;
     const uploadedFiles = await Promise.all(
       validFiles.map((file, index) => uploadArquivoDrive(token, folder.id, file, index))
     );
@@ -207,6 +243,8 @@ export const createUploadHandler = (env: UploadEnv): Handler => async (event) =>
     return jsonResponse(200, {
       folderId: folder.id,
       folderLink: folder.link,
+      folderReused: Boolean(existente),
+      folderPublic,
       files: uploadedFiles
     });
   } catch (error) {
