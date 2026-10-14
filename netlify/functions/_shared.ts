@@ -1,4 +1,5 @@
 import type { HandlerEvent, HandlerResponse } from '@netlify/functions';
+import { decodificarBytes } from '../../src/lib/texto';
 
 const DEFAULT_TIMEOUT_MS = 12000;
 const MAX_JSON_BODY_BYTES = 256000;
@@ -83,12 +84,14 @@ export const fetchWithTimeout = async (url: string, init: RequestInit = {}, time
 };
 
 export const proxyResponse = async (response: Response): Promise<HandlerResponse> => {
-  const text = await response.text();
+  // O Oracle nao informa o charset; response.text() forcaria UTF-8 e perderia acentos em Windows-1252.
+  const text = decodificarBytes(new Uint8Array(await response.arrayBuffer()));
+  const tipo = (response.headers.get('content-type') || 'application/json').split(';')[0].trim();
   return {
     statusCode: response.status,
     body: text,
     headers: {
-      'Content-Type': response.headers.get('content-type') || 'application/json; charset=utf-8',
+      'Content-Type': `${tipo}; charset=utf-8`,
       'Cache-Control': 'no-store',
       'X-Content-Type-Options': 'nosniff'
     }

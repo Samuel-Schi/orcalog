@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { getStatusLabel } from '../lib/statusMap';
+import { getStatusLabel, isLoteFinalizado } from '../lib/statusMap';
 import AcaoLotePosto from '../components/AcaoLotePosto';
 import { resultadoItem, valorFinalItem, valorAceito } from '../lib/resultadoOrcamento';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
@@ -162,6 +162,7 @@ const MeusEnvios = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [filtroTexto, setFiltroTexto] = useState('');
+  const [aba, setAba] = useState<'andamento' | 'finalizados'>('andamento');
   useEffect(() => {
     const protocolo = searchParams.get('protocolo') || '';
     setFiltroTexto(protocolo);
@@ -358,10 +359,35 @@ const MeusEnvios = () => {
     return Array.from(map.entries());
   }, [items]);
 
-  const filtrados = useMemo(() => {
+  const gruposPorAba = useMemo(() => {
     const termo = filtroTexto.trim().toLowerCase();
-    return grupos.filter(([protocolo]) => !termo || protocolo.toLowerCase().includes(termo));
-  }, [filtroTexto, grupos]);
+    const andamento: [string, ItemEnvio[]][] = [];
+    const finalizados: [string, ItemEnvio[]][] = [];
+    grupos
+      .filter(([protocolo]) => !termo || protocolo.toLowerCase().includes(termo))
+      .forEach((grupo) => {
+        const [protocolo, itens] = grupo;
+        (isLoteFinalizado(itens, totalItensByProtocolo[protocolo] || itens.length) ? finalizados : andamento).push(grupo);
+      });
+    return { andamento, finalizados };
+  }, [filtroTexto, grupos, totalItensByProtocolo]);
+
+  const filtrados = gruposPorAba[aba];
+  const outraAba = aba === 'andamento' ? 'finalizados' : 'andamento';
+
+  // Link direto para um protocolo (?protocolo=): abre a aba onde ele esta.
+  // Feito uma vez por link, para nao desfazer a troca manual de aba ao atualizar a lista.
+  const abaDoLinkRef = useRef('');
+  useEffect(() => {
+    const protocolo = normalizeProtocolKey(searchParams.get('protocolo') || '');
+    if (!protocolo || abaDoLinkRef.current === protocolo) return;
+    const destino = gruposPorAba.finalizados.some(([chave]) => chave === protocolo)
+      ? 'finalizados'
+      : gruposPorAba.andamento.some(([chave]) => chave === protocolo) ? 'andamento' : null;
+    if (!destino) return;
+    abaDoLinkRef.current = protocolo;
+    setAba(destino);
+  }, [searchParams, gruposPorAba]);
 
   const statusCor = (status: number) => {
     if (status === 4 || status === 10) return 'var(--status-finalizado)';
@@ -499,13 +525,40 @@ const MeusEnvios = () => {
         />
       </div>
 
+      <div className="envios-abas" role="tablist" aria-label="Situação dos envios">
+        {([
+          ['andamento', 'pending_actions', 'Em andamento'],
+          ['finalizados', 'task_alt', 'Finalizados']
+        ] as const).map(([chave, icone, titulo]) => (
+          <button
+            key={chave}
+            type="button"
+            role="tab"
+            aria-selected={aba === chave}
+            className={`envios-aba${aba === chave ? ' ativa' : ''}`}
+            onClick={() => setAba(chave)}
+          >
+            <i className="material-icons" aria-hidden="true">{icone}</i>
+            {titulo}
+            <span className="envios-aba-contador">{gruposPorAba[chave].length}</span>
+          </button>
+        ))}
+      </div>
+
       <div id="listaAcompanhamentoPA">
         {isLoading && (
           <p style={{ textAlign: 'center', color: '#999', marginTop: 20 }}>Carregando...</p>
         )}
         {loadError && <p role="alert">{loadError} <button type="button" onClick={() => void carregar()}>Tentar novamente</button></p>}
         {!isLoading && !loadError && filtrados.length === 0 && (
-          <p style={{ textAlign: 'center', color: '#999', marginTop: 20 }}>Nenhum registro encontrado.</p>
+          <div style={{ textAlign: 'center', color: '#999', marginTop: 20 }}>
+            <p>{aba === 'finalizados' ? 'Nenhum protocolo finalizado.' : 'Nenhum protocolo em andamento.'}</p>
+            {filtroTexto.trim() && gruposPorAba[outraAba].length > 0 && (
+              <button className="btn btn-secondary btn-sm envios-ver-outra-aba" type="button" onClick={() => setAba(outraAba)}>
+                {gruposPorAba[outraAba].length} encontrado(s) em {outraAba === 'finalizados' ? 'Finalizados' : 'Em andamento'}: ver
+              </button>
+            )}
+          </div>
         )}
 
         {filtrados.map(([protocolo, itens]) => {
@@ -532,7 +585,7 @@ const MeusEnvios = () => {
             : null;
           const mostrarAvisoSemVinculo = possuiNegociacaoPendente && !negociacao;
           return (
-            <div key={protocolo} className={`protocolo-card ${abertos[protocolo] ? 'open' : ''}`}>
+            <div key={protocolo} className={`protocolo-card ${abertos[protocolo] ? 'open' : ''}${podeFinalizar ? ' pronto-finalizar' : ''}`}>
               <div
                 className="protocolo-header"
                 onClick={() => setAbertos((prev) => ({ ...prev, [protocolo]: !prev[protocolo] }))}
@@ -540,6 +593,7 @@ const MeusEnvios = () => {
                 <div className="header-info-main">
                   <span className="header-title">{protocolo}</span>
                   <span className="header-sub">{dataEnvio}</span>
+                  {podeFinalizar && <span className="pronto-finalizar-selo">Pronto para finalizar</span>}
                 </div>
                 <div className="header-meta">
                   <span className="item-count-badge">

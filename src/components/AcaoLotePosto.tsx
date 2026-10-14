@@ -30,8 +30,9 @@ export default function AcaoLotePosto({ acao, protocolo, cnpj, ids = [], id, onS
   };
 
   return <span className="acao-lote-posto">
-    <button type="button" className={finalizar ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm'} disabled={salvando} onClick={(event) => { event.stopPropagation(); void salvar(); }}>
-      {salvando ? 'Aguarde...' : finalizar ? 'Finalizar' : 'Cancelar lancamento'}
+    <button type="button" className={finalizar ? 'btn btn-success btn-sm acao-lote-finalizar' : 'btn btn-secondary btn-sm'} disabled={salvando} onClick={(event) => { event.stopPropagation(); void salvar(); }}>
+      {finalizar && <i className="material-icons" aria-hidden="true">task_alt</i>}
+      {salvando ? 'Aguarde...' : finalizar ? 'Finalizar lote' : 'Cancelar lancamento'}
     </button>
     {erro && <small role="alert">{erro}</small>}
   </span>;
