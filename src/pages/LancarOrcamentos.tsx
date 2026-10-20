@@ -1,4 +1,5 @@
 import CatalogoSelect from '../components/CatalogoSelect';
+import FotosProduto from '../components/FotosProduto';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserMultiFormatReader, type IScannerControls } from '@zxing/browser';
 import { useLocation } from 'react-router-dom';
@@ -415,8 +416,6 @@ const LancarOrcamentos = () => {
   const [defeitosSelecionados, setDefeitosSelecionados] = useState<string[]>([]);
   const [pecasComValores, setPecasComValores] = useState<PecaComValor[]>([]);
   const [acessoriosComValores, setAcessoriosComValores] = useState<ItemComValor[]>([]);
-  const selecionarFotosInputRef = useRef<HTMLInputElement | null>(null);
-  const cameraFotosInputRef = useRef<HTMLInputElement | null>(null);
   const scanVideoRef = useRef<HTMLVideoElement | null>(null);
   const scanStreamRef = useRef<MediaStream | null>(null);
   const formularioRef = useRef<HTMLDivElement | null>(null);
@@ -923,7 +922,7 @@ const LancarOrcamentos = () => {
     );
   };
 
-  const adicionarFotos = (files?: FileList | null) => {
+  const adicionarFotos = (files?: FileList | File[] | null) => {
     if (!files?.length) return;
     const selectedFiles = Array.from(files);
     setFotos((current) => [...current, ...selectedFiles]);
@@ -1456,69 +1455,14 @@ const LancarOrcamentos = () => {
           </div>
         )}
         {selected && (
-          <div className="fotos-drive-field fotos-drive-footer">
-            <label style={{ color: precisaFoto ? 'var(--azul)' : undefined }}>
-              Fotos do produto{precisaFoto ? ' (obrigatorio)' : ''}
-            </label>
-            <div className="fotos-drive-actions">
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => selecionarFotosInputRef.current?.click()}
-              >
-                <i className="material-icons">photo_library</i> Selecionar fotos
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                onClick={() => cameraFotosInputRef.current?.click()}
-              >
-                <i className="material-icons">photo_camera</i> Tirar foto
-              </button>
-            </div>
-            <input
-              ref={selecionarFotosInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="fotos-drive-input"
-              onChange={(e) => {
-                adicionarFotos(e.target.files);
-                e.currentTarget.value = '';
-              }}
-            />
-            <input
-              ref={cameraFotosInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="fotos-drive-input"
-              onChange={(e) => {
-                adicionarFotos(e.target.files);
-                e.currentTarget.value = '';
-              }}
-            />
-            {getDriveLink(selected.linkDrive, selected.fotoNome) && fotos.length === 0 && (
-              <div className="fotos-drive-current">
-                Link atual: {getDriveLink(selected.linkDrive, selected.fotoNome)}
-              </div>
-            )}
-            {fotos.length > 0 && (
-              <div className="fotos-drive-list">
-                {fotos.map((file, index) => (
-                  <div key={`${file.name}-${file.lastModified}-${index}`} className="fotos-drive-item">
-                    <span>{file.name}</span>
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => removerFoto(index)}>
-                      Remover
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="selection-empty">
-              As fotos anexadas serao enviadas para uma pasta no Google Drive.
-            </div>
-          </div>
+          <FotosProduto
+            fotos={fotos}
+            obrigatorio={precisaFoto}
+            linkDriveAtual={getDriveLink(selected.linkDrive, selected.fotoNome)}
+            enviando={isSubmitting}
+            onAdicionar={adicionarFotos}
+            onRemover={removerFoto}
+          />
         )}
         {selected && (
           <div className="action-bar">

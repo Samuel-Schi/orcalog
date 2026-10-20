@@ -1,18 +1,27 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { BrowserQRCodeReader, type IScannerControls } from '@zxing/browser';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
+import {
+  baixarModeloImportacao,
+  COLUNAS_OBRIGATORIAS,
+  chaveProduto,
+  compactLookupValue,
+  consultarProdutoPorCodigo,
+  ErroImportacao,
+  formatSerialValue,
+  importarProdutos,
+  lerPlanilhaExcel,
+  normalizarCodigoProduto,
+  validarArquivoExcel,
+  validarItemManual,
+  type ItemProduto as Item,
+  type ResultadoLinha,
+  type TipoCodigoProduto
+} from '../lib/importacaoProdutos';
 
-type Item = {
-  id: string;
-  protocolo: string;
-  uuid: string;
-  ean: string;
-  codGemco: string;
-  descricao: string;
-  fornecedor: string;
-  linha: string;
-  serial: string;
-  status: number;
+type ConsultaProduto = {
+  status: 'idle' | 'carregando' | 'encontrado' | 'nao_encontrado' | 'erro';
+  mensagem: string;
 };
 
 type ParsedQrPayload = {
@@ -186,15 +195,30 @@ const NovoOrcamento = () => {
   const [showQr, setShowQr] = useState(false);
   const [qrError, setQrError] = useState('');
   const [manualMode, setManualMode] = useState(false);
+  const [abaProduto, setAbaProduto] = useState<'bipagem' | 'importacao'>('bipagem');
+  const [consultaProduto, setConsultaProduto] = useState<ConsultaProduto>({ status: 'idle', mensagem: '' });
+  const [importando, setImportando] = useState(false);
+  const [progressoImportacao, setProgressoImportacao] = useState({ processadas: 0, total: 0 });
+  const [resultadosImportacao, setResultadosImportacao] = useState<ResultadoLinha[]>([]);
+  const [erroImportacao, setErroImportacao] = useState('');
+  const [arquivoImportacao, setArquivoImportacao] = useState('');
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const requestSeqRef = useRef(0);
   const pendingScanRef = useRef<ParsedQrPayload | null>(null);
   const serialInputRef = useRef<HTMLInputElement | null>(null);
   const codeInputRef = useRef<HTMLInputElement | null>(null);
+  const uuidInputRef = useRef<HTMLInputElement | null>(null);
+  // Digitacao manual: cada incremento pede para adicionar o item assim que estiver completo.
+  const [pedidoAutoAdicionar, setPedidoAutoAdicionar] = useState(0);
   const draftHydratedRef = useRef(false);
   const serialTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lookupInFlightRef = useRef('');
+  // Codigos ja consultados ('gemco:X' / 'ean:Y'): evita repetir a consulta no Enter + blur do leitor.
+  const codigosConsultadosRef = useRef(new Set<string>());
+  const consultaSeqRef = useRef(0);
+  const preenchidoPelaApiRef = useRef(false);
+  const arquivoInputRef = useRef<HTMLInputElement | null>(null);
 
   const gerarProtocolo = () => {
     const now = new Date();
@@ -205,49 +229,6 @@ const NovoOrcamento = () => {
     const digits = value.replace(/\D/g, '');
     if (digits.length !== 14) return value;
     return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12)}`;
-  };
-
-  const compactLookupValue = (value: string) =>
-    value.replace(/[^0-9a-z]/gi, '').toUpperCase().trim();
-
-  const parseSerialPayload = (raw: string) => {
-    const cleaned = raw.replace(/[\u0000-\u001F\u007F]+/g, ' ').trim();
-    if (!cleaned) return '';
-
-    if (cleaned.startsWith('{')) {
-      try {
-        const parsed = JSON.parse(cleaned);
-        const serialValue =
-          parsed?.serial
-          ?? parsed?.SERIAL
-          ?? parsed?.sn
-          ?? parsed?.SN
-          ?? parsed?.serialNumber
-          ?? parsed?.serial_number
-          ?? parsed?.imei
-          ?? parsed?.IMEI;
-
-        if (serialValue) {
-          return String(serialValue);
-        }
-      } catch {
-        // ignore malformed JSON and continue with plain-text parsing
-      }
-    }
-
-    const labelMatch = cleaned.match(/(?:serial(?:number)?|sn|imei)[^0-9a-z]*([0-9a-z-]+)/i);
-    if (labelMatch?.[1]) {
-      return labelMatch[1];
-    }
-
-    return cleaned;
-  };
-
-  const formatSerialValue = (raw: string) => {
-    const compact = compactLookupValue(parseSerialPayload(raw));
-    if (!compact) return '';
-    if (compact.length <= 4) return compact;
-    return compact.match(/.{1,4}/g)?.join('-') ?? compact;
   };
 
   const focusCodeInput = () => {
@@ -576,6 +557,7 @@ const NovoOrcamento = () => {
   useEffect(() => () => {
     if (serialTimerRef.current) clearTimeout(serialTimerRef.current);
     requestSeqRef.current += 1;
+    consultaSeqRef.current += 1;
   }, []);
 
   const parseQrPayload = (raw: string) => {
@@ -712,15 +694,20 @@ const NovoOrcamento = () => {
 
   const abrirLeitorQr = () => { setShowQr(true); };
 
-  const alternarPreenchimentoManual = () => {
-    setManualMode((prev) => {
-      const next = !prev;
-      if (next) {
-        requestAnimationFrame(() => codeInputRef.current?.focus());
-      }
-      return next;
-    });
+  const selecionarModo = (modo: 'bipagem' | 'manual' | 'importacao') => {
+    if (importando) return;
+    const manual = modo === 'manual';
+    setAbaProduto(modo === 'importacao' ? 'importacao' : 'bipagem');
+    setManualMode(manual);
+    setConsultaProduto({ status: 'idle', mensagem: '' });
+    consultaSeqRef.current += 1;
+    codigosConsultadosRef.current.clear();
     pendingScanRef.current = null;
+    if (manual) {
+      requestAnimationFrame(() => codeInputRef.current?.focus());
+    } else if (modo === 'bipagem') {
+      requestAnimationFrame(() => serialInputRef.current?.focus());
+    }
   };
 
   const validarDadosCabecalho = () => {
@@ -777,12 +764,29 @@ const NovoOrcamento = () => {
     const finalLinha = override?.linha ?? linha;
     const finalSerial = override?.serial ?? serial;
 
-    if (!validarDadosItem({
+    if (!override && manualMode) {
+      const erroManual = validarItemManual({
+        serial: finalSerial,
+        uuid: finalUuid,
+        codGemco: finalCodGemco,
+        ean: finalEan,
+        descricao: finalDesc
+      });
+      if (erroManual) {
+        setToast({ type: 'error', message: erroManual });
+        return false;
+      }
+      const chave = chaveProduto({ serial: finalSerial, codGemco: finalCodGemco });
+      if (finalCodGemco.trim() && itens.some((item) => chaveProduto(item) === chave)) {
+        setToast({ type: 'error', message: 'Este serial com este Gemco já está no protocolo.' });
+        return false;
+      }
+    } else if (!validarDadosItem({
       serial: finalSerial,
       codGemco: finalCodGemco,
       descricao: finalDesc
     })) {
-      return;
+      return false;
     }
     const item: Item = {
       id: criarId(),
@@ -804,8 +808,38 @@ const NovoOrcamento = () => {
     setFornecedor('');
     setLinha('');
     setSerial('');
+    consultaSeqRef.current += 1;
+    codigosConsultadosRef.current.clear();
+    preenchidoPelaApiRef.current = false;
+    setConsultaProduto({ status: 'idle', mensagem: '' });
     serialInputRef.current?.focus();
+    return true;
   };
+
+  const pendenciaManual = manualMode
+    ? validarItemManual({ serial, uuid, codGemco, ean, descricao: descProd })
+    : '';
+
+  const pedirAutoAdicionar = () => {
+    if (manualMode) setPedidoAutoAdicionar((n) => n + 1);
+  };
+
+  const adicionarComEnter = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (!manualMode || e.key !== 'Enter') return;
+    e.preventDefault();
+    pedirAutoAdicionar();
+  };
+
+  // Roda depois do render, com os valores ja atualizados (consulta da API, Enter nos campos).
+  useEffect(() => {
+    if (!pedidoAutoAdicionar || !manualMode || abaProduto !== 'bipagem' || consultaProduto.status === 'carregando') return;
+    if (pendenciaManual) {
+      if (!serial.trim()) serialInputRef.current?.focus();
+      else if (!uuid.trim()) uuidInputRef.current?.focus();
+      return;
+    }
+    if (adicionarItem()) setToast({ type: 'success', message: 'Item adicionado automaticamente ao protocolo.' });
+  }, [pedidoAutoAdicionar]);
 
   const buscarProdutoCadastro = async (parsedScan?: ParsedQrPayload) => {
     const pendingScan = parsedScan || pendingScanRef.current;
@@ -891,55 +925,94 @@ const NovoOrcamento = () => {
     }
   };
 
-  const buscarProdutoPorCodigoBarras = async (value: string) => {
-    const codigoBarras = sanitizeEanValue(value);
-    if (!manualMode || codigoBarras.length < 8) return;
+  // Digitacao manual: Gemco ou codigo de barras (qualquer um) busca descricao, fornecedor e linha.
+  const buscarProdutoManual = async (tipo: TipoCodigoProduto, value: string, viaEnter = false) => {
+    const codigoInformado = normalizarCodigoProduto(tipo, value);
+    if (!manualMode || !codigoInformado) return;
+    const chave = `${tipo}:${codigoInformado}`;
+    if (codigosConsultadosRef.current.has(chave)) {
+      // Codigo ja consultado: Enter de novo so tenta adicionar.
+      if (viaEnter) pedirAutoAdicionar();
+      return;
+    }
 
-    const requestId = ++requestSeqRef.current;
+    codigosConsultadosRef.current.add(chave);
+    const requestId = ++consultaSeqRef.current;
+    setConsultaProduto({ status: 'carregando', mensagem: 'Consultando produto...' });
+    const resultado = await consultarProdutoPorCodigo(tipo, codigoInformado, (codigo) => consultarCadastroProduto({ item: codigo }));
+    if (requestId !== consultaSeqRef.current) return;
+
+    if (resultado.status === 'encontrado') {
+      const { produto } = resultado;
+      if (produto.ean) {
+        setEan(produto.ean);
+        codigosConsultadosRef.current.add(`ean:${produto.ean}`);
+      }
+      if (produto.codGemco) {
+        setCodGemco(produto.codGemco);
+        codigosConsultadosRef.current.add(`gemco:${normalizarCodigoProduto('gemco', produto.codGemco)}`);
+      }
+      setDescProd(produto.descricao);
+      setFornecedor(produto.fornecedor);
+      setLinha(produto.linha);
+      preenchidoPelaApiRef.current = true;
+      setPedidoAutoAdicionar((n) => n + 1);
+    } else {
+      // Falha temporaria pode ser repetida com o mesmo codigo.
+      if (resultado.status === 'erro') codigosConsultadosRef.current.delete(chave);
+      // So limpa o que veio de uma consulta anterior; texto digitado pelo usuario e mantido.
+      if (preenchidoPelaApiRef.current) {
+        preenchidoPelaApiRef.current = false;
+        setDescProd('');
+        setFornecedor('');
+        setLinha('');
+      }
+    }
+    setConsultaProduto({ status: resultado.status, mensagem: resultado.mensagem });
+  };
+
+  // get_produto_cadastro casa o valor com o Gemco (item) OU com o EAN (codigo_barra);
+  // enviar o mesmo codigo nos dois aceita qualquer um, digitado em qualquer campo.
+  const consultarCadastroProduto = async ({ item }: { item: string }) => {
+    const res = await oracleApi.get(ORACLE_ENDPOINTS.getProdutoCadastro, {
+      params: { item, codigo_barra: item, _ts: Date.now() },
+      responseType: 'arraybuffer',
+      headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+      validateStatus: (status) => status >= 200 && status < 400
+    });
+    return parseMaybeJson(res.data);
+  };
+
+  const importarArquivo = async (arquivo: File) => {
+    if (importando) return;
+    setErroImportacao('');
+    setResultadosImportacao([]);
+    setArquivoImportacao(arquivo.name);
+    setProgressoImportacao({ processadas: 0, total: 0 });
+    setImportando(true);
     try {
-      const response = await oracleApi.get(ORACLE_ENDPOINTS.getProdutoCodigoBarras, {
-        params: { codigo_barra: codigoBarras, _ts: Date.now() },
-        responseType: 'arraybuffer',
-        headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
-        validateStatus: (status) => status >= 200 && status < 400
+      validarArquivoExcel(arquivo);
+      const { linhas, erros } = await lerPlanilhaExcel(await arquivo.arrayBuffer());
+      const { itens: itensAtualizados, resultados } = await importarProdutos({
+        linhas,
+        itensAtuais: itens,
+        protocolo,
+        consultar: consultarCadastroProduto,
+        criarId,
+        onProgresso: (processadas, total) => setProgressoImportacao({ processadas, total })
       });
-      const data = parseMaybeJson(response.data);
-      const rows: any[] = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
-      const produto = rows[0] ?? data ?? {};
-      if (requestId !== requestSeqRef.current) return;
-
-      const getField = (keys: string[]) => {
-        const lowerMap = new Map<string, string>();
-        Object.keys(produto || {}).forEach((key) => lowerMap.set(key.toLowerCase(), key));
-        for (const key of keys) {
-          const actualKey = lowerMap.get(key.toLowerCase());
-          const field = actualKey ? produto[actualKey] : undefined;
-          if (field !== null && field !== undefined && String(field).trim()) return String(field).trim();
-        }
-        return '';
-      };
-
-      const descricao = getField(['descricao', 'ds_produto', 'descricao_produto', 'desc_produto', 'description', 'produto']);
-      const fornecedorApi = getField(['fornecedor', 'ds_fornecedor', 'desc_fornecedor', 'fornecedor_desc', 'nome_fornecedor']);
-      const linhaApi = getField(['linha', 'ds_linha', 'desc_linha', 'linha_desc', 'nome_linha']);
-      const gemcoApi = getField(['item', 'cod_gemco', 'codigo', 'cod_item', 'item_codigo']);
-      const eanApi = getField(['cod_barra', 'codigo_barra', 'codigo_barras', 'ean']);
-
-      if (!descricao && !fornecedorApi && !linhaApi) {
-        setToast({ type: 'error', message: 'Código de barras não encontrado no cadastro de produtos.' });
-        return;
-      }
-
-      setEan(sanitizeEanValue(eanApi || codigoBarras));
-      if (gemcoApi) setCodGemco(gemcoApi);
-      if (descricao) setDescProd(descricao);
-      if (fornecedorApi) setFornecedor(fornecedorApi);
-      if (linhaApi) setLinha(linhaApi);
-      setToast({ type: 'success', message: 'Dados do produto preenchidos pelo código de barras.' });
-    } catch {
-      if (requestId === requestSeqRef.current) {
-        setToast({ type: 'error', message: 'Não foi possível consultar o código de barras. Tente novamente.' });
-      }
+      const todos = [...erros, ...resultados].sort((a, b) => a.linha - b.linha);
+      setItens(itensAtualizados);
+      setResultadosImportacao(todos);
+      const comErro = todos.filter((resultado) => resultado.status === 'erro').length;
+      setToast(comErro
+        ? { type: 'error', message: `Importação concluída com ${comErro} linha(s) com erro. Confira o resultado abaixo.` }
+        : { type: 'success', message: `${todos.length} linha(s) importada(s) com sucesso.` });
+    } catch (error) {
+      setErroImportacao(error instanceof ErroImportacao ? error.message : 'Não foi possível processar o arquivo. Tente novamente.');
+    } finally {
+      setImportando(false);
+      if (arquivoInputRef.current) arquivoInputRef.current.value = '';
     }
   };
 
@@ -1046,8 +1119,112 @@ const NovoOrcamento = () => {
 
       <div className="card">
         <div className="section-title">Dados do Produto</div>
+        <div className="novo-orcamento-modos" role="tablist" aria-label="Forma de entrada dos produtos">
+          {([
+            ['bipagem', 'qr_code_scanner', 'Bipar etiqueta', 'Leitor ou câmera (QR)'],
+            ['manual', 'keyboard', 'Digitar manual', 'Etiqueta ilegível ou sem QR'],
+            ['importacao', 'upload_file', 'Importar Excel', 'Vários produtos de uma vez']
+          ] as const).map(([modo, icone, titulo, detalhe]) => {
+            const ativo = modo === 'importacao' ? abaProduto === 'importacao' : abaProduto === 'bipagem' && manualMode === (modo === 'manual');
+            return (
+              <button
+                key={modo}
+                type="button"
+                role="tab"
+                aria-selected={ativo}
+                className={`novo-orcamento-modo${ativo ? ' ativo' : ''}`}
+                onClick={() => selecionarModo(modo)}
+                disabled={importando && !ativo}
+              >
+                <i className="material-icons" aria-hidden="true">{icone}</i>
+                <span><strong>{titulo}</strong><small>{detalhe}</small></span>
+              </button>
+            );
+          })}
+        </div>
+
+        {abaProduto === 'importacao' ? (
+          <div className="novo-orcamento-importacao">
+            <div className="novo-orcamento-help">
+              Envie uma planilha .xlsx ou .xls com as colunas <strong>{COLUNAS_OBRIGATORIAS.join(', ')}</strong> na primeira linha.
+              Cada linha é consultada no cadastro de produtos para completar descrição, código de barras, fornecedor e linha.
+              Produtos com o mesmo serial e Gemco já presentes no protocolo são atualizados, não duplicados.
+            </div>
+            <div className="novo-orcamento-importacao-acoes">
+              <input
+                ref={arquivoInputRef}
+                type="file"
+                accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                hidden
+                onChange={(e) => {
+                  const arquivo = e.target.files?.[0];
+                  if (arquivo) void importarArquivo(arquivo);
+                }}
+              />
+              <button className="btn btn-primary btn-sm" type="button" disabled={importando} onClick={() => arquivoInputRef.current?.click()}>
+                <i className="material-icons">upload_file</i> {importando ? 'Importando...' : 'Selecionar planilha'}
+              </button>
+              <button className="btn btn-secondary btn-sm" type="button" disabled={importando} onClick={() => {
+                baixarModeloImportacao().catch(() => setToast({ type: 'error', message: 'Não foi possível gerar o modelo. Tente novamente.' }));
+              }}>
+                <i className="material-icons">download</i> Baixar modelo
+              </button>
+              {arquivoImportacao && <span className="novo-orcamento-arquivo">{arquivoImportacao}</span>}
+            </div>
+
+            {importando && (
+              <div className="novo-orcamento-progresso" role="status" aria-live="polite">
+                <progress value={progressoImportacao.processadas} max={Math.max(progressoImportacao.total, 1)} />
+                <span>
+                  {progressoImportacao.total
+                    ? `Consultando produtos: ${progressoImportacao.processadas} de ${progressoImportacao.total}`
+                    : 'Lendo planilha...'}
+                </span>
+              </div>
+            )}
+
+            {erroImportacao && <div className="novo-orcamento-alerta erro" role="alert">{erroImportacao}</div>}
+
+            {resultadosImportacao.length > 0 && (
+              <div className="novo-orcamento-resultado">
+                <div className="novo-orcamento-resultado-resumo">
+                  <span className="item-count-badge importado">{resultadosImportacao.filter((r) => r.status === 'importado').length} importada(s)</span>
+                  <span className="item-count-badge atualizado">{resultadosImportacao.filter((r) => r.status === 'atualizado').length} atualizada(s)</span>
+                  <span className="item-count-badge erro">{resultadosImportacao.filter((r) => r.status === 'erro').length} com erro</span>
+                </div>
+                <div className="table-scroll novo-orcamento-resultado-tabela">
+                  <table className="tabela-horizontal">
+                    <thead>
+                      <tr>
+                        <th>Linha</th>
+                        <th>Serial</th>
+                        <th>Gemco</th>
+                        <th>Situação</th>
+                        <th>Detalhe</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {resultadosImportacao.map((resultado) => (
+                        <tr key={`${resultado.linha}-${resultado.status}`} className={`resultado-${resultado.status}`}>
+                          <td>{resultado.linha}</td>
+                          <td>{resultado.serial || '-'}</td>
+                          <td>{resultado.codGemco || '-'}</td>
+                          <td><strong>{resultado.status === 'erro' ? 'Erro' : resultado.status === 'atualizado' ? 'Atualizado' : 'Importado'}</strong></td>
+                          <td>{resultado.mensagem}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+        <>
         <div className="novo-orcamento-help">
-          Campos com * sao obrigatorios. Se a etiqueta estiver rasurada, rasgada, suja ou ilegivel, use o botao de preenchimento manual.
+          {manualMode
+            ? 'Serial e ID único são obrigatórios. Informe o Gemco ou o código de barras (basta um) e tecle Enter: descrição, fornecedor e linha são preenchidos automaticamente.'
+            : 'Campos com * sao obrigatorios. Bipe o serial e depois o código/QR da etiqueta. Se a etiqueta estiver rasurada, rasgada, suja ou ilegivel, use "Digitar manual".'}
         </div>
         <div className="grid-form novo-orcamento-grid novo-orcamento-grid-produto">
           <div className="span-3">
@@ -1065,28 +1242,45 @@ const NovoOrcamento = () => {
                 if (!manualMode && value.trim()) serialTimerRef.current = setTimeout(() => finalizeSerialInput(value), 450);
               }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === 'Tab') {
+                const value = (e.currentTarget as HTMLInputElement).value;
+                if (manualMode && e.key === 'Enter' && (codGemco.trim() || ean.trim())) {
+                  // Produto ja informado: Enter no serial adiciona direto se estiver tudo completo.
                   e.preventDefault();
-                  finalizeSerialInput((e.currentTarget as HTMLInputElement).value);
+                  setSerial(formatSerialValue(value));
+                  pedirAutoAdicionar();
+                } else if (e.key === 'Enter' || e.key === 'Tab') {
+                  e.preventDefault();
+                  finalizeSerialInput(value);
                 }
               }}
-              onBlur={(e) => finalizeSerialInput(e.target.value)}
+              onBlur={(e) => {
+                if (manualMode) setSerial(formatSerialValue(e.target.value));
+                else finalizeSerialInput(e.target.value);
+              }}
             />
           </div>
           <div className="span-5 novo-orcamento-gemco-field">
-            <label>Código GEMCO *</label>
+            <label>{manualMode ? 'Código GEMCO (ou código de barras)' : 'Código GEMCO *'}</label>
             <div className="qr-input-group novo-orcamento-qr-group">
               <input
                 ref={codeInputRef}
                 type="text"
                 value={codGemco}
                 disabled={!serialPronto && !manualMode}
-                required
-                placeholder={manualMode ? 'Digite o Código GEMCO' : (serialPronto ? 'Bipe o código/QR' : 'Preencha o serial antes')}
+                required={!manualMode}
+                placeholder={manualMode ? 'Digite o Gemco e tecle Enter' : (serialPronto ? 'Bipe o código/QR' : 'Preencha o serial antes')}
+                aria-busy={manualMode && consultaProduto.status === 'carregando'}
+                onBlur={(e) => { if (manualMode) void buscarProdutoManual('gemco', e.target.value); }}
                 onChange={(e) => {
                   const value = e.target.value;
                   requestSeqRef.current += 1;
                   setCodGemco(value);
+                  if (manualMode) {
+                    consultaSeqRef.current += 1;
+                    codigosConsultadosRef.current.clear();
+                    setConsultaProduto({ status: 'idle', mensagem: '' });
+                    return;
+                  }
                   const trimmed = value.trim();
                   if (
                     trimmed.startsWith('{')
@@ -1109,6 +1303,10 @@ const NovoOrcamento = () => {
                 }}
                 onKeyDown={(e) => {
                   if (!manualMode && (e.key === 'Enter' || e.key === 'Tab')) e.preventDefault();
+                  if (manualMode && e.key === 'Enter') {
+                    e.preventDefault();
+                    void buscarProdutoManual('gemco', e.currentTarget.value, true);
+                  }
                 }}
               />
               <button
@@ -1120,51 +1318,73 @@ const NovoOrcamento = () => {
               >
                 QR
               </button>
-              <button
-                className="btn btn-secondary btn-sm novo-orcamento-qr-button"
-                type="button"
-                onClick={alternarPreenchimentoManual}
-              >
-                {manualMode ? 'Fechar manual' : 'Digitar manual'}
-              </button>
             </div>
           </div>
           <div className="span-2">
-            <label>ID Unico</label>
+            <label>{manualMode ? 'ID Unico *' : 'ID Unico'}</label>
             <input
+              ref={uuidInputRef}
               type="text"
               value={uuid}
               readOnly={!manualMode}
-              placeholder={manualMode ? 'Digite manualmente se necessario' : ''}
+              required={manualMode}
+              placeholder={manualMode ? 'Obrigatorio preencher' : ''}
               onChange={(e) => setUuid(sanitizeUuidValue(e.target.value))}
-            />
-          </div>
-          <div className="span-2">
-            <label>Código de Barras</label>
-            <input
-              type="text"
-              value={ean}
-              readOnly={!manualMode}
-              placeholder={manualMode ? 'Digite manualmente se necessario' : ''}
-              onChange={(e) => setEan(sanitizeEanValue(e.target.value))}
-              onBlur={(e) => void buscarProdutoPorCodigoBarras(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') {
+                if (manualMode && e.key === 'Enter') {
                   e.preventDefault();
-                  void buscarProdutoPorCodigoBarras(e.currentTarget.value);
+                  pedirAutoAdicionar();
                 }
               }}
             />
           </div>
+          <div className="span-2">
+            <label>{manualMode ? 'Código de Barras (ou Gemco)' : 'Código de Barras'}</label>
+            <input
+              type="text"
+              value={ean}
+              readOnly={!manualMode}
+              placeholder={manualMode ? 'Digite ou bipe o código' : ''}
+              aria-busy={consultaProduto.status === 'carregando'}
+              aria-describedby="novo-orcamento-consulta-status"
+              onChange={(e) => {
+                setEan(sanitizeEanValue(e.target.value));
+                consultaSeqRef.current += 1;
+                codigosConsultadosRef.current.clear();
+                setConsultaProduto({ status: 'idle', mensagem: '' });
+              }}
+              onBlur={(e) => void buscarProdutoManual('ean', e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void buscarProdutoManual('ean', e.currentTarget.value, true);
+                }
+              }}
+            />
+          </div>
+          {manualMode && consultaProduto.status !== 'idle' && (
+            <div
+              id="novo-orcamento-consulta-status"
+              className={`span-12 novo-orcamento-alerta ${consultaProduto.status === 'encontrado' ? 'sucesso' : consultaProduto.status === 'carregando' ? 'carregando' : 'erro'}`}
+              role={consultaProduto.status === 'carregando' || consultaProduto.status === 'encontrado' ? 'status' : 'alert'}
+            >
+              {consultaProduto.status === 'carregando' && <span className="novo-orcamento-spinner" aria-hidden="true" />}
+              {consultaProduto.mensagem}
+            </div>
+          )}
           <div className="span-6">
             <label>Descrição *</label>
             <input
               type="text"
               value={descProd}
-              readOnly={!manualMode}
+              readOnly={!manualMode || consultaProduto.status === 'carregando'}
               required
-              placeholder={manualMode ? 'Obrigatorio preencher' : ''}
-              onChange={(e) => setDescProd(e.target.value)}
+              placeholder={consultaProduto.status === 'carregando' ? 'Consultando...' : (manualMode ? 'Obrigatorio preencher' : '')}
+              onChange={(e) => {
+                preenchidoPelaApiRef.current = false;
+                setDescProd(e.target.value);
+              }}
+              onKeyDown={adicionarComEnter}
             />
           </div>
           <div className="span-3">
@@ -1172,9 +1392,13 @@ const NovoOrcamento = () => {
             <input
               type="text"
               value={fornecedor}
-              readOnly={!manualMode}
-              placeholder={manualMode ? 'Digite manualmente se necessario' : ''}
-              onChange={(e) => setFornecedor(e.target.value)}
+              readOnly={!manualMode || consultaProduto.status === 'carregando'}
+              placeholder={consultaProduto.status === 'carregando' ? 'Consultando...' : (manualMode ? 'Digite manualmente se necessario' : '')}
+              onChange={(e) => {
+                preenchidoPelaApiRef.current = false;
+                setFornecedor(e.target.value);
+              }}
+              onKeyDown={adicionarComEnter}
             />
           </div>
           <div className="span-3">
@@ -1182,15 +1406,38 @@ const NovoOrcamento = () => {
             <input
               type="text"
               value={linha}
-              readOnly={!manualMode}
-              placeholder={manualMode ? 'Digite manualmente se necessario' : ''}
-              onChange={(e) => setLinha(e.target.value)}
+              readOnly={!manualMode || consultaProduto.status === 'carregando'}
+              placeholder={consultaProduto.status === 'carregando' ? 'Consultando...' : (manualMode ? 'Digite manualmente se necessario' : '')}
+              onChange={(e) => {
+                preenchidoPelaApiRef.current = false;
+                setLinha(e.target.value);
+              }}
+              onKeyDown={adicionarComEnter}
             />
           </div>
         </div>
+        {manualMode && (
+          <div className="novo-orcamento-adicionar">
+            <span className={`novo-orcamento-pendencia${pendenciaManual ? '' : ' pronto'}`} aria-live="polite">
+              {consultaProduto.status === 'carregando'
+                ? 'Aguardando a consulta do produto...'
+                : pendenciaManual || 'Tudo certo: tecle Enter ou clique para adicionar.'}
+            </span>
+            <button
+              className="btn btn-success btn-sm"
+              type="button"
+              disabled={Boolean(pendenciaManual) || consultaProduto.status === 'carregando'}
+              onClick={() => {
+                if (adicionarItem()) setToast({ type: 'success', message: 'Item adicionado ao protocolo.' });
+              }}
+            >
+              <i className="material-icons">add_circle</i> Adicionar item
+            </button>
+          </div>
+        )}
+        </>
+        )}
       </div>
-
-      {manualMode && <button className="btn btn-success" type="button" onClick={() => adicionarItem()}>Adicionar item manual</button>}
 
       <div className="card">
         <div className="section-title">Itens neste Protocolo</div>
@@ -1226,7 +1473,7 @@ const NovoOrcamento = () => {
                   <td>{item.linha}</td>
                   <td>{item.serial}</td>
                   <td style={{ textAlign: 'center' }}>
-                    <button className="btn btn-danger btn-sm" type="button" onClick={() => removerItem(item.id)}>
+                    <button className="btn btn-danger btn-sm" type="button" disabled={importando} onClick={() => removerItem(item.id)}>
                       <i className="material-icons">delete</i>
                     </button>
                   </td>
@@ -1237,8 +1484,15 @@ const NovoOrcamento = () => {
         </div>
 
         <div className="action-bar" style={{ marginTop: 20 }}>
-          <button className="btn btn-success btn-sm" type="button" onClick={finalizarEnvio} disabled={isSaving}>
-            <i className="material-icons">send</i> FINALIZAR ENVIO
+          <button
+            className="btn btn-success novo-orcamento-finalizar"
+            type="button"
+            onClick={finalizarEnvio}
+            disabled={isSaving || importando || itens.length === 0}
+            title={itens.length === 0 ? 'Adicione ao menos um item para finalizar' : undefined}
+          >
+            <i className="material-icons">send</i>
+            {isSaving ? 'ENVIANDO...' : `FINALIZAR ENVIO${itens.length ? ` (${itens.length} ${itens.length === 1 ? 'ITEM' : 'ITENS'})` : ''}`}
           </button>
         </div>
       </div>

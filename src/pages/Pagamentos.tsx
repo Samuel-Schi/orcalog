@@ -10,11 +10,22 @@ type Pagamento = {
   valor_pagamento?: number; nota_fiscal_numero?: string; kirk_numero?: string;
   produto_aprovado?: number; servico_aprovado?: number; produto_faturado?: number; servico_faturado?: number;
   produto_saldo?: number; servico_saldo?: number; possui_nota_sem_valor?: boolean;
-  notas_fiscais?: Array<{tipo?: string; valor?: number; numero?: string; nome?: string; url?: string}>;
+  notas_fiscais?: Array<{tipo?: string; valor?: number; numero?: string; nome?: string; url?: string; pasta_id?: string; pasta_url?: string}>;
 };
-type UploadResponse = { folderLink?: string; files?: Array<{ id?: string }> };
+type UploadResponse = { folderId?: string; folderLink?: string; files?: Array<{ id?: string }> };
 const labels: Record<string, string> = { AGUARDANDO_NOTA: 'Aguardando nota', NOTA_ENVIADA: 'Nota enviada', EM_VALIDACAO: 'Em validação', EM_PAGAMENTO: 'Em pagamento', PAGO: 'Pago' };
 const money = (value: number | undefined) => Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const enviado = (p: Pagamento) => Number(p.produto_faturado || 0) + Number(p.servico_faturado || 0);
+const pendente = (p: Pagamento) => Math.max(0, Number((Number(p.total_protocolo || 0) - enviado(p)).toFixed(2)));
+// Pasta criada na primeira nota do protocolo; as próximas notas vão para ela.
+const pastaDoProtocolo = (p: Pagamento) => p.notas_fiscais?.find((nota) => nota.pasta_id)?.pasta_id
+  || driveLink(p.nota_fiscal_drive_link).match(/\/folders\/([A-Za-z0-9_-]+)/)?.[1] || '';
+const pastaLink = (p: Pagamento) => { const id = pastaDoProtocolo(p); return id ? 'https://drive.google.com/drive/folders/' + id : driveLink(p.nota_fiscal_drive_link); };
+// Aceita "1234,56", "1.234,56" ou "1234.56".
+const parseValor = (texto: string) => {
+  const limpo = texto.trim().replace(/\s|R\$/g, '');
+  return Number(limpo.includes(',') ? limpo.replace(/\./g, '').replace(',', '.') : limpo);
+};
 const driveLink = (value?: string) => {
   try { const url = new URL(value || ''); return url.protocol === 'https:' && url.hostname === 'drive.google.com' ? url.href : ''; } catch { return ''; }
 };
@@ -40,7 +51,6 @@ export default function Pagamentos() {
   const [valor, setValor] = useState('');
   const [tipoNota, setTipoNota] = useState<'PRODUTO' | 'SERVICO'>('PRODUTO');
   const [numero, setNumero] = useState('');
-  const [kirk, setKirk] = useState('');
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [etapa, setEtapa] = useState('');
@@ -49,7 +59,7 @@ export default function Pagamentos() {
   const inputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const sendingRef = useRef(false);
-  const uploadedRef = useRef<{ file: File; protocolo: string; link: string; arquivoId: string } | null>(null);
+  const uploadedRef = useRef<{ file: File; protocolo: string; link: string; arquivoId: string; pastaId: string } | null>(null);
   const cnpjRef = useRef('');
 
   const carregar = useCallback(async () => {
@@ -70,7 +80,6 @@ export default function Pagamentos() {
   const selecionar = (pagamento: Pagamento) => {
     if (enviando) return;
     setSelected(pagamento); setValor(''); setTipoNota('PRODUTO');
-    setKirk(pagamento.kirk_numero || '');
     setNumero(pagamento.nota_fiscal_numero || ''); setArquivo(null); setAviso(null);
     uploadedRef.current = null;
     if (inputRef.current) inputRef.current.value = '';
@@ -88,7 +97,7 @@ export default function Pagamentos() {
   };
   const enviar = async () => {
     if (sendingRef.current || !selected) return;
-    const valorInformado = Number(valor.replace(',', '.'));
+    const valorInformado = parseValor(valor);
     const saldo = tipoNota === 'PRODUTO' ? Number(selected.produto_saldo || 0) : Number(selected.servico_saldo || 0);
     if (!numero.trim() || !valor.trim() || !Number.isFinite(valorInformado) || valorInformado <= 0 || !arquivo) {
       setAviso({ tipo: 'error', texto: 'Preencha o número e o valor da nota e anexe o PDF.' }); return;
@@ -101,23 +110,27 @@ export default function Pagamentos() {
       const referencia = selected.protocolo;
       let link = uploadedRef.current?.file === arquivo && uploadedRef.current.protocolo === selected.protocolo ? uploadedRef.current.link : '';
       let arquivoId = uploadedRef.current?.file === arquivo && uploadedRef.current.protocolo === selected.protocolo ? uploadedRef.current.arquivoId : '';
+      let pastaId = uploadedRef.current?.file === arquivo && uploadedRef.current.protocolo === selected.protocolo ? uploadedRef.current.pastaId : '';
       if (!link) {
         setEtapa('Enviando PDF…');
         const base64 = await toBase64(arquivo);
         const upload = await oracleApi.post<UploadResponse>(ORACLE_ENDPOINTS.uploadFotoDrive, {
           folderName: 'Pagamento_' + referencia,
-          files: [{ name: 'NF_' + referencia + '_' + arquivo.name, mimeType: 'application/pdf', base64 }]
+          folderId: pastaDoProtocolo(selected) || undefined,
+          publicFolder: true,
+          files: [{ name: 'NF_' + tipoNota + '_' + referencia + '_' + arquivo.name, mimeType: 'application/pdf', base64 }]
         }, { timeout: 55000 });
         link = driveLink(upload.data?.folderLink);
         arquivoId = String(upload.data?.files?.[0]?.id || '');
+        pastaId = String(upload.data?.folderId || '');
         if (!link || !arquivoId) throw new Error('O envio do PDF não foi confirmado.');
-        uploadedRef.current = { file: arquivo, protocolo: selected.protocolo, link, arquivoId };
+        uploadedRef.current = { file: arquivo, protocolo: selected.protocolo, link, arquivoId, pastaId };
       }
       setEtapa('Registrando nota…');
       await oracleApi.post(ORACLE_ENDPOINTS.savePagamentoSupabase, {
         protocolo: selected.protocolo, cnpj: cnpjRef.current, pagamentoReferencia: referencia,
         notaFiscalNome: arquivo.name, notaFiscalDriveLink: link,
-        valorPagamento: valorInformado, notaFiscalNumero: numero.trim(), notaFiscalArquivoId: arquivoId, tipoNota, kirkNumero: kirk.trim()
+        valorPagamento: valorInformado, notaFiscalNumero: numero.trim(), notaFiscalArquivoId: arquivoId, notaFiscalPastaId: pastaId, tipoNota
       });
       setAviso({ tipo: 'success', texto: 'Nota ' + numero.trim() + ' enviada para o orçamento ' + selected.protocolo + '.' });
       setSelected(null); setArquivo(null); uploadedRef.current = null;
@@ -144,14 +157,15 @@ export default function Pagamentos() {
           <div className="pg-panel-heading"><div><h3>Seus protocolos</h3><p>Escolha um protocolo para preencher a nota.</p></div><span className="pg-count">{filtrados.length}</span></div>
           <label className="pg-search"><span>Buscar protocolo</span><input type="search" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Protocolo, produto ou serial" /></label>
           <div className="pg-table-wrap"><table className="pg-table">
-            <thead><tr><th>Protocolo / itens</th><th>Total aprovado</th><th>Nota fiscal</th><th>Pagamento</th><th>Ação</th></tr></thead>
+            <thead><tr><th>Protocolo / itens</th><th>Total aprovado</th><th>Nota fiscal</th><th>Saldo pendente</th><th>Pagamento</th><th>Ação</th></tr></thead>
             <tbody>
-              {loading ? <tr><td colSpan={5} className="pg-empty" role="status">Carregando protocolos…</td></tr> : filtrados.length === 0 ? <tr><td colSpan={5} className="pg-empty">{busca ? 'Nenhum protocolo corresponde à busca.' : 'Os protocolos finalizados aparecerão aqui.'}</td></tr> : filtrados.map((p) => (
+              {loading ? <tr><td colSpan={6} className="pg-empty" role="status">Carregando protocolos…</td></tr> : filtrados.length === 0 ? <tr><td colSpan={6} className="pg-empty">{busca ? 'Nenhum protocolo corresponde à busca.' : 'Os protocolos finalizados aparecerão aqui.'}</td></tr> : filtrados.map((p) => (
                 <tr key={p.protocolo} className={selected?.protocolo === p.protocolo ? 'is-selected' : ''}>
                   <td><strong>{p.protocolo}</strong><span>{p.descricao || p.cod_gemco || 'Produto sem descrição'}</span><small>{p.quantidade_itens || 1} item(ns) · {p.itens_aprovados || 0} aprovado(s){p.itens_reprovados ? ' · ' + p.itens_reprovados + ' reprovado(s)' : ''}</small></td>
                   <td><strong>{Number(p.total_protocolo || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong><small>Limite máximo da nota</small></td>
-                  <td>{p.kirk_numero && <small>Chamado Kirk: {p.kirk_numero}</small>}{p.nota_fiscal_numero ? <><strong>Nº {p.nota_fiscal_numero}</strong><span>{Number(p.valor_pagamento || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span></> : <small>Não enviada</small>}{driveLink(p.nota_fiscal_drive_link) && <a href={driveLink(p.nota_fiscal_drive_link)} target="_blank" rel="noreferrer">Abrir documento ↗</a>}</td>
-                  <td><span className={'pg-badge ' + (p.pagamento_status === 'PAGO' ? 'paid' : p.pagamento_status === 'NOTA_ENVIADA' ? 'sent' : '')}>{labels[p.pagamento_status || 'AGUARDANDO_NOTA'] || p.pagamento_status}</span></td>
+                  <td>{p.nota_fiscal_numero ? <><strong>Nº {p.nota_fiscal_numero}</strong><span>{Number(p.valor_pagamento || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span></> : <small>Não enviada</small>}{pastaLink(p) && <a href={pastaLink(p)} target="_blank" rel="noreferrer">Abrir pasta das notas ↗</a>}</td>
+                  <td><strong>{money(pendente(p))}</strong><small>{enviado(p) > 0 ? 'Enviado ' + money(enviado(p)) : 'Nenhuma nota enviada'}</small></td>
+                  <td><span className={'pg-badge' + (p.pagamento_status === 'PAGO' ? 'paid' : p.pagamento_status === 'NOTA_ENVIADA' ? 'sent' : '')}>{labels[p.pagamento_status || 'AGUARDANDO_NOTA'] || p.pagamento_status}</span></td>
                   <td><button type="button" className="pg-select" disabled={enviando} aria-pressed={selected?.protocolo === p.protocolo} onClick={() => selecionar(p)}>{selected?.protocolo === p.protocolo ? 'Selecionado' : 'Selecionar'}</button></td>
                 </tr>
               ))}
@@ -161,7 +175,7 @@ export default function Pagamentos() {
         <form className="pg-panel pg-form" ref={formRef} onSubmit={(event) => { event.preventDefault(); void enviar(); }}>
           <div className="pg-panel-heading"><div><span className="pg-eyebrow">ENVIO DE DOCUMENTO</span><h3>Nota fiscal</h3></div><i className="material-icons" aria-hidden="true">description</i></div>
           {selected ? <>
-            <div className="pg-selected"><small>Protocolo selecionado</small><strong>{selected.protocolo}</strong><span>{money(selected.total_protocolo)} aprovados · {selected.quantidade_itens || 1} item(ns)</span></div>
+            <div className="pg-selected"><small>Protocolo selecionado</small><strong>{selected.protocolo}</strong><span>{money(selected.total_protocolo)} aprovados · {selected.quantidade_itens || 1} item(ns)</span><span>Enviado {money(enviado(selected))} · <b>Saldo pendente {money(pendente(selected))}</b></span></div>
             <div className="pg-financeiro-resumo" aria-label="Saldos para faturamento">
               <div><strong>Produtos</strong><span>Aprovado {money(selected.produto_aprovado)} · Faturado {money(selected.produto_faturado)}</span><b>Saldo {money(selected.produto_saldo)}</b></div>
               <div><strong>Serviços</strong><span>Aprovado {money(selected.servico_aprovado)} · Faturado {money(selected.servico_faturado)}</span><b>Saldo {money(selected.servico_saldo)}</b></div>
@@ -170,8 +184,7 @@ export default function Pagamentos() {
             <fieldset disabled={enviando}>
               <div className="pg-tipo-nota" role="group" aria-label="Tipo da nota fiscal"><button type="button" aria-pressed={tipoNota === 'PRODUTO'} onClick={() => { setTipoNota('PRODUTO'); setValor(''); }}>Nota de produto</button><button type="button" aria-pressed={tipoNota === 'SERVICO'} onClick={() => { setTipoNota('SERVICO'); setValor(''); }}>Nota de serviço</button></div>
               <label htmlFor="pg-numero">Número da nota fiscal<input id="pg-numero" required maxLength={80} value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="Ex.: 000123" /></label>
-              <label htmlFor="pg-kirk">Número do chamado Kirk (opcional)<input id="pg-kirk" maxLength={80} value={kirk} onChange={(e) => setKirk(e.target.value)} placeholder="Número gerado ao abrir o chamado" /></label>
-              <label htmlFor="pg-valor">Valor da nota de {tipoNota === 'PRODUTO' ? 'produto' : 'serviço'} (R$)<input id="pg-valor" required type="number" min="0.01" max={tipoNota === 'PRODUTO' ? selected.produto_saldo : selected.servico_saldo} step="0.01" inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="0,00" /></label>
+              <label htmlFor="pg-valor">Valor da nota de {tipoNota === 'PRODUTO' ? 'produto' : 'serviço'} (R$)<input id="pg-valor" required type="text" inputMode="decimal" autoComplete="off" maxLength={20} value={valor} onChange={(e) => { if (/^[\d.,]*$/.test(e.target.value)) setValor(e.target.value); }} placeholder="Ex.: 300,00" /></label>
               <div className="pg-file-box"><i className="material-icons" aria-hidden="true">upload_file</i><strong>{arquivo ? arquivo.name : 'Anexe a nota fiscal'}</strong><small>{arquivo ? (arquivo.size / 1024).toFixed(0) + ' KB · Pronto para enviar' : 'Arquivo PDF · Até 3 MB'}</small>
                 <button className="btn btn-secondary btn-sm" type="button" onClick={() => inputRef.current?.click()}>{arquivo ? 'Trocar arquivo' : 'Selecionar PDF'}</button>
                 <input ref={inputRef} type="file" accept="application/pdf,.pdf" hidden aria-label="Anexar nota fiscal em PDF" onChange={(e) => { anexar(e.target.files?.[0]); e.currentTarget.value = ''; }} />

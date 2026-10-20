@@ -20,3 +20,7 @@ export const isStatusFinalizado = (code: number | string) => {
   const numeric = typeof code === 'string' ? Number(code) : code;
   return numeric === 4 || numeric === 10;
 };
+
+// Lote finalizado: todos os itens do protocolo chegaram e estao com status finalizado.
+export const isLoteFinalizado = (itens: { status: number | string }[], totalItensNoLote = itens.length) =>
+  itens.length > 0 && itens.length >= totalItensNoLote && itens.every((item) => isStatusFinalizado(item.status));

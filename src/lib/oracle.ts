@@ -1,4 +1,5 @@
 ﻿import axios from 'axios';
+import { corrigirTextosQuebrados } from './texto';
 
 export const ORDS_BASE_URL = '';
 
@@ -45,7 +46,12 @@ export const oracleApi = axios.create({
 });
 
 oracleApi.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Respostas JSON ja decodificadas: repara texto gravado com acentuacao quebrada.
+    // Respostas em ArrayBuffer sao reparadas em parseMaybeJson.
+    if (!(response.data instanceof ArrayBuffer)) response.data = corrigirTextosQuebrados(response.data);
+    return response;
+  },
   (error) => {
     if (axios.isAxiosError(error)) {
       if (error.code === 'ECONNABORTED') {
@@ -80,7 +86,9 @@ export const decodeText = (input: unknown) => {
   return null;
 };
 
-export const parseMaybeJson = (input: unknown) => {
+export const parseMaybeJson = (input: unknown) => corrigirTextosQuebrados(parseMaybeJsonBruto(input));
+
+const parseMaybeJsonBruto = (input: unknown): any => {
   if (input instanceof ArrayBuffer) {
     const text = decodeText(input);
     if (typeof text !== 'string') return null;
