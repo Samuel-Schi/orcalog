@@ -11,19 +11,10 @@ type RomaneioPrintItem = {
   linha: string;
   serial: string;
   criadoEm?: string;
-  totalOrcamento?: number;
-  valPecas?: number;
-  valAcess?: number;
-  valMaoObra?: number;
-  valEmb?: number;
-  valHig?: number;
+  tipoOrc?: string;
   defeitoEncontrado?: string;
   pecasDesc?: string;
-  acessDesc?: string;
 };
-
-const formatMoney = (value?: number) =>
-  value != null ? value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-';
 
 const escapeHtml = (value?: string) =>
   String(value || '-')
@@ -45,24 +36,9 @@ const formatLista = (value?: string, prefix?: string) => {
   return items.length > 0 ? items.join(', ') : '-';
 };
 
-const formatComposicao = (item: RomaneioPrintItem) => {
-  const partes: string[] = [];
-  const pecas = formatLista(item.pecasDesc, 'pe');
-  const acessorios = formatLista(item.acessDesc, 'ac');
-
-  if (pecas !== '-') partes.push(`Pecas: ${pecas}`);
-  if (acessorios !== '-') partes.push(`Acessorios: ${acessorios}`);
-  if (Number(item.valMaoObra || 0) > 0) partes.push(`Mao de obra: ${formatMoney(item.valMaoObra)}`);
-  if (Number(item.valEmb || 0) > 0) partes.push(`Embalagem: ${formatMoney(item.valEmb)}`);
-  if (Number(item.valHig || 0) > 0) partes.push(`Higienizacao: ${formatMoney(item.valHig)}`);
-
-  return partes.length > 0 ? partes.join(' | ') : '-';
-};
-
 export const buildRomaneioPrintDocument = (input: {
   protocolo: string;
   criadoEm?: string;
-  totalLote: number;
   items: RomaneioPrintItem[];
 }) => {
   const first = input.items[0];
@@ -81,8 +57,8 @@ export const buildRomaneioPrintDocument = (input: {
             <div><strong>Serial:</strong> ${escapeHtml(item.serial)}</div>
           </td>
           <td>${escapeHtml(item.defeitoEncontrado || '-')}</td>
-          <td>${escapeHtml(formatComposicao(item))}</td>
-          <td class="col-total">${escapeHtml(formatMoney(item.totalOrcamento))}</td>
+          <td>${escapeHtml(formatLista(item.pecasDesc, 'pe'))}</td>
+          <td class="col-classificacao">${escapeHtml(item.tipoOrc)}</td>
         </tr>
       `;
     })
@@ -163,7 +139,7 @@ export const buildRomaneioPrintDocument = (input: {
       }
       .summary-strip {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         border: 1px solid #64748b;
         margin-top: 12px;
       }
@@ -194,12 +170,9 @@ export const buildRomaneioPrintDocument = (input: {
         font-weight: 700;
       }
       td strong { color: #111827; }
-      .col-total {
+      .col-classificacao {
         width: 90px;
-        text-align: right;
-        font-weight: 700;
-      }
-      tfoot td {
+        text-align: center;
         font-weight: 700;
       }
       .obs {
@@ -255,7 +228,6 @@ export const buildRomaneioPrintDocument = (input: {
       <div class="summary-strip">
         <div><span class="field-label">Emissao</span><strong>${escapeHtml(input.criadoEm)}</strong></div>
         <div><span class="field-label">Quantidade de itens</span><strong>${escapeHtml(String(input.items.length))}</strong></div>
-        <div><span class="field-label">Total do lote</span><strong>${escapeHtml(formatMoney(input.totalLote))}</strong></div>
         <div><span class="field-label">Documento</span><strong>Devolucao</strong></div>
       </div>
 
@@ -265,17 +237,11 @@ export const buildRomaneioPrintDocument = (input: {
             <th>Item</th>
             <th>Identificacao</th>
             <th>Defeito / Motivo</th>
-            <th>Composicao</th>
-            <th>Valor</th>
+            <th>Pecas trocadas</th>
+            <th class="col-classificacao">Classificacao</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
-        <tfoot>
-          <tr>
-            <td colspan="4">Total geral do lote</td>
-            <td class="col-total">${escapeHtml(formatMoney(input.totalLote))}</td>
-          </tr>
-        </tfoot>
       </table>
 
       <div class="obs">

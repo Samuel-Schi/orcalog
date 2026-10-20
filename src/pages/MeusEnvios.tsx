@@ -774,6 +774,7 @@ const MeusEnvios = () => {
                         <th>Fornecedor</th>
                         <th>Linha</th>
                         <th>Serial</th>
+                        <th>Classificacao</th>
                         <th>Pecas</th>
                         <th>Acess.</th>
                         <th>Mao de Obra</th>
@@ -795,6 +796,7 @@ const MeusEnvios = () => {
                           <td>{item.fornecedor}</td>
                           <td>{item.linha}</td>
                           <td>{item.serial}</td>
+                          <td><strong>{item.tipoOrc || '-'}</strong></td>
                           <td>{item.valPecas != null ? item.valPecas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
                           <td>{item.valAcess != null ? item.valAcess.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
                           <td>{item.valMaoObra != null ? item.valMaoObra.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
