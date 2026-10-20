@@ -16,19 +16,10 @@ type RomaneioItem = {
   linha: string;
   serial: string;
   criadoEm?: string;
-  totalOrcamento?: number;
-  valPecas?: number;
-  valAcess?: number;
-  valMaoObra?: number;
-  valEmb?: number;
-  valHig?: number;
+  tipoOrc?: string;
   defeitoEncontrado?: string;
   pecasDesc?: string;
-  acessDesc?: string;
 };
-
-const formatMoney = (value?: number) =>
-  value != null ? value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-';
 
 const formatDateTime = (value?: string) => {
   if (!value) return 'Sem data informada';
@@ -47,20 +38,6 @@ const splitDescricao = (value?: string, prefix?: string) =>
 const formatLista = (value?: string, prefix?: string) => {
   const items = splitDescricao(value, prefix);
   return items.length > 0 ? items.join(', ') : '-';
-};
-
-const formatComposicao = (item: RomaneioItem) => {
-  const partes: string[] = [];
-  const pecas = formatLista(item.pecasDesc, 'pe');
-  const acessorios = formatLista(item.acessDesc, 'ac');
-
-  if (pecas !== '-') partes.push(`Pecas: ${pecas}`);
-  if (acessorios !== '-') partes.push(`Acessorios: ${acessorios}`);
-  if (Number(item.valMaoObra || 0) > 0) partes.push(`Mao de obra: ${formatMoney(item.valMaoObra)}`);
-  if (Number(item.valEmb || 0) > 0) partes.push(`Embalagem: ${formatMoney(item.valEmb)}`);
-  if (Number(item.valHig || 0) > 0) partes.push(`Higienizacao: ${formatMoney(item.valHig)}`);
-
-  return partes.length > 0 ? partes.join(' | ') : '-';
 };
 
 const Romaneio = () => {
@@ -132,15 +109,9 @@ const Romaneio = () => {
         linha: String(row.linha ?? row.LINHA ?? ''),
         serial: String(row.serial ?? row.SERIAL ?? ''),
         criadoEm: String(row.criado_em ?? row.CRIADO_EM ?? ''),
-        totalOrcamento: row.total_orcamento ?? row.TOTAL_ORCAMENTO ?? row.totalOrcamento,
-        valPecas: row.val_pecas ?? row.VAL_PECAS ?? row.valPecas,
-        valAcess: row.val_acess ?? row.VAL_ACESS ?? row.valAcess,
-        valMaoObra: row.val_mao_obra ?? row.VAL_MAO_OBRA ?? row.valMaoObra,
-        valEmb: row.val_emb ?? row.VAL_EMB ?? row.valEmb,
-        valHig: row.val_hig ?? row.VAL_HIG ?? row.valHig,
+        tipoOrc: row.tipo_orc ?? row.TIPO_ORC ?? row.tipoOrc,
         defeitoEncontrado: row.defeito_encontrado ?? row.DEFEITO_ENCONTRADO ?? row.defeitoEncontrado,
-        pecasDesc: row.pecas_desc ?? row.PECAS_DESC ?? row.pecasDesc,
-        acessDesc: row.acess_desc ?? row.ACESS_DESC ?? row.acessDesc
+        pecasDesc: row.pecas_desc ?? row.PECAS_DESC ?? row.pecasDesc
       })) as RomaneioItem[];
 
       setItems(normalized);
@@ -181,7 +152,6 @@ const Romaneio = () => {
     const documento = buildRomaneioPrintDocument({
       protocolo,
       criadoEm: formatDateTime(criadoEm),
-      totalLote: itens.reduce((acc, item) => acc + Number(item.totalOrcamento || 0), 0),
       items: itens
     });
     const iframe = document.createElement('iframe');
@@ -255,7 +225,6 @@ const Romaneio = () => {
       <div className="romaneio-list">
         {filtrados.map(([protocolo, itens]) => {
           const first = itens[0];
-          const totalProtocolo = itens.reduce((acc, item) => acc + Number(item.totalOrcamento || 0), 0);
           const expanded = protocoloExpandido === protocolo;
 
           return (
@@ -271,7 +240,6 @@ const Romaneio = () => {
                 </div>
                 <div className="romaneio-toggle-side">
                   <span className="romaneio-toggle-count">{itens.length === 1 ? '1 item' : `${itens.length} itens`}</span>
-                  <strong>{formatMoney(totalProtocolo)}</strong>
                   <i className="material-icons">{expanded ? 'expand_less' : 'expand_more'}</i>
                 </div>
               </button>
@@ -316,7 +284,6 @@ const Romaneio = () => {
                     <section className="romaneio-infos-strip">
                       <div><span>Emissao</span><strong>{formatDateTime(first?.criadoEm)}</strong></div>
                       <div><span>Itens</span><strong>{itens.length}</strong></div>
-                      <div><span>Total do lote</span><strong>{formatMoney(totalProtocolo)}</strong></div>
                       <div><span>Documento</span><strong>Devolucao</strong></div>
                     </section>
 
@@ -327,8 +294,8 @@ const Romaneio = () => {
                             <th>Item</th>
                             <th>Identificacao</th>
                             <th>Defeito / Motivo</th>
-                            <th>Composicao</th>
-                            <th>Valor</th>
+                            <th>Pecas trocadas</th>
+                            <th>Classificacao</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -345,17 +312,11 @@ const Romaneio = () => {
                                 <div><strong>Serial:</strong> {item.serial || '-'}</div>
                               </td>
                               <td>{item.defeitoEncontrado || '-'}</td>
-                              <td>{formatComposicao(item)}</td>
-                              <td className="romaneio-col-total">{formatMoney(item.totalOrcamento)}</td>
+                              <td>{formatLista(item.pecasDesc, 'pe')}</td>
+                              <td className="romaneio-col-classificacao">{item.tipoOrc || '-'}</td>
                             </tr>
                           ))}
                         </tbody>
-                        <tfoot>
-                          <tr>
-                            <td colSpan={4}>Total geral do lote</td>
-                            <td className="romaneio-col-total">{formatMoney(totalProtocolo)}</td>
-                          </tr>
-                        </tfoot>
                       </table>
                     </section>
 

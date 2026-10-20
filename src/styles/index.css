@@ -1929,7 +1929,7 @@ body.dark-mode .sidebar {
 
 .romaneio-infos-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   border: 1px solid #94a3b8;
 }
 
@@ -2037,9 +2037,9 @@ body.dark-mode .sidebar {
   font-weight: 800;
 }
 
-.romaneio-col-total {
+.romaneio-col-classificacao {
   width: 110px;
-  text-align: right;
+  text-align: center;
   font-weight: 800;
 }
 
