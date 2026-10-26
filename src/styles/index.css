@@ -581,9 +581,49 @@ body.dark-mode .fotos-produto-rodape { color: #aaa; }
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.negociacao-card {
+  margin-bottom: 12px;
+  padding: 16px;
+  border: 1px solid #dbe4f0;
+  border-left: 4px solid #94a3b8;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.negociacao-card.aguardando-posto { border-left-color: #f59e0b; }
+
+.negociacao-topo {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.negociacao-topo h4 { margin: 0; color: #0f172a; font-size: 1rem; }
+.negociacao-topo small { color: #64748b; font-size: 0.78rem; }
+
+.negociacao-status {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.aguardando-posto .negociacao-status { background: #fef3c7; color: #92400e; }
+
+.negociacao-chamada {
+  margin: 0 0 12px;
+  color: #334155;
+  font-size: 0.9rem;
+}
+
 .negociacao-valores {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
   margin-bottom: 12px;
 }
@@ -619,8 +659,77 @@ body.dark-mode .fotos-produto-rodape { color: #aaa; }
 }
 
 .negociacao-valor-card small { margin-top: 5px; font-size: 0.78rem; }
-.negociacao-economia { color: #15803d; }
-.negociacao-acrescimo { color: #b45309; }
+.negociacao-diferenca { color: #92400e; }
+
+.negociacao-observacao {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-left: 3px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  white-space: pre-wrap;
+}
+
+.negociacao-observacao span {
+  display: block;
+  margin-bottom: 3px;
+  color: #64748b;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.negociacao-aviso {
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  border-radius: 6px;
+  font-size: 0.88rem;
+}
+
+.negociacao-aviso.sucesso { background: #f0fdf4; color: #166534; }
+.negociacao-aviso.erro { background: #fef2f2; color: #991b1b; }
+
+.negociacao-contraproposta {
+  padding: 12px;
+  border: 1px solid #dbe4f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.negociacao-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.negociacao-contraproposta .negociacao-acoes { margin-top: 12px; }
+
+.negociacao-recusar {
+  margin-left: auto;
+  border: 0;
+  padding: 6px 4px;
+  background: transparent;
+  color: #b91c1c;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.negociacao-recusar:disabled { opacity: 0.5; cursor: default; }
+
+.negociacao-espera {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: #475569;
+  font-size: 0.88rem;
+}
+
+.negociacao-espera i { font-size: 18px; color: #64748b; }
 
 .negociacao-currency-input {
   display: flex;
@@ -640,6 +749,9 @@ body.dark-mode .fotos-produto-rodape { color: #aaa; }
 
 @media (max-width: 600px) {
   .negociacao-valores { grid-template-columns: 1fr; }
+  .negociacao-acoes .btn { flex: 1 1 100%; }
+  .negociacao-recusar { margin-left: 0; }
+  .negociacao-contraproposta .lancamento-row-2 { grid-template-columns: 1fr; }
 }
 
 .lancamento-main-grid {

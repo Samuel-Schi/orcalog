@@ -134,6 +134,17 @@ BEGIN
   IF n.negotiation_scope='ITEM' AND cardinality(p_ids)>0 AND NOT EXISTS(
     SELECT 1 FROM unnest(p_ids) AS t(id) WHERE n.item_ids @> jsonb_build_array(id)
   ) THEN RETURN NULL; END IF;
+  -- AT aprovando uma contraproposta = aceita o valor pedido pelo posto: ele vira o valor acordado e a
+  -- negociação segue como aceita (portal e pagamentos leem ACEITA_POSTO + valor_proposto_at). A proposta
+  -- anterior da AT fica registrada na observação. Se algo abaixo falhar, a transação desfaz isto também.
+  IF n.status='CONTRAPROPOSTA_POSTO' AND coalesce(n.valor_contraproposta_posto,0)>0 THEN
+    UPDATE public.orcamento_negociacoes SET
+      observacao_at=concat_ws(E'\n',nullif(observacao_at,''),format('Contraproposta do posto (R$ %s) aprovada pela AT em %s%s. Proposta anterior da AT: R$ %s.',
+        n.valor_contraproposta_posto,to_char(now() AT TIME ZONE 'America/Sao_Paulo','DD/MM/YYYY HH24:MI'),
+        coalesce(' por '||nullif(p_responsavel,''),''),coalesce(n.valor_proposto_at::text,'-'))),
+      valor_proposto_at=n.valor_contraproposta_posto,status='ACEITA_POSTO',updated_at=now()
+      WHERE id=n.id RETURNING * INTO n;
+  END IF;
   IF n.status <> 'ACEITA_POSTO' OR n.valor_proposto_at IS NULL OR n.valor_proposto_at < 0 THEN
     RAISE EXCEPTION 'A negociação precisa de um valor válido e aceito pelo posto.' USING ERRCODE='40001';
   END IF;

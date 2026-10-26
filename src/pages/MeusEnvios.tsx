@@ -177,6 +177,8 @@ const MeusEnvios = () => {
   const [contraValores, setContraValores] = useState<Record<string, string>>({});
   const [contraObs, setContraObs] = useState<Record<string, string>>({});
   const [respondendo, setRespondendo] = useState<Record<string, boolean>>({});
+  const [contraAberta, setContraAberta] = useState<Record<string, boolean>>({});
+  const [avisoNegociacao, setAvisoNegociacao] = useState<Record<string, { tipo: 'sucesso' | 'erro'; texto: string } | undefined>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const requestRef = useRef<AbortController | null>(null);
@@ -402,19 +404,9 @@ const MeusEnvios = () => {
     return numeric.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   };
 
-  const getNegotiatedValue = (negociacao: NegociacaoSupabaseRow) => {
-    const contraproposta = Number(negociacao.valor_contraproposta_posto);
-    if (Number.isFinite(contraproposta) && contraproposta > 0) return contraproposta;
-
-    const propostaAt = Number(negociacao.valor_proposto_at);
-    return Number.isFinite(propostaAt) && propostaAt > 0 ? propostaAt : null;
-  };
-
-  const getNegotiatedValueLabel = (negociacao: NegociacaoSupabaseRow) => {
-    const contraproposta = Number(negociacao.valor_contraproposta_posto);
-    return Number.isFinite(contraproposta) && contraproposta > 0
-      ? 'Sua contraproposta'
-      : 'Proposta em negociação';
+  const valorPositivo = (value?: number | string | null) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
   };
 
   const parseCurrencyInput = (value: string) => {
@@ -442,11 +434,11 @@ const MeusEnvios = () => {
 
   const getNegociacaoStatusLabel = (status?: string | null) => {
     const normalized = String(status || '').trim().toUpperCase();
-    if (normalized === 'ABERTA_AT') return 'Proposta recebida do AT';
-    if (normalized === 'ACEITA_POSTO') return 'Proposta aceita pelo posto';
-    if (normalized === 'RECUSADA_POSTO') return 'Proposta recusada pelo posto';
-    if (normalized === 'CONTRAPROPOSTA_POSTO') return 'Contraproposta enviada ao AT';
-    return normalized || 'Negociacao em andamento';
+    if (normalized === 'ABERTA_AT') return 'Aguardando sua resposta';
+    if (normalized === 'ACEITA_POSTO') return 'Proposta aceita';
+    if (normalized === 'RECUSADA_POSTO') return 'Proposta recusada';
+    if (normalized === 'CONTRAPROPOSTA_POSTO') return 'Contraproposta enviada';
+    return normalized || 'Negociação em andamento';
   };
 
   const responderNegociacao = async (
@@ -458,9 +450,13 @@ const MeusEnvios = () => {
 
     const valorContraproposta = parseCurrencyInput(contraValores[protocolo] || '');
     if (action === 'CONTRAPROPOSTA' && (!Number.isFinite(valorContraproposta) || valorContraproposta <= 0)) {
+      setAvisoNegociacao((prev) => ({ ...prev, [protocolo]: { tipo: 'erro', texto: 'Informe o valor da contraproposta.' } }));
       return;
     }
+    if (action === 'ACEITAR' && !window.confirm(`Aceitar a proposta de ${formatCurrency(negociacao.valor_proposto_at)} do AT?`)) return;
+    if (action === 'RECUSAR' && !window.confirm('Recusar a proposta do AT? O AT será avisado da recusa.')) return;
 
+    setAvisoNegociacao((prev) => ({ ...prev, [protocolo]: undefined }));
     try {
       respostasEmAndamentoRef.current += 1;
       requestRef.current?.abort();
@@ -496,6 +492,20 @@ const MeusEnvios = () => {
       setNegociacoesByProtocolo((prev) => ({ ...prev, [protocolo]: updated }));
       setContraValores((prev) => ({ ...prev, [protocolo]: '' }));
       setContraObs((prev) => ({ ...prev, [protocolo]: '' }));
+      setContraAberta((prev) => ({ ...prev, [protocolo]: false }));
+      setAvisoNegociacao((prev) => ({
+        ...prev,
+        [protocolo]: {
+          tipo: 'sucesso',
+          texto: action === 'ACEITAR'
+            ? 'Proposta aceita. O AT foi avisado.'
+            : action === 'RECUSAR'
+              ? 'Proposta recusada. O AT foi avisado.'
+              : 'Contraproposta enviada. Aguarde a análise do AT.'
+        }
+      }));
+    } catch {
+      setAvisoNegociacao((prev) => ({ ...prev, [protocolo]: { tipo: 'erro', texto: 'Não foi possível enviar sua resposta. Tente novamente.' } }));
     } finally {
       respostasEmAndamentoRef.current -= 1;
       setRespondendo((prev) => ({ ...prev, [protocolo]: false }));
@@ -578,11 +588,12 @@ const MeusEnvios = () => {
           const dataEnvio = itens[0]?.criadoEm || '';
           const quantidadeItens = itens.length;
           const negociacao = negociacoesByProtocolo[protocolo];
-          const valorPedido = Number(negociacao?.valor_original);
-          const valorEmNegociacao = negociacao ? getNegotiatedValue(negociacao) : null;
-          const diferencaNegociacao = valorEmNegociacao != null && Number.isFinite(valorPedido)
-            ? valorEmNegociacao - valorPedido
-            : null;
+          const valorPedido = valorPositivo(negociacao?.valor_original);
+          const propostaAt = valorPositivo(negociacao?.valor_proposto_at);
+          const contraproposta = valorPositivo(negociacao?.valor_contraproposta_posto);
+          const diferencaProposta = propostaAt != null && valorPedido != null ? propostaAt - valorPedido : null;
+          const aguardandoPosto = String(negociacao?.acao_pendente_de || '').toUpperCase() === 'POSTO';
+          const aviso = avisoNegociacao[protocolo];
           const mostrarAvisoSemVinculo = possuiNegociacaoPendente && !negociacao;
           return (
             <div key={protocolo} className={`protocolo-card ${abertos[protocolo] ? 'open' : ''}${podeFinalizar ? ' pronto-finalizar' : ''}`}>
@@ -641,112 +652,148 @@ const MeusEnvios = () => {
                   </div>
                 )}
                 {negociacao && (
-                  <div className="card" style={{ marginBottom: 12, borderTopColor: '#f59e0b' }}>
-                    <div className="section-title">Negociacao</div>
-                    <div className="lancamento-row lancamento-row-2" style={{ marginBottom: 10 }}>
-                      <div className="lancamento-field">
-                        <label>Status da negociacao</label>
-                        <div style={{ fontWeight: 700, color: '#0f172a' }}>{getNegociacaoStatusLabel(negociacao.status)}</div>
+                  <section className={`negociacao-card${aguardandoPosto ? ' aguardando-posto' : ''}`} aria-label="Negociação">
+                    <header className="negociacao-topo">
+                      <div>
+                        <h4>Negociação</h4>
+                        <small>Atualizado em {formatDateTime(negociacao.updated_at)}</small>
                       </div>
-                      <div className="lancamento-field">
-                        <label>Atualizado em</label>
-                        <div style={{ fontWeight: 700, color: '#0f172a' }}>{formatDateTime(negociacao.updated_at)}</div>
-                      </div>
-                    </div>
+                      <span className="negociacao-status">{getNegociacaoStatusLabel(negociacao.status)}</span>
+                    </header>
+
+                    {aguardandoPosto && (
+                      <p className="negociacao-chamada">
+                        O AT enviou uma proposta para este orçamento. Aceite, recuse ou faça uma contraproposta.
+                      </p>
+                    )}
+
                     <div className="negociacao-valores">
                       <div className="negociacao-valor-card">
                         <label>Valor pedido</label>
-                        <strong>{formatCurrency(negociacao.valor_original)}</strong>
+                        <strong>{formatCurrency(valorPedido)}</strong>
                       </div>
-                      <div className="negociacao-valor-card negociacao-valor-atual">
-                        <label>{getNegotiatedValueLabel(negociacao)}</label>
-                        <strong>{valorEmNegociacao != null ? formatCurrency(valorEmNegociacao) : '-'}</strong>
-                        {diferencaNegociacao != null && (
-                          <small className={diferencaNegociacao <= 0 ? 'negociacao-economia' : 'negociacao-acrescimo'}>
-                            {diferencaNegociacao === 0
-                              ? 'Mesmo valor do pedido'
-                              : `${formatCurrency(Math.abs(diferencaNegociacao))} ${diferencaNegociacao < 0 ? 'abaixo' : 'acima'} do pedido`}
+                      <div className={`negociacao-valor-card${contraproposta == null ? ' negociacao-valor-atual' : ''}`}>
+                        <label>Proposta do AT</label>
+                        <strong>{propostaAt != null ? formatCurrency(propostaAt) : '-'}</strong>
+                        {diferencaProposta != null && diferencaProposta !== 0 && (
+                          <small className="negociacao-diferenca">
+                            {formatCurrency(Math.abs(diferencaProposta))} {diferencaProposta < 0 ? 'a menos' : 'a mais'} que o pedido
                           </small>
                         )}
                       </div>
-                    </div>
-                    {Number(negociacao.valor_contraproposta_posto) > 0 && (
-                      <div className="lancamento-row lancamento-row-1" style={{ marginBottom: 10 }}>
-                        <div className="lancamento-field">
-                          <label>Proposta do AT</label>
-                          <div style={{ color: '#475569' }}>{formatCurrency(negociacao.valor_proposto_at)}</div>
+                      {contraproposta != null && (
+                        <div className="negociacao-valor-card negociacao-valor-atual">
+                          <label>Sua contraproposta</label>
+                          <strong>{formatCurrency(contraproposta)}</strong>
                         </div>
-                      </div>
-                    )}
-                    <div className="lancamento-row lancamento-row-1" style={{ marginBottom: 10 }}>
-                      <div className="lancamento-field">
-                        <label>Observacao do AT</label>
-                        <div style={{ color: '#475569' }}>{negociacao.observacao_at || '-'}</div>
-                      </div>
+                      )}
                     </div>
-                    {String(negociacao.acao_pendente_de || '').toUpperCase() === 'POSTO' ? (
-                      <>
-                        <div className="lancamento-row lancamento-row-2">
-                          <div className="lancamento-field">
-                            <label>Minha contraproposta</label>
-                            <div className="negociacao-currency-input">
-                              <span>R$</span>
+
+                    {negociacao.observacao_at && (
+                      <blockquote className="negociacao-observacao">
+                        <span>Observação do AT</span>
+                        {negociacao.observacao_at}
+                      </blockquote>
+                    )}
+                    {!aguardandoPosto && negociacao.observacao_posto && (
+                      <blockquote className="negociacao-observacao">
+                        <span>Sua observação</span>
+                        {negociacao.observacao_posto}
+                      </blockquote>
+                    )}
+
+                    {aviso && (
+                      <p className={`negociacao-aviso ${aviso.tipo}`} role={aviso.tipo === 'erro' ? 'alert' : 'status'}>{aviso.texto}</p>
+                    )}
+
+                    {aguardandoPosto ? (
+                      contraAberta[protocolo] ? (
+                        <form
+                          className="negociacao-contraproposta"
+                          onSubmit={(e) => { e.preventDefault(); void responderNegociacao(protocolo, 'CONTRAPROPOSTA'); }}
+                        >
+                          <div className="lancamento-row lancamento-row-2">
+                            <div className="lancamento-field">
+                              <label htmlFor={`contra-valor-${protocolo}`}>Valor da contraproposta</label>
+                              <div className="negociacao-currency-input">
+                                <span>R$</span>
+                                <input
+                                  id={`contra-valor-${protocolo}`}
+                                  type="text"
+                                  inputMode="decimal"
+                                  placeholder="0,00"
+                                  autoFocus
+                                  value={contraValores[protocolo] || ''}
+                                  onChange={(e) => setContraValores((prev) => ({ ...prev, [protocolo]: e.target.value.replace(/[^\d,.-]/g, '') }))}
+                                  onBlur={() => setContraValores((prev) => ({
+                                    ...prev,
+                                    [protocolo]: formatCurrencyInput(parseCurrencyInput(prev[protocolo] || ''))
+                                  }))}
+                                />
+                              </div>
+                              {valorPedido != null && (
+                                <div className="negociacao-atalhos">
+                                  <button
+                                    type="button"
+                                    onClick={() => setContraValores((prev) => ({ ...prev, [protocolo]: formatCurrencyInput(valorPedido) }))}
+                                  >
+                                    Usar valor pedido ({formatCurrency(valorPedido)})
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                            <div className="lancamento-field">
+                              <label htmlFor={`contra-obs-${protocolo}`}>Observação (opcional)</label>
                               <input
+                                id={`contra-obs-${protocolo}`}
                                 type="text"
-                                inputMode="decimal"
-                                placeholder="0,00"
-                                value={contraValores[protocolo] || ''}
-                                onChange={(e) => setContraValores((prev) => ({ ...prev, [protocolo]: e.target.value.replace(/[^\d,.-]/g, '') }))}
-                                onBlur={() => setContraValores((prev) => ({
-                                  ...prev,
-                                  [protocolo]: formatCurrencyInput(parseCurrencyInput(prev[protocolo] || ''))
-                                }))}
+                                placeholder="Explique o motivo do valor"
+                                value={contraObs[protocolo] || ''}
+                                onChange={(e) => setContraObs((prev) => ({ ...prev, [protocolo]: e.target.value }))}
                               />
                             </div>
-                            <div className="negociacao-atalhos">
-                              <button
-                                type="button"
-                                onClick={() => setContraValores((prev) => ({ ...prev, [protocolo]: formatCurrencyInput(negociacao.valor_proposto_at) }))}
-                              >
-                                Usar proposta do AT
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setContraValores((prev) => ({ ...prev, [protocolo]: formatCurrencyInput(negociacao.valor_original) }))}
-                              >
-                                Usar valor pedido
-                              </button>
-                            </div>
                           </div>
-                          <div className="lancamento-field">
-                            <label>Observacao do posto</label>
-                            <input
-                              type="text"
-                              placeholder="Opcional"
-                              value={contraObs[protocolo] || ''}
-                              onChange={(e) => setContraObs((prev) => ({ ...prev, [protocolo]: e.target.value }))}
-                            />
+                          <div className="negociacao-acoes">
+                            <button
+                              className="btn btn-primary btn-sm"
+                              type="submit"
+                              disabled={Boolean(respondendo[protocolo]) || parseCurrencyInput(contraValores[protocolo] || '') <= 0}
+                            >
+                              {respondendo[protocolo] ? 'Enviando…' : 'Enviar contraproposta'}
+                            </button>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              type="button"
+                              disabled={Boolean(respondendo[protocolo])}
+                              onClick={() => setContraAberta((prev) => ({ ...prev, [protocolo]: false }))}
+                            >
+                              Voltar
+                            </button>
                           </div>
-                        </div>
-                        <div className="action-bar" style={{ marginTop: 12, justifyContent: 'flex-start' }}>
+                        </form>
+                      ) : (
+                        <div className="negociacao-acoes">
                           <button
                             className="btn btn-success btn-sm"
                             type="button"
-                            disabled={Boolean(respondendo[protocolo])}
+                            disabled={Boolean(respondendo[protocolo]) || propostaAt == null}
                             onClick={() => responderNegociacao(protocolo, 'ACEITAR')}
                           >
-                            Aceitar proposta
+                            {respondendo[protocolo] ? 'Enviando…' : `Aceitar ${propostaAt != null ? formatCurrency(propostaAt) : 'proposta'}`}
                           </button>
                           <button
                             className="btn btn-primary btn-sm"
                             type="button"
                             disabled={Boolean(respondendo[protocolo])}
-                            onClick={() => responderNegociacao(protocolo, 'CONTRAPROPOSTA')}
+                            onClick={() => {
+                              setAvisoNegociacao((prev) => ({ ...prev, [protocolo]: undefined }));
+                              setContraAberta((prev) => ({ ...prev, [protocolo]: true }));
+                            }}
                           >
-                            Enviar contraproposta
+                            Fazer contraproposta
                           </button>
                           <button
-                            className="btn btn-secondary btn-sm"
+                            className="negociacao-recusar"
                             type="button"
                             disabled={Boolean(respondendo[protocolo])}
                             onClick={() => responderNegociacao(protocolo, 'RECUSAR')}
@@ -754,15 +801,18 @@ const MeusEnvios = () => {
                             Recusar proposta
                           </button>
                         </div>
-                      </>
+                      )
                     ) : (
-                      <div style={{ color: '#64748b' }}>
+                      <p className="negociacao-espera">
+                        <i className="material-icons" aria-hidden="true">
+                          {String(negociacao.acao_pendente_de || '').toUpperCase() === 'AT' ? 'hourglass_top' : 'info'}
+                        </i>
                         {String(negociacao.acao_pendente_de || '').toUpperCase() === 'AT'
-                          ? 'Sua resposta ja foi enviada. Agora o AT precisa analisar.'
-                          : 'Negociacao acompanhada pelo sistema.'}
-                      </div>
+                          ? 'Sua resposta foi enviada. Aguardando a análise do AT.'
+                          : 'Negociação acompanhada pelo sistema.'}
+                      </p>
                     )}
-                  </div>
+                  </section>
                 )}
                 <div className="table-scroll">
                   <table className="tabela-horizontal">
