@@ -61,7 +61,21 @@ export const getCatalogoByLinha = (linha: string | null | undefined, catalogo: R
     return catalogo['EP - ELETROPORTATEIS'] || null;
   }
 
-  return catalogo[normalized] || null;
+  if (catalogo[normalized]) return catalogo[normalized];
+
+  // "ED1 - ELETRO 1" casa com "ED1", "ELETRO 1" ou "ED1 - ELETRO 1" vindo do produto.
+  const partes = (valor: string) => {
+    const [codigo, ...nome] = valor.split('-');
+    return { codigo: codigo.trim(), nome: nome.join('-').trim() };
+  };
+  const produto = partes(normalized);
+  const chave = Object.keys(catalogo).find((key) => {
+    const linhaCatalogo = partes(key);
+    return [produto.codigo, produto.nome].some((parte) =>
+      Boolean(parte) && (parte === linhaCatalogo.codigo || parte === linhaCatalogo.nome)
+    );
+  });
+  return chave ? catalogo[chave] : null;
 };
 
 export const appendCatalogValue = (current: string, next: string) => {

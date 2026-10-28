@@ -1,4 +1,4 @@
-﻿# Orçalog (Frontend)
+# Orçalog (Frontend)
 
 Frontend do sistema de **gestão de envio de orçamentos** (Login, Novo Orçamento e Meus Envios), separado da área de aprovação.
 

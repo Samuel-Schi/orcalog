@@ -213,6 +213,8 @@ const NovoOrcamento = () => {
   const [pedidoAutoAdicionar, setPedidoAutoAdicionar] = useState(0);
   const draftHydratedRef = useRef(false);
   const serialTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Leitor manda os caracteres em rajada; pausa entre teclas indica digitacao (ou tecla segurada).
+  const serialDigitacaoRef = useRef({ ultimaTecla: 0, digitado: false });
   const lookupInFlightRef = useRef('');
   // Codigos ja consultados ('gemco:X' / 'ean:Y'): evita repetir a consulta no Enter + blur do leitor.
   const codigosConsultadosRef = useRef(new Set<string>());
@@ -542,10 +544,8 @@ const NovoOrcamento = () => {
     const handle = setTimeout(() => {
       const parsed = parseQrPayload(codGemco);
       if (parsed && hasLookupFields(parsed)) {
+        // Campos so sao preenchidos se a consulta falhar; no sucesso o item vai direto para a tabela.
         pendingScanRef.current = parsed;
-        if (parsed.uuid) setUuid(parsed.uuid);
-        if (parsed.ean) setEan(parsed.ean);
-        if (parsed.serial) setSerial(parsed.serial);
         void buscarProdutoCadastro(parsed);
       } else if (!/[{^]/.test(codGemco) && !/^UUID/i.test(codGemco)) {
         void buscarProdutoCadastro();
@@ -701,6 +701,7 @@ const NovoOrcamento = () => {
     setManualMode(manual);
     setConsultaProduto({ status: 'idle', mensagem: '' });
     consultaSeqRef.current += 1;
+    requestSeqRef.current += 1;
     codigosConsultadosRef.current.clear();
     pendingScanRef.current = null;
     if (manual) {
@@ -851,6 +852,7 @@ const NovoOrcamento = () => {
     if (lookupInFlightRef.current === lookupKey) return;
     lookupInFlightRef.current = lookupKey;
     const requestId = ++requestSeqRef.current;
+    setConsultaProduto({ status: 'carregando', mensagem: 'Consultando produto...' });
     try {
       setDescProd('');
       setFornecedor('');
@@ -916,12 +918,16 @@ const NovoOrcamento = () => {
         pendingScanRef.current = null;
         setToast({ type: 'success', message: 'Item adicionado automaticamente ao protocolo.' });
       } else {
+        // Mostra o que foi lido da etiqueta para aproveitar no "Digitar manual".
+        if (!uuidApi && pendingScan?.uuid) setUuid(pendingScan.uuid);
+        if (!eanApi && (pendingScan?.ean || lookupEan)) setEan(pendingScan?.ean || lookupEan);
         setToast({ type: 'error', message: 'O cadastro do Oracle e a etiqueta vieram sem descricao. Use Digitar manual para preencher a descricao e adicionar o item.' });
       }
     } catch {
       if (requestId === requestSeqRef.current) setToast({ type: 'error', message: 'Nao foi possivel consultar o produto. Tente bipar novamente.' });
     } finally {
       if (lookupInFlightRef.current === lookupKey) lookupInFlightRef.current = '';
+      if (requestId === requestSeqRef.current) setConsultaProduto({ status: 'idle', mensagem: '' });
     }
   };
 
@@ -1238,8 +1244,16 @@ const NovoOrcamento = () => {
               onChange={(e) => {
                 const value = e.target.value;
                 setSerial(formatSerialValue(value));
+                const agora = Date.now();
+                const digitacao = serialDigitacaoRef.current;
+                if (value.trim().length <= 1) digitacao.digitado = false;
+                else if (agora - digitacao.ultimaTecla > 80) digitacao.digitado = true;
+                digitacao.ultimaTecla = agora;
                 if (serialTimerRef.current) clearTimeout(serialTimerRef.current);
-                if (!manualMode && value.trim()) serialTimerRef.current = setTimeout(() => finalizeSerialInput(value), 450);
+                // So avanca sozinho para leitura de leitor sem Enter; digitando, o usuario tecla Enter/Tab.
+                if (!manualMode && !digitacao.digitado && formatSerialValue(value).length >= 4) {
+                  serialTimerRef.current = setTimeout(() => finalizeSerialInput(value), 450);
+                }
               }}
               onKeyDown={(e) => {
                 const value = (e.currentTarget as HTMLInputElement).value;
@@ -1281,25 +1295,8 @@ const NovoOrcamento = () => {
                     setConsultaProduto({ status: 'idle', mensagem: '' });
                     return;
                   }
-                  const trimmed = value.trim();
-                  if (
-                    trimmed.startsWith('{')
-                    || trimmed.includes('"legacyId"')
-                    || trimmed.includes('"uuid"')
-                    || trimmed.includes('"ean"')
-                    || /\^UUID\^/i.test(trimmed)
-                    || /^UUID\d+/i.test(trimmed)
-                  ) {
-                    pendingScanRef.current = null;
-                  } else {
-                    pendingScanRef.current = null;
-                    const normalized = normalizeCode(value);
-                    if (normalized.length >= 8) {
-                      setEan(normalized);
-                    } else {
-                      setEan('');
-                    }
-                  }
+                  pendingScanRef.current = null;
+                  setConsultaProduto({ status: 'idle', mensagem: '' });
                 }}
                 onKeyDown={(e) => {
                   if (!manualMode && (e.key === 'Enter' || e.key === 'Tab')) e.preventDefault();
@@ -1362,7 +1359,7 @@ const NovoOrcamento = () => {
               }}
             />
           </div>
-          {manualMode && consultaProduto.status !== 'idle' && (
+          {consultaProduto.status !== 'idle' && (
             <div
               id="novo-orcamento-consulta-status"
               className={`span-12 novo-orcamento-alerta ${consultaProduto.status === 'encontrado' ? 'sucesso' : consultaProduto.status === 'carregando' ? 'carregando' : 'erro'}`}

@@ -1,4 +1,4 @@
-﻿import axios from 'axios';
+import axios from 'axios';
 import { corrigirTextosQuebrados } from './texto';
 
 export const ORDS_BASE_URL = '';

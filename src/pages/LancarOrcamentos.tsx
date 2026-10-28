@@ -1324,7 +1324,7 @@ const LancarOrcamentos = () => {
                   <div className="selection-stack">
                     <div className="selection-input-row">
                       {catalogoLinha ? (
-                        <CatalogoSelect options={catalogoLinha.PECAS} value={pecaSelecionada} onChange={setPecaSelecionada} label="Pe?a" />
+                        <CatalogoSelect options={catalogoLinha.PECAS} value={pecaSelecionada} onChange={setPecaSelecionada} label="Peça" />
                       ) : (
                         <input
                           type="text"
@@ -1375,7 +1375,7 @@ const LancarOrcamentos = () => {
                   <div className="selection-stack">
                     <div className="selection-input-row">
                       {catalogoLinha ? (
-                        <CatalogoSelect options={catalogoLinha.ACESSORIOS || []} value={acessorioSelecionado} onChange={setAcessorioSelecionado} label="Acess?rio" />
+                        <CatalogoSelect options={catalogoLinha.ACESSORIOS || []} value={acessorioSelecionado} onChange={setAcessorioSelecionado} label="Acessório" />
                       ) : (
                         <input
                           type="text"

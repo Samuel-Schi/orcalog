@@ -1,4 +1,4 @@
-﻿import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import { useEffect } from 'react';
 import Login from './pages/Login';
 import Cadastro from './pages/Cadastro';
