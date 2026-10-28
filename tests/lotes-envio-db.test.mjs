@@ -50,6 +50,70 @@ test('envio completo, cancelamento, relançamento e aprovação negociada atômi
   } finally {await db.close();}
 });
 
+// Lote de 3 produtos: 1 aprovado direto pela AT, outro em negociação; o posto manda contraproposta e a AT aprova.
+const prepararLoteMisto = async (db, protocolo) => {
+  await db.exec('CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;');
+  const rms=new URL('../../rms-utils-react/magalog-system/src/pages/OrcamentoAT/docs/',import.meta.url);
+  await db.exec(await readFile(new URL('supabase.sql',rms),'utf8'));
+  await db.exec(await readFile(new URL('migracao-retificacao.sql',rms),'utf8'));
+  await db.exec(await readFile(new URL('migracao-pagamento-lote.sql',rms),'utf8'));
+  await db.exec(await readFile(new URL('../supabase/lotes_envio_seguro.sql',import.meta.url),'utf8'));
+  const cnpj='12345678000199';
+  for (const [oracle,valor] of [[301,100],[302,200],[303,300]]) {
+    await db.query('SELECT receber_item_posto($1::jsonb)',[JSON.stringify({oracle_item_id:String(oracle),protocolo,cnpj,total_orcamento:valor,val_pecas:valor,val_acess:0,val_mao_obra:0,val_emb:0,val_hig:0})]);
+  }
+  await db.query('SELECT concluir_envio_lote($1,$2,ARRAY[$3,$4,$5])',[protocolo,cnpj,'301','302','303']);
+  const [a,b,c]=(await db.query('SELECT id FROM orcamentos_finalizados WHERE protocolo=$1 ORDER BY oracle_item_id',[protocolo])).rows.map(r=>String(r.id));
+  // A: aprovado direto (PATCH normal); B e C: em negociação.
+  await db.query("UPDATE orcamentos_finalizados SET status=10,status_text='APROVADO' WHERE id=$1",[a]);
+  await db.query("UPDATE orcamentos_finalizados SET status=7,status_text='EM_NEGOCIACAO' WHERE id IN ($1,$2)",[b,c]);
+  return {cnpj,a,b,c};
+};
+const totais = async (db, protocolo) => Object.fromEntries((await db.query('SELECT id::text,total_orcamento,status,negociacao_aplicada FROM orcamentos_finalizados WHERE protocolo=$1',[protocolo])).rows.map(r=>[r.id,{total:Number(r.total_orcamento),status:r.status,aplicada:r.negociacao_aplicada}]));
+
+test('aprova contraproposta de negociacao por item junto com outros itens pendentes', {skip:!process.env.PGLITE_TEST_MODULE}, async()=>{
+  const {PGlite}=await import(pathToFileURL(process.env.PGLITE_TEST_MODULE).href);
+  const db=new PGlite();
+  try {
+    const {cnpj,a,b,c}=await prepararLoteMisto(db,'M1');
+    await db.query("UPDATE orcamentos_finalizados SET status=0,status_text='PENDENTE' WHERE id=$1",[c]);
+    await db.query("INSERT INTO orcamento_negociacoes(protocolo,cnpj,negotiation_scope,item_ids,valor_original,valor_proposto_at,valor_contraproposta_posto,status) VALUES('M1',$1,'ITEM',$2::jsonb,200,150,180,'CONTRAPROPOSTA_POSTO')",[cnpj,JSON.stringify([b])]);
+    // "Aprovar itens pendentes" manda B (negociado) e C (sem negociação) juntos.
+    const r=(await db.query("SELECT aprovar_negociacao_lote('M1',$1,'ANALISTA') AS r",[[b,c]])).rows[0].r;
+    assert.deepEqual(r.items.map(i=>String(i.id)),[b], 'a função consolida só o item negociado; C segue para a aprovação normal');
+    const t=await totais(db,'M1');
+    assert.deepEqual(t[b],{total:180,status:10,aplicada:true});
+    assert.equal(t[a].total,100);
+    assert.equal(t[c].total,300);
+    const n=(await db.query("SELECT status,valor_proposto_at FROM orcamento_negociacoes WHERE protocolo='M1'")).rows[0];
+    assert.deepEqual([n.status,Number(n.valor_proposto_at)],['ACEITA_POSTO',180]);
+  } finally {await db.close();}
+});
+
+test('aprova contraproposta de negociacao do lote sem incluir o item que ja estava aprovado', {skip:!process.env.PGLITE_TEST_MODULE}, async()=>{
+  const {PGlite}=await import(pathToFileURL(process.env.PGLITE_TEST_MODULE).href);
+  const db=new PGlite();
+  try {
+    const {cnpj,a,b,c}=await prepararLoteMisto(db,'M2');
+    // Negociação do lote criada depois da aprovação de A (registros antigos não guardam item_ids no escopo LOTE).
+    await db.query("INSERT INTO orcamento_negociacoes(protocolo,cnpj,negotiation_scope,valor_original,valor_proposto_at,valor_contraproposta_posto,status) VALUES('M2',$1,'LOTE',500,400,450,'CONTRAPROPOSTA_POSTO')",[cnpj]);
+    const r=(await db.query("SELECT aprovar_negociacao_lote('M2',$1,'ANALISTA') AS r",[[b,c]])).rows[0].r;
+    assert.deepEqual(r.items.map(i=>String(i.id)).sort(),[b,c].sort());
+    const t=await totais(db,'M2');
+    assert.deepEqual(t[a],{total:100,status:10,aplicada:false}, 'o item já aprovado não entra no rateio');
+    assert.equal(Math.round((t[b].total+t[c].total)*100),45000);
+    assert.ok(t[b].aplicada && t[c].aplicada && t[b].status===10 && t[c].status===10);
+    // Reaprovar não muda os valores.
+    await db.query("SELECT aprovar_negociacao_lote('M2',$1,'ANALISTA')",[[b,c]]);
+    const t2=await totais(db,'M2');
+    assert.equal(Math.round((t2[b].total+t2[c].total)*100),45000);
+    // Aprovar só parte da negociação continua bloqueado.
+    await db.query("UPDATE orcamento_negociacoes SET status='ACEITA_POSTO' WHERE protocolo='M2'");
+    await db.query("UPDATE orcamentos_finalizados SET status=7,status_text='EM_NEGOCIACAO',negociacao_aplicada=false WHERE id IN ($1,$2)",[b,c]);
+    await assert.rejects(db.query("SELECT aprovar_negociacao_lote('M2',$1,'ANALISTA')",[[b]]),/todos os itens/);
+  } finally {await db.close();}
+});
+
 test('nota fiscal parcial respeita o saldo separado de produto e servico', {skip:!process.env.PGLITE_TEST_MODULE}, async()=>{
   const {PGlite}=await import(pathToFileURL(process.env.PGLITE_TEST_MODULE).href);
   const db=new PGlite();

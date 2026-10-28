@@ -131,9 +131,25 @@ BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended(p_protocolo,0));
   SELECT * INTO n FROM public.orcamento_negociacoes WHERE protocolo=p_protocolo FOR UPDATE;
   IF NOT FOUND THEN RETURN NULL; END IF;
-  IF n.negotiation_scope='ITEM' AND cardinality(p_ids)>0 AND NOT EXISTS(
-    SELECT 1 FROM unnest(p_ids) AS t(id) WHERE n.item_ids @> jsonb_build_array(id)
-  ) THEN RETURN NULL; END IF;
+  PERFORM 1 FROM public.orcamentos_finalizados WHERE protocolo=p_protocolo ORDER BY id FOR UPDATE;
+  -- Itens da negociação: os ids gravados nela. Negociação de lote antiga (sem ids) cobre os itens ainda em aberto
+  -- ou já consolidados por ela, nunca um item que a AT aprovou ou reprovou antes de negociar.
+  SELECT array_agg(o.id ORDER BY o.id),sum(coalesce(o.valor_original_aprovacao,o.total_orcamento)) INTO ids,base
+    FROM public.orcamentos_finalizados o WHERE o.protocolo=p_protocolo
+    AND CASE
+      WHEN jsonb_array_length(coalesce(n.item_ids,'[]'::jsonb))>0 THEN n.item_ids @> jsonb_build_array(o.id::text) OR n.item_ids @> jsonb_build_array(o.id)
+      WHEN n.negotiation_scope='LOTE' THEN coalesce(o.negociacao_aplicada,false) OR upper(coalesce(o.status_text,'')) NOT IN ('APROVADO','REPROVADO','RECUSADO','DEVOLUCAO','FINALIZADO')
+      ELSE false END;
+  IF ids IS NULL THEN
+    IF cardinality(p_ids)>0 THEN RETURN NULL; END IF;
+    RAISE EXCEPTION 'Negociação sem itens.';
+  END IF;
+  -- Nenhum item pedido é da negociação: aprovação normal. Itens fora dela aprovados no mesmo clique também seguem
+  -- pela aprovação normal (feita por quem chamou); só os itens da negociação precisam vir todos juntos.
+  IF cardinality(p_ids)>0 AND NOT EXISTS(SELECT 1 FROM unnest(ids) AS t(id) WHERE id::text=ANY(p_ids)) THEN RETURN NULL; END IF;
+  IF cardinality(p_ids)>0 AND EXISTS(SELECT 1 FROM unnest(ids) AS t(id) WHERE NOT id::text=ANY(p_ids)) THEN
+    RAISE EXCEPTION 'Aprove todos os itens desta negociação juntos para preservar o valor acordado.';
+  END IF;
   -- AT aprovando uma contraproposta = aceita o valor pedido pelo posto: ele vira o valor acordado e a
   -- negociação segue como aceita (portal e pagamentos leem ACEITA_POSTO + valor_proposto_at). A proposta
   -- anterior da AT fica registrada na observação. Se algo abaixo falhar, a transação desfaz isto também.
@@ -148,17 +164,9 @@ BEGIN
   IF n.status <> 'ACEITA_POSTO' OR n.valor_proposto_at IS NULL OR n.valor_proposto_at < 0 THEN
     RAISE EXCEPTION 'A negociação precisa de um valor válido e aceito pelo posto.' USING ERRCODE='40001';
   END IF;
-  PERFORM 1 FROM public.orcamentos_finalizados WHERE protocolo=p_protocolo ORDER BY id FOR UPDATE;
-  SELECT array_agg(id ORDER BY id),sum(coalesce(valor_original_aprovacao,total_orcamento)) INTO ids,base
-    FROM public.orcamentos_finalizados WHERE protocolo=p_protocolo
-    AND (n.negotiation_scope='LOTE' OR n.item_ids @> jsonb_build_array(id::text));
-  IF ids IS NULL THEN RAISE EXCEPTION 'Negociação sem itens.'; END IF;
   IF EXISTS(SELECT 1 FROM public.orcamentos_finalizados WHERE id=ANY(ids) AND
     (NOT envio_finalizado OR cancelamento IS NOT NULL OR retificacao IS NOT NULL OR upper(coalesce(status_text,'')) IN ('REPROVADO','RECUSADO','DEVOLUCAO') OR pagamento_status<>'AGUARDANDO_NOTA')) THEN
     RAISE EXCEPTION 'Lote incompleto, retificado, reprovado ou com pagamento iniciado. Revise a negociação.';
-  END IF;
-  IF cardinality(p_ids)>0 AND (cardinality(p_ids)<>cardinality(ids) OR EXISTS(SELECT 1 FROM unnest(ids) AS t(id) WHERE NOT id::text=ANY(p_ids))) THEN
-    RAISE EXCEPTION 'Aprove todos os itens desta negociação juntos para preservar o valor acordado.';
   END IF;
   IF base IS NULL OR base<=0 THEN RAISE EXCEPTION 'Total original inválido; não é possível ratear o acordo.'; END IF;
   FOR r IN SELECT * FROM public.orcamentos_finalizados WHERE id=ANY(ids) ORDER BY id LOOP

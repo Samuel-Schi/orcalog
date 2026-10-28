@@ -39,6 +39,11 @@ test('valor coletivo nao e multiplicado pelas linhas', () => {
   assert.equal(valorFinalItem(item, lote), null);
   assert.equal(valorFinalItem(item, { ...negociacao, item_ids: ['47', '48'] }), null);
 });
+test('negociacao do lote com itens gravados nao cobre o item aprovado antes dela', () => {
+  const lote = { ...negociacao, negotiation_scope: 'LOTE', item_ids: ['48', '49'] };
+  assert.equal(valorFinalItem(item, lote), 1000);
+  assert.equal(valorFinalItem({ ...item, supabaseId: '48' }, lote), null);
+});
 test('sem negociacao usa o total aprovado e preserva zero', () => {
   assert.equal(valorFinalItem(item), 1000);
   assert.equal(valorFinalItem({ ...item, totalOrcamento: 0 }), 0);

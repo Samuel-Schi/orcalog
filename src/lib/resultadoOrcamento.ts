@@ -31,9 +31,10 @@ export const valorAceito = (negociacao: NegociacaoResultado): number | null => {
   return Number.isFinite(valor) && valor >= 0 ? valor : null;
 };
 
+// Negociação de lote antiga não guarda itens e cobre o lote todo; as novas guardam os itens que estavam em aberto.
 export const negociacaoDoItem = (item: ItemResultado, negociacao?: NegociacaoResultado) =>
   Boolean(negociacao && (
-    negociacao.negotiation_scope === 'LOTE' ||
+    (negociacao.negotiation_scope === 'LOTE' && !negociacao.item_ids?.length) ||
     (item.supabaseId && negociacao.item_ids?.map(String).includes(item.supabaseId))
   ));
 
