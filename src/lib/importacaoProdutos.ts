@@ -169,6 +169,18 @@ export const validarItemManual = (valores: { serial: string; uuid: string; codGe
 export const chaveProduto = (item: Pick<ItemProduto, 'serial' | 'codGemco'>) =>
   `${compactLookupValue(item.serial || '')}|${compactLookupValue(item.codGemco || '')}`;
 
+// Serial e ID unico identificam a unidade: nenhum dos dois pode se repetir no protocolo ('-' = nao informado).
+export const motivoProdutoRepetido = (
+  novo: Pick<ItemProduto, 'serial' | 'uuid'>,
+  itens: Pick<ItemProduto, 'serial' | 'uuid'>[]
+) => {
+  const serial = compactLookupValue(novo.serial || '');
+  const uuid = compactLookupValue(novo.uuid || '');
+  if (serial && itens.some((item) => compactLookupValue(item.serial || '') === serial)) return 'Este serial já está no protocolo.';
+  if (uuid && itens.some((item) => compactLookupValue(item.uuid || '') === uuid)) return 'Este ID único já está no protocolo.';
+  return '';
+};
+
 const normalizarCabecalho = (value: unknown) =>
   String(value ?? '')
     .normalize('NFD')
@@ -299,15 +311,19 @@ export const importarProdutos = async ({
   concorrencia = 3
 }: OpcoesImportacao) => {
   const resultados: ResultadoLinha[] = [];
-  const primeiraOcorrencia = new Map<string, number>();
+  const linhaPorSerial = new Map<string, number>();
+  const linhaPorUuid = new Map<string, number>();
   const pendentes = linhas.filter((linha) => {
-    const chave = chaveProduto(linha);
-    const anterior = primeiraOcorrencia.get(chave);
-    if (linha.codGemco && anterior !== undefined) {
-      resultados.push({ ...linha, status: 'erro', mensagem: `Linha duplicada no arquivo (mesmo serial e Gemco da linha ${anterior}).` });
+    const serial = compactLookupValue(linha.serial);
+    const uuid = compactLookupValue(linha.uuid);
+    const anterior = linhaPorSerial.get(serial) ?? (uuid ? linhaPorUuid.get(uuid) : undefined);
+    if (anterior !== undefined) {
+      const campo = linhaPorSerial.has(serial) ? 'serial' : 'ID único';
+      resultados.push({ ...linha, status: 'erro', mensagem: `Linha duplicada no arquivo (mesmo ${campo} da linha ${anterior}).` });
       return false;
     }
-    primeiraOcorrencia.set(chave, linha.linha);
+    linhaPorSerial.set(serial, linha.linha);
+    if (uuid) linhaPorUuid.set(uuid, linha.linha);
     return true;
   });
 
@@ -355,7 +371,11 @@ export const importarProdutos = async ({
       };
       const chave = chaveProduto(dados);
       const posicao = posicaoPorChave.get(chave);
-      if (posicao !== undefined) {
+      // Mesmo serial + Gemco atualiza o proprio item; serial ou ID unico de outro item e erro.
+      const repetido = motivoProdutoRepetido(dados, itens.filter((_, index) => index !== posicao));
+      if (repetido) {
+        resultados.push({ linha: linha.linha, serial: linha.serial, codGemco, status: 'erro', mensagem: repetido });
+      } else if (posicao !== undefined) {
         itens[posicao] = { ...itens[posicao], ...dados };
         resultados.push({ linha: linha.linha, serial: linha.serial, codGemco, status: 'atualizado', mensagem: 'Produto já existia no protocolo e foi atualizado.' });
       } else {

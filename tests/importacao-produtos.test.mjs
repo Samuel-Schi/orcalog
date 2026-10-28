@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx';
 const { outputFiles } = await build({ entryPoints: ['src/lib/importacaoProdutos.ts'], bundle: true, platform: 'node', format: 'cjs', write: false });
 const compiled = new Module(path.resolve('src/lib/importacao-produtos.test.cjs'));
 compiled._compile(outputFiles[0].text, compiled.id);
-const { ErroImportacao, consultarCodigoBarras, consultarProdutoPorCodigo, validarItemManual, extrairProdutoApi, importarProdutos, lerPlanilhaExcel, validarArquivoExcel } = compiled.exports;
+const { ErroImportacao, consultarCodigoBarras, consultarProdutoPorCodigo, validarItemManual, extrairProdutoApi, importarProdutos, lerPlanilhaExcel, motivoProdutoRepetido, validarArquivoExcel } = compiled.exports;
 
 const planilha = (linhas, bookType = 'xlsx') => {
   const workbook = XLSX.utils.book_new();
@@ -106,6 +106,39 @@ test('reimportar o mesmo arquivo nao duplica produtos', async () => {
   const segunda = await importarProdutos({ ...opcoes, linhas: [{ ...linhas[0], serial: 'ABCD' }], itensAtuais: primeira.itens });
   assert.equal(segunda.itens.length, 1);
   assert.equal(segunda.resultados[0].status, 'atualizado');
+});
+
+test('serial e ID unico nao se repetem no protocolo', () => {
+  const itens = [{ serial: 'ABC1-2345', uuid: '777' }, { serial: 'X1', uuid: '-' }];
+  assert.equal(motivoProdutoRepetido({ serial: 'abc12345', uuid: '1' }, itens), 'Este serial já está no protocolo.');
+  assert.equal(motivoProdutoRepetido({ serial: 'NOVO', uuid: '777' }, itens), 'Este ID único já está no protocolo.');
+  assert.equal(motivoProdutoRepetido({ serial: 'NOVO', uuid: '-' }, itens), '', 'ID unico nao informado nao conta como repetido');
+  assert.equal(motivoProdutoRepetido({ serial: 'NOVO', uuid: '' }, itens), '');
+});
+
+test('importacao recusa serial ou ID unico repetido, mesmo com Gemco diferente', async () => {
+  const existente = { id: 'antigo', protocolo: 'P1', uuid: '900', ean: '-', codGemco: '20', descricao: 'Velho', fornecedor: '-', linha: '-', serial: 'S1', status: 0 };
+  const { itens, resultados } = await importarProdutos({
+    linhas: [
+      { linha: 2, uuid: '', serial: 'S1', codGemco: '30' },
+      { linha: 3, uuid: '900', serial: 'S2', codGemco: '40' },
+      { linha: 4, uuid: '55', serial: 'S3', codGemco: '50' },
+      { linha: 5, uuid: '55', serial: 'S4', codGemco: '60' },
+      { linha: 6, uuid: '', serial: 'S3', codGemco: '70' }
+    ],
+    itensAtuais: [existente],
+    protocolo: 'P1',
+    criarId,
+    consultar: async ({ item }) => produtoApi(item)
+  });
+  assert.deepEqual(resultados.map((r) => [r.linha, r.status, r.mensagem]), [
+    [2, 'erro', 'Este serial já está no protocolo.'],
+    [3, 'erro', 'Este ID único já está no protocolo.'],
+    [4, 'importado', 'Produto importado.'],
+    [5, 'erro', 'Linha duplicada no arquivo (mesmo ID único da linha 4).'],
+    [6, 'erro', 'Linha duplicada no arquivo (mesmo serial da linha 4).']
+  ]);
+  assert.equal(itens.length, 2);
 });
 
 test('codigo de barras manual: preenche descricao, fornecedor e linha', async () => {

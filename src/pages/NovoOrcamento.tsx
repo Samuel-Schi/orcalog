@@ -4,13 +4,13 @@ import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 import {
   baixarModeloImportacao,
   COLUNAS_OBRIGATORIAS,
-  chaveProduto,
   compactLookupValue,
   consultarProdutoPorCodigo,
   ErroImportacao,
   formatSerialValue,
   importarProdutos,
   lerPlanilhaExcel,
+  motivoProdutoRepetido,
   normalizarCodigoProduto,
   validarArquivoExcel,
   validarItemManual,
@@ -191,6 +191,9 @@ const NovoOrcamento = () => {
   const [linha, setLinha] = useState('');
   const [serial, setSerial] = useState('');
   const [itens, setItens] = useState<Item[]>([]);
+  // A consulta da bipagem e assincrona: confere repetidos sempre contra a lista mais recente.
+  const itensRef = useRef(itens);
+  itensRef.current = itens;
   const [isSaving, setIsSaving] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const [qrError, setQrError] = useState('');
@@ -777,16 +780,20 @@ const NovoOrcamento = () => {
         setToast({ type: 'error', message: erroManual });
         return false;
       }
-      const chave = chaveProduto({ serial: finalSerial, codGemco: finalCodGemco });
-      if (finalCodGemco.trim() && itens.some((item) => chaveProduto(item) === chave)) {
-        setToast({ type: 'error', message: 'Este serial com este Gemco já está no protocolo.' });
-        return false;
-      }
     } else if (!validarDadosItem({
       serial: finalSerial,
       codGemco: finalCodGemco,
       descricao: finalDesc
     })) {
+      return false;
+    }
+    const repetido = motivoProdutoRepetido({ serial: finalSerial, uuid: finalUuid }, itensRef.current);
+    if (repetido) {
+      setToast({ type: 'error', message: repetido });
+      requestAnimationFrame(() => {
+        serialInputRef.current?.focus();
+        serialInputRef.current?.select();
+      });
       return false;
     }
     const item: Item = {
@@ -906,7 +913,7 @@ const NovoOrcamento = () => {
       if (linhaApi) setLinha(String(linhaApi));
 
       if (descricao) {
-        adicionarItem({
+        const adicionado = adicionarItem({
           uuid: pendingScan?.uuid || uuidApi || uuid,
           ean: eanApi || pendingScan?.ean || lookupEan,
           codGemco: fetchedItem || lookupItem,
@@ -916,7 +923,7 @@ const NovoOrcamento = () => {
           serial: serialAtual
         });
         pendingScanRef.current = null;
-        setToast({ type: 'success', message: 'Item adicionado automaticamente ao protocolo.' });
+        if (adicionado) setToast({ type: 'success', message: 'Item adicionado automaticamente ao protocolo.' });
       } else {
         // Mostra o que foi lido da etiqueta para aproveitar no "Digitar manual".
         if (!uuidApi && pendingScan?.uuid) setUuid(pendingScan.uuid);
