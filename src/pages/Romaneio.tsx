@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 import { buildRomaneioPrintDocument } from '../lib/romaneioPrintTemplate';
+import { gerarQrRomaneioSvg } from '../lib/romaneioQr';
+import { agruparPorClassificacao, tituloGrupo } from '../lib/romaneioClassificacao';
 
 type RomaneioItem = {
   id: string;
@@ -19,6 +21,7 @@ type RomaneioItem = {
   tipoOrc?: string;
   defeitoEncontrado?: string;
   pecasDesc?: string;
+  statusText?: string | null;
 };
 
 const formatDateTime = (value?: string) => {
@@ -111,7 +114,8 @@ const Romaneio = () => {
         criadoEm: String(row.criado_em ?? row.CRIADO_EM ?? ''),
         tipoOrc: row.tipo_orc ?? row.TIPO_ORC ?? row.tipoOrc,
         defeitoEncontrado: row.defeito_encontrado ?? row.DEFEITO_ENCONTRADO ?? row.defeitoEncontrado,
-        pecasDesc: row.pecas_desc ?? row.PECAS_DESC ?? row.pecasDesc
+        pecasDesc: row.pecas_desc ?? row.PECAS_DESC ?? row.pecasDesc,
+        statusText: row.status_text ?? row.STATUS_TEXT ?? row.statusText ?? null
       })) as RomaneioItem[];
 
       setItems(normalized);
@@ -148,11 +152,18 @@ const Romaneio = () => {
     });
   }, [filtroTexto, grupos]);
 
-  const imprimir = (protocolo: string, itens: RomaneioItem[], criadoEm?: string) => {
+  const imprimir = async (protocolo: string, itens: RomaneioItem[], criadoEm?: string) => {
+    // QR por item: o Recebimento PA do RMS bipa e puxa serial, linha e classificacao.
+    const itensComQr = await Promise.all(
+      itens.map(async (item) => ({
+        ...item,
+        qrSvg: await gerarQrRomaneioSvg(item.protocolo || protocolo, item.serial).catch(() => '')
+      }))
+    );
     const documento = buildRomaneioPrintDocument({
       protocolo,
       criadoEm: formatDateTime(criadoEm),
-      items: itens
+      items: itensComQr
     });
     const iframe = document.createElement('iframe');
     iframe.style.position = 'fixed';
@@ -226,6 +237,8 @@ const Romaneio = () => {
         {filtrados.map(([protocolo, itens]) => {
           const first = itens[0];
           const expanded = protocoloExpandido === protocolo;
+          const grupos = agruparPorClassificacao(itens);
+          let numero = 0;
 
           return (
             <section key={protocolo} className={`romaneio-sheet-shell${expanded ? ' expanded' : ''}`}>
@@ -251,7 +264,7 @@ const Romaneio = () => {
                       <strong>Documento pronto para impressao</strong>
                       <span>Confira os dados antes de imprimir</span>
                     </div>
-                    <button className="btn btn-primary btn-sm" type="button" onClick={() => imprimir(protocolo, itens, first?.criadoEm)}>
+                    <button className="btn btn-primary btn-sm" type="button" onClick={() => void imprimir(protocolo, itens, first?.criadoEm)}>
                       <i className="material-icons">print</i>
                       Imprimir
                     </button>
@@ -287,6 +300,10 @@ const Romaneio = () => {
                       <div><span>Documento</span><strong>Devolucao</strong></div>
                     </section>
 
+                    <p className="romaneio-resumo-classificacao">
+                      <span>Por classificacao:</span> {grupos.map((grupo) => tituloGrupo(grupo.classificacao, grupo.itens.length)).join(' · ')}
+                    </p>
+
                     <section className="romaneio-tabela-wrap">
                       <table className="romaneio-print-table">
                         <thead>
@@ -298,11 +315,17 @@ const Romaneio = () => {
                             <th>Classificacao</th>
                           </tr>
                         </thead>
-                        <tbody>
-                          {itens.map((item, index) => (
+                        {grupos.map((grupo) => (
+                        <tbody key={grupo.classificacao}>
+                          <tr className="romaneio-grupo-linha">
+                            <td colSpan={5}>{tituloGrupo(grupo.classificacao, grupo.itens.length)}</td>
+                          </tr>
+                          {grupo.itens.map((item) => {
+                            numero += 1;
+                            return (
                             <tr key={item.id}>
                               <td>
-                                <strong>{String(index + 1).padStart(2, '0')} - {item.descricao || '-'}</strong>
+                                <strong>{String(numero).padStart(2, '0')} - {item.descricao || '-'}</strong>
                                 <div>{item.fornecedor || '-'}</div>
                                 <div>Linha: {item.linha || '-'}</div>
                               </td>
@@ -315,8 +338,10 @@ const Romaneio = () => {
                               <td>{formatLista(item.pecasDesc, 'pe')}</td>
                               <td className="romaneio-col-classificacao">{item.tipoOrc || '-'}</td>
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
+                        ))}
                       </table>
                     </section>
 

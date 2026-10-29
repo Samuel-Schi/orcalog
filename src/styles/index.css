@@ -2155,6 +2155,28 @@ body.dark-mode .sidebar {
   font-weight: 800;
 }
 
+.romaneio-print-table .romaneio-grupo-linha td {
+  background: #e2e8f0;
+  color: #0f172a;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.romaneio-resumo-classificacao {
+  margin: 10px 0;
+  font-size: 0.79rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.romaneio-resumo-classificacao span {
+  color: #4b5563;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .romaneio-observacoes {
   display: grid;
   gap: 8px;

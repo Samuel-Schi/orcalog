@@ -1,3 +1,5 @@
+import { agruparPorClassificacao, tituloGrupo } from './romaneioClassificacao';
+
 type RomaneioPrintItem = {
   protocolo: string;
   cnpj?: string;
@@ -14,6 +16,9 @@ type RomaneioPrintItem = {
   tipoOrc?: string;
   defeitoEncontrado?: string;
   pecasDesc?: string;
+  statusText?: string | null;
+  /** SVG gerado por gerarQrRomaneioSvg (romaneioQr.ts); lido no Recebimento PA do RMS. */
+  qrSvg?: string;
 };
 
 const escapeHtml = (value?: string) =>
@@ -42,8 +47,15 @@ export const buildRomaneioPrintDocument = (input: {
   items: RomaneioPrintItem[];
 }) => {
   const first = input.items[0];
-  const rows = input.items
-    .map((item, index) => {
+  const grupos = agruparPorClassificacao(input.items);
+  const resumo = grupos.map((grupo) => escapeHtml(tituloGrupo(grupo.classificacao, grupo.itens.length))).join(' &middot; ');
+  let numero = 0;
+  const rows = grupos
+    .map((grupo) => `
+        <tr class="grupo"><td colspan="6">${escapeHtml(tituloGrupo(grupo.classificacao, grupo.itens.length))}</td></tr>
+        ${grupo.itens.map((item) => {
+      numero += 1;
+      const index = numero - 1;
       return `
         <tr>
           <td>
@@ -59,9 +71,10 @@ export const buildRomaneioPrintDocument = (input: {
           <td>${escapeHtml(item.defeitoEncontrado || '-')}</td>
           <td>${escapeHtml(formatLista(item.pecasDesc, 'pe'))}</td>
           <td class="col-classificacao">${escapeHtml(item.tipoOrc)}</td>
+          <td class="col-qr">${item.qrSvg ? `<div class="qr">${item.qrSvg}</div>` : '-'}</td>
         </tr>
       `;
-    })
+    }).join('')}`)
     .join('');
 
   return `<!doctype html>
@@ -175,6 +188,30 @@ export const buildRomaneioPrintDocument = (input: {
         text-align: center;
         font-weight: 700;
       }
+      .col-qr {
+        width: 96px;
+        text-align: center;
+        vertical-align: middle;
+      }
+      .qr svg {
+        display: block;
+        width: 80px;
+        height: 80px;
+        margin: 0 auto;
+      }
+      tr { break-inside: avoid; }
+      tr.grupo td {
+        background: #e2e8f0;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .resumo {
+        margin-top: 8px;
+        font-weight: 700;
+      }
       .obs {
         margin-top: 12px;
       }
@@ -230,6 +267,7 @@ export const buildRomaneioPrintDocument = (input: {
         <div><span class="field-label">Quantidade de itens</span><strong>${escapeHtml(String(input.items.length))}</strong></div>
         <div><span class="field-label">Documento</span><strong>Devolucao</strong></div>
       </div>
+      <div class="resumo"><span class="field-label">Por classificacao:</span> ${resumo}</div>
 
       <table>
         <thead>
@@ -239,6 +277,7 @@ export const buildRomaneioPrintDocument = (input: {
             <th>Defeito / Motivo</th>
             <th>Pecas trocadas</th>
             <th class="col-classificacao">Classificacao</th>
+            <th class="col-qr">QR recebimento</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
