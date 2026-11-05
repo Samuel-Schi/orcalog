@@ -181,7 +181,7 @@ export const motivoProdutoRepetido = (
   return '';
 };
 
-const normalizarCabecalho = (value: unknown) =>
+export const normalizarCabecalho = (value: unknown) =>
   String(value ?? '')
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
@@ -196,7 +196,7 @@ const COLUNAS: Record<keyof Omit<LinhaPlanilha, 'linha'>, { rotulo: string; alia
 
 export const COLUNAS_OBRIGATORIAS = Object.values(COLUNAS).map((coluna) => coluna.rotulo);
 
-const textoCelula = (value: unknown) => {
+export const textoCelula = (value: unknown) => {
   if (typeof value === 'number') {
     return Number.isInteger(value) ? value.toLocaleString('fullwide', { useGrouping: false }) : String(value);
   }

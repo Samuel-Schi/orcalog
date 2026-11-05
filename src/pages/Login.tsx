@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
+import { iniciarSessao } from '../lib/sessao';
 import loginHeroIllustration from '../assets/login-hero-illustration.jpg';
 
 const toBase64 = (buffer: ArrayBuffer) => {
@@ -26,6 +27,9 @@ const Login = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  // Link que o usuário tentou abrir antes de logar (ex.: /romaneio); sem ele, a tela inicial.
+  const from = (useLocation().state as { from?: string } | null)?.from;
+  const destino = from && from.startsWith('/') && !from.startsWith('/login') ? from : '/importar-orcamento';
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -109,10 +113,11 @@ const Login = () => {
       if (first?.email || first?.EMAIL) {
         localStorage.setItem('gat_user_email', String(first?.email ?? first?.EMAIL));
       }
-      navigate('/novo-orcamento', { replace: true });
+      iniciarSessao();
+      navigate(destino, { replace: true });
       setTimeout(() => {
         if (window.location.pathname === '/login') {
-          window.location.assign('/novo-orcamento');
+          window.location.assign(destino);
         }
       }, 50);
     } catch (err) {

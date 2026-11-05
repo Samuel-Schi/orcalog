@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import Notificacoes from './Notificacoes';
+import { encerrarSessao } from '../lib/sessao';
 
 const SidebarLayout = () => {
   const navigate = useNavigate();
@@ -24,7 +25,7 @@ const SidebarLayout = () => {
   const closeMobile = () => setIsMobileOpen(false);
 
   const logout = () => {
-    localStorage.removeItem('gat_user');
+    encerrarSessao();
     closeMobile();
     navigate('/login');
   };
@@ -57,13 +58,9 @@ const SidebarLayout = () => {
         </div>
 
         <nav className="sidebar-nav">
-          <NavLink to="/novo-orcamento" onClick={closeMobile} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            <i className="material-icons">add_circle</i>
-            <span>Novo Orçamento</span>
-          </NavLink>
-          <NavLink to="/lancar-orcamentos" onClick={closeMobile} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            <i className="material-icons">assignment</i>
-            <span>Lançar Orçamentos</span>
+          <NavLink to="/importar-orcamento" onClick={closeMobile} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <i className="material-icons">upload_file</i>
+            <span>Importar Orçamento</span>
           </NavLink>
           <NavLink to="/meus-envios" onClick={closeMobile} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <i className="material-icons">list_alt</i>
@@ -76,6 +73,19 @@ const SidebarLayout = () => {
           <NavLink to="/pagamentos" onClick={closeMobile} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <i className="material-icons">payments</i>
             <span>Pagamentos</span>
+          </NavLink>
+
+          {/* Lancamento item a item (bipagem/manual): pouco usado desde a importacao por planilha. */}
+          <div className="nav-grupo-opcional" title="Opcional: lançamento item a item">
+            <span>Opcional</span>
+          </div>
+          <NavLink to="/novo-orcamento" onClick={closeMobile} className={({ isActive }) => `nav-item nav-item-opcional ${isActive ? 'active' : ''}`}>
+            <i className="material-icons">add_circle</i>
+            <span>Novo Orçamento</span>
+          </NavLink>
+          <NavLink to="/lancar-orcamentos" onClick={closeMobile} className={({ isActive }) => `nav-item nav-item-opcional ${isActive ? 'active' : ''}`}>
+            <i className="material-icons">assignment</i>
+            <span>Lançar Orçamentos</span>
           </NavLink>
         </nav>
 
