@@ -27,6 +27,12 @@
   force = true
 
 [[redirects]]
+  from = "/item_padrao"
+  to = "/.netlify/functions/get-item-padrao"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api-check-user"
   to = "/.netlify/functions/check-user"
   status = 200

@@ -31,6 +31,7 @@ export type SyncPayload = {
     fornecedor?: string;
     linha?: string;
     serial?: string;
+    notaFiscal?: string;
     defeitoEncontrado?: string;
     fotoNome?: string;
     linkDrive?: string;
@@ -81,6 +82,7 @@ export const buildRecord = (
     fornecedor: trimText(item.fornecedor || '', 180),
     linha: trimText(item.linha || '', 120),
     serial: trimText(item.serial || '', 120),
+    nota_fiscal: trimText(item.notaFiscal || '', 80),
     defeito_encontrado: trimText(item.defeitoEncontrado || '', 250),
     foto_nome: trimText(item.fotoNome || linkDrive, 180),
     link_drive: linkDrive,

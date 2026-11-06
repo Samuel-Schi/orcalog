@@ -7,7 +7,7 @@ const {outputFiles}=await build({entryPoints:['netlify/functions/_lote-envio.ts'
 const compiled=new Module(path.resolve('netlify/functions/lote-envio.test.cjs'));
 compiled._compile(outputFiles[0].text,compiled.id);
 const {idsDoLote}=compiled.exports;
-test('confere todas as páginas e isola o protocolo',async()=>{
+test('confere todas as páginas e isola o protocolo',{skip:'Obsoleto: idsDoLote foi removido no refactor "envia orcamento somente pelo Supabase"; a finalizacao do lote agora e a RPC finalizar_montagem_posto (coberta por lotes-envio-db.test.mjs). Pode apagar este arquivo.'},async()=>{
   const original=globalThis.fetch;
   let calls=0;
   try {
@@ -16,7 +16,7 @@ test('confere todas as páginas e isola o protocolo',async()=>{
     assert.equal(calls,2);
   }finally{globalThis.fetch=original;}
 });
-test('página repetida e falha do Oracle não liberam lote',async()=>{
+test('página repetida e falha do Oracle não liberam lote',{skip:'Obsoleto: idsDoLote removido (ver teste acima).'},async()=>{
   const original=globalThis.fetch;
   try {
     globalThis.fetch=async()=>new Response(JSON.stringify({items:[{id:1,protocolo:'L1'}],hasMore:true}));

@@ -22,6 +22,7 @@ const LINHAS_MODELO = 300;
 
 type Campo =
   | 'serial'
+  | 'notaFiscal'
   | 'codigo'
   | 'defeitoEncontrado'
   | 'defeitoFuncional'
@@ -37,6 +38,7 @@ type CampoItem = 'codigo' | 'defeitoEncontrado' | 'defeitoFuncional' | 'garantia
 
 const COLUNAS: Record<Campo, { rotulo: string; aliases: string[]; largura: number }> = {
   serial: { rotulo: 'Serial', aliases: ['numerodeserie', 'numeroserie', 'serialnumber', 'sn'], largura: 18 },
+  notaFiscal: { rotulo: 'Nota fiscal', aliases: ['notafiscal', 'nf', 'nota', 'numeronf', 'numeronotafiscal', 'nfe'], largura: 18 },
   codigo: { rotulo: 'Gemco ou Código de barras', aliases: ['gemco', 'codgemco', 'codigogemco', 'ean', 'codigodebarras', 'codbarras'], largura: 24 },
   defeitoEncontrado: { rotulo: 'Defeito encontrado', aliases: ['defeito'], largura: 30 },
   defeitoFuncional: { rotulo: 'Defeito funcional (SIM/NAO)', aliases: ['defeitofuncional', 'possuidefeitofuncional'], largura: 24 },
@@ -51,7 +53,7 @@ const COLUNAS: Record<Campo, { rotulo: string; aliases: string[]; largura: numbe
 
 const CAMPOS = Object.keys(COLUNAS) as Campo[];
 const CAMPOS_ITEM: CampoItem[] = ['codigo', 'defeitoEncontrado', 'defeitoFuncional', 'garantia', 'tipoOrc'];
-const CAMPOS_TEXTO_MODELO: Campo[] = ['serial', 'codigo'];
+const CAMPOS_TEXTO_MODELO: Campo[] = ['serial', 'notaFiscal', 'codigo'];
 
 export const rotuloCampo = (campo: Campo) => COLUNAS[campo].rotulo;
 
@@ -65,7 +67,7 @@ const TIPO_ORC_POR_CHAVE = Object.fromEntries(TIPOS_ORC.map((tipo) => [chaveOpca
 export type ItemComValor = { nome: string; valor: number };
 
 export type Pendencia = {
-  campo: CampoItem | 'serial' | 'valores';
+  campo: CampoItem | 'serial' | 'notaFiscal' | 'valores';
   mensagem: string;
   // Pendencia que bloqueia o envio; as demais sao apenas avisos.
   bloqueia: boolean;
@@ -73,6 +75,7 @@ export type Pendencia = {
 
 export type ItemOrcamentoPlanilha = {
   serial: string;
+  notaFiscal: string;
   linha: number;
   codigo: string;
   defeitoEncontrado: string;
@@ -207,6 +210,9 @@ export const interpretarPlanilhaOrcamento = (rows: unknown[][], primeiraLinha = 
       else if (invalido) pendencias.push({ campo, mensagem: invalido, bloqueia: true });
     });
 
+    const notaFiscal = texto('notaFiscal');
+    if (!notaFiscal) pendencias.push({ campo: 'notaFiscal', mensagem: 'Nota fiscal em branco.', bloqueia: true });
+
     const pecas = quebrarItensComValor(texto('pecas'));
     const acessorios = quebrarItensComValor(texto('acessorios'));
     if (pecas.erros.length) pendencias.push({ campo: 'valores', mensagem: `Peças: ${pecas.erros.join('; ')}.`, bloqueia: true });
@@ -244,6 +250,7 @@ export const interpretarPlanilhaOrcamento = (rows: unknown[][], primeiraLinha = 
 
     itens.push({
       serial,
+      notaFiscal,
       linha,
       ...campos,
       pecas: pecas.itens,
@@ -305,8 +312,10 @@ export const baixarModeloOrcamento = async () => {
     ['Peças e acessórios: nome e valor (Display: 300), cada item separado por ponto e vírgula. Também aceita "Display 300" e itens em linhas separadas na célula.'],
     ['Mão de obra, embalagem e higienização: só o valor. Em branco vale zero.'],
     ['Não altere o cabeçalho da aba Orçamento.'],
+    ['Nota fiscal é obrigatória em todas as linhas (identifica o item).'],
     [],
     ['Campo', 'Valores aceitos'],
+    [rotuloCampo('notaFiscal'), 'Número da nota fiscal (texto). Obrigatório.'],
     [rotuloCampo('defeitoFuncional'), 'SIM ou NAO'],
     [rotuloCampo('garantia'), 'SIM ou NAO'],
     [rotuloCampo('tipoOrc'), TIPOS_ORC.join(', ')],
@@ -316,8 +325,8 @@ export const baixarModeloOrcamento = async () => {
     [],
     ['Exemplo'],
     CAMPOS.map(rotuloCampo),
-    ['ABC123456', '123456', 'Tela quebrada', 'SIM', 'NAO', 'NOVO', 'Display: 300; Flex: 50', '', 80, '', ''],
-    ['XYZ987654', '7891234567890', 'Não liga', 'SIM', 'NAO', 'SALDO A', 'Placa principal: 120,50', 'Controle remoto: 35', 60, 10, 15]
+    ['ABC123456', '000123', '123456', 'Tela quebrada', 'SIM', 'NAO', 'NOVO', 'Display: 300; Flex: 50', '', 80, '', ''],
+    ['XYZ987654', '000456', '7891234567890', 'Não liga', 'SIM', 'NAO', 'SALDO A', 'Placa principal: 120,50', 'Controle remoto: 35', 60, 10, 15]
   ]);
   instrucoes['!cols'] = [{ wch: 36 }, { wch: 60 }, ...CAMPOS.slice(2).map(() => ({ wch: 18 }))];
   utils.book_append_sheet(workbook, instrucoes, 'Instruções');
@@ -423,6 +432,7 @@ export const montarItemCadastro = (item: ItemOrcamentoPlanilha, protocolo: strin
     fornecedor: produto?.fornecedor || '-',
     linha: produto?.linha || '-',
     serial: item.serial,
+    notaFiscal: item.notaFiscal,
     status: 0
   };
 };

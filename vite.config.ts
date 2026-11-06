@@ -198,6 +198,63 @@ const createLocalSupabaseSyncPlugin = (env: Record<string, string>): Plugin => {
           return;
         }
 
+        // Mesma ideia do /catalogo_qualidade: reproduz o redirect da Function no dev.
+        if (req.method === 'GET' && pathname === '/item_padrao') {
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-store');
+
+          if (!supabaseUrl || !supabaseSecret) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: 'Variaveis do Supabase nao configuradas no .env local.' }));
+            return;
+          }
+
+          try {
+            const normalizedSupabaseUrl = supabaseUrl.replace(/\/rest\/v1\/?$/i, '').replace(/\/$/, '');
+            const buscarTudo = async (tabela: string, select: string) => {
+              const rows: Record<string, unknown>[] = [];
+              const pageSize = 1000;
+              for (let offset = 0; ; offset += pageSize) {
+                const url = new URL(`${normalizedSupabaseUrl}/rest/v1/${tabela}`);
+                url.searchParams.set('select', select);
+                url.searchParams.set('limit', String(pageSize));
+                url.searchParams.set('offset', String(offset));
+                const response = await fetch(url.toString(), {
+                  headers: { Accept: 'application/json', apikey: supabaseSecret, Authorization: `Bearer ${supabaseSecret}` }
+                });
+                if (!response.ok) throw new Error(`Falha ao consultar ${tabela}.`);
+                const page: unknown = await response.json();
+                if (!Array.isArray(page)) throw new Error(`Resposta invalida de ${tabela}.`);
+                rows.push(...(page as Record<string, unknown>[]));
+                if (page.length < pageSize) break;
+              }
+              return rows;
+            };
+
+            const [padroesRaw, linhasRaw, aliasesRaw] = await Promise.all([
+              buscarTudo('item_padrao', 'codigo,nome_canonico,tipo,ativo'),
+              buscarTudo('item_padrao_linha', 'codigo,linha'),
+              buscarTudo('item_alias', 'alias_norm,alias,codigo')
+            ]);
+
+            res.statusCode = 200;
+            res.end(JSON.stringify({
+              padroes: padroesRaw
+                .filter((r) => r.ativo !== false)
+                .map((r) => ({ codigo: String(r.codigo), nomeCanonico: String(r.nome_canonico ?? ''), tipo: String(r.tipo ?? 'PECA') })),
+              linhas: linhasRaw.map((r) => ({ codigo: String(r.codigo), linha: String(r.linha ?? '') })),
+              aliases: aliasesRaw.map((r) => ({ codigo: String(r.codigo), alias: String(r.alias ?? ''), aliasNorm: String(r.alias_norm ?? '') }))
+            }));
+          } catch (error) {
+            res.statusCode = 502;
+            res.end(JSON.stringify({
+              error: 'Falha ao consultar o catalogo padrao no Vite local.',
+              detail: error instanceof Error ? error.message : String(error)
+            }));
+          }
+          return;
+        }
+
         if (req.method === 'GET' && pathname === '/status_envios_supa') {
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
 

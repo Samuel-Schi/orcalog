@@ -15,6 +15,7 @@ import {
   type ItemOrcamentoPlanilha,
   type Pendencia
 } from '../lib/importacaoOrcamento';
+import { indexarCatalogoApi, padronizarPeca, type CatalogoPadrao } from '../lib/pecaPadrao';
 
 // Itens por chamada de sync: cada item e uma RPC no servidor, e a Function tem limite de tempo.
 const ITENS_POR_ENVIO = 5;
@@ -41,6 +42,40 @@ const mensagemErro = (error: unknown) => {
 
 type CampoTabela = Pendencia['campo'];
 
+// Padroniza o nome de cada peca pelo catalogo canonico, escopado pela linha do produto (vinda do gemco).
+// `padronizada` reescreve para o nome canonico (vai assim para o relatorio/payload); os demais casos viram
+// aviso nao-bloqueante, sem reescrever calado (e dinheiro).
+const aplicarPadraoPecas = (itens: ItemOrcamentoPlanilha[], catalogo: CatalogoPadrao) => {
+  for (const item of itens) {
+    const linhaProduto = item.produto?.linha;
+    for (const peca of item.pecas) {
+      const r = padronizarPeca(peca.nome, catalogo, linhaProduto);
+      if (r.status === 'padronizada' && r.canonico) {
+        peca.nome = r.canonico;
+        if (r.linhaOk === false) {
+          item.pendencias.push({
+            campo: 'valores',
+            mensagem: `Peça "${r.canonico}" não consta na linha ${linhaProduto || '—'} do catálogo. Confira a linha do produto.`,
+            bloqueia: false
+          });
+        }
+      } else if (r.status === 'revisar') {
+        item.pendencias.push({
+          campo: 'valores',
+          mensagem: `Peça "${r.original}" parece "${r.sugestao}". Ajuste o nome na planilha para padronizar.`,
+          bloqueia: false
+        });
+      } else {
+        item.pendencias.push({
+          campo: 'valores',
+          mensagem: `Peça "${r.original}" não está no catálogo padrão (ficará sem padronização).`,
+          bloqueia: false
+        });
+      }
+    }
+  }
+};
+
 const ImportarOrcamento = () => {
   const navigate = useNavigate();
   const [protocolo, setProtocolo] = useState(gerarProtocolo);
@@ -59,6 +94,7 @@ const ImportarOrcamento = () => {
   const [etapaEnvio, setEtapaEnvio] = useState('');
   const [erroEnvio, setErroEnvio] = useState('');
   const [concluido, setConcluido] = useState<{ protocolo: string; salvos: number; comFoto: number } | null>(null);
+  const [catalogoPadrao, setCatalogoPadrao] = useState<CatalogoPadrao | null>(null);
   const arquivoInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -90,6 +126,15 @@ const ImportarOrcamento = () => {
       if (info.email) setEmail((atual) => atual || String(info.email));
       if (info.unidade) setUnidade((atual) => atual || String(info.unidade));
     }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
+
+  // Catalogo canonico de peca (item_padrao/alias/linha). Carregado uma vez e indexado em Map.
+  useEffect(() => {
+    let cancelled = false;
+    oracleApi.get(ORACLE_ENDPOINTS.getItemPadrao)
+      .then((res) => { if (!cancelled) setCatalogoPadrao(indexarCatalogoApi(res.data)); })
+      .catch(() => { if (!cancelled) setCatalogoPadrao(null); });
     return () => { cancelled = true; };
   }, []);
 
@@ -141,6 +186,8 @@ const ImportarOrcamento = () => {
       const lido = await lerPlanilhaOrcamento(await selecionado.arrayBuffer());
       await consultarProdutosOrcamento(lido.itens, consultarCadastroProduto, (processados, total) =>
         setProgressoLeitura({ processados, total }));
+      // Padroniza o nome das pecas pela linha do produto (so quando o catalogo ja carregou).
+      if (catalogoPadrao) aplicarPadraoPecas(lido.itens, catalogoPadrao);
       marcarSeriaisJaEnviados(lido.itens, await buscarItensDoPosto(cnpjDigitos), novoProtocolo);
       setItens([...lido.itens]);
       setErrosLinha(lido.errosLinha);
@@ -379,6 +426,7 @@ const ImportarOrcamento = () => {
                 <tr>
                   <th>Linha</th>
                   <th>Serial</th>
+                  <th>Nota fiscal</th>
                   <th>Gemco / EAN</th>
                   <th>Produto</th>
                   <th>Defeito encontrado</th>
@@ -404,6 +452,7 @@ const ImportarOrcamento = () => {
                     <tr key={item.serial} className={bloqueado ? 'resultado-erro' : item.pendencias.length ? 'resultado-atualizado' : 'resultado-importado'}>
                       <td>{item.linha}</td>
                       {celula(item, 'serial', item.serial)}
+                      {celula(item, 'notaFiscal', item.notaFiscal)}
                       {celula(item, 'codigo', item.codigo)}
                       <td className={pendenciasDe(item, 'codigo').length ? 'importacao-orc-celula-erro' : undefined}>{item.produto?.descricao || '-'}</td>
                       {celula(item, 'defeitoEncontrado', item.defeitoEncontrado)}

@@ -10,7 +10,7 @@ const compiled = new Module(path.resolve('src/lib/importacao-orcamento.test.cjs'
 compiled._compile(outputFiles[0].text, compiled.id);
 const { consultarProdutosOrcamento, interpretarPlanilhaOrcamento, itemBloqueado, lerPlanilhaOrcamento, lerValorMonetario, marcarSeriaisJaEnviados, montarItemCadastro, montarValoresOrcamento, quebrarItensComValor } = compiled.exports;
 
-const CABECALHO = ['Serial', 'Gemco ou Código de barras', 'Defeito encontrado', 'Defeito funcional (SIM/NAO)', 'Garantia (SIM/NAO)', 'Tipo Orc.', 'Peças (nome: valor; nome: valor)', 'Acessórios (nome: valor; nome: valor)', 'Mão de obra (R$)', 'Embalagem (R$)', 'Higienização (R$)'];
+const CABECALHO = ['Serial', 'Nota fiscal', 'Gemco ou Código de barras', 'Defeito encontrado', 'Defeito funcional (SIM/NAO)', 'Garantia (SIM/NAO)', 'Tipo Orc.', 'Peças (nome: valor; nome: valor)', 'Acessórios (nome: valor; nome: valor)', 'Mão de obra (R$)', 'Embalagem (R$)', 'Higienização (R$)'];
 
 const planilha = (linhas) => {
   const workbook = XLSX.utils.book_new();
@@ -21,9 +21,9 @@ const planilha = (linhas) => {
 test('uma linha por produto: quebra pecas e acessorios e soma os valores', async () => {
   const { itens, errosLinha } = await lerPlanilhaOrcamento(planilha([
     CABECALHO,
-    ['abc12345', 123456, 'Tela quebrada', 'sim', 'Não', 'novo', 'Display: 300; Flex: R$ 1.020,00', 'Controle = 35', '80,50', '', ''],
-    ['', '', '', '', '', '', '', '', '', '', ''],
-    ['xyz999', '7891234567890', 'Não liga', 'NAO', 'NAO', 'Saldo A', '', '', '', 10, 15]
+    ['abc12345', 'NF-1', 123456, 'Tela quebrada', 'sim', 'Não', 'novo', 'Display: 300; Flex: R$ 1.020,00', 'Controle = 35', '80,50', '', ''],
+    ['', '', '', '', '', '', '', '', '', '', '', ''],
+    ['xyz999', 'NF-2', '7891234567890', 'Não liga', 'NAO', 'NAO', 'Saldo A', '', '', '', 10, 15]
   ]));
   assert.deepEqual(errosLinha, []);
   assert.equal(itens.length, 2);
@@ -44,9 +44,9 @@ test('uma linha por produto: quebra pecas e acessorios e soma os valores', async
 test('serial repetido em outra linha e erro', () => {
   const { itens, errosLinha } = interpretarPlanilhaOrcamento([
     CABECALHO,
-    ['S1', '10', 'x', 'SIM', 'NAO', 'NOVO', 'Placa: 10', '', '', '', ''],
-    ['s1', '10', 'x', 'SIM', 'NAO', 'NOVO', 'Tela: 10', '', '', '', ''],
-    ['', '10', 'x', 'SIM', 'NAO', 'NOVO', '', '', '', '', '']
+    ['S1', 'NF', '10', 'x', 'SIM', 'NAO', 'NOVO', 'Placa: 10', '', '', '', ''],
+    ['s1', 'NF', '10', 'x', 'SIM', 'NAO', 'NOVO', 'Tela: 10', '', '', '', ''],
+    ['', '', '10', 'x', 'SIM', 'NAO', 'NOVO', '', '', '', '', '']
   ]);
   assert.equal(itens.length, 1);
   assert.deepEqual(errosLinha, [
@@ -58,7 +58,7 @@ test('serial repetido em outra linha e erro', () => {
 test('aponta campos em branco e invalidos como pendencia que bloqueia o envio', () => {
   const { itens } = interpretarPlanilhaOrcamento([
     CABECALHO,
-    ['S1', '', '', 'TALVEZ', '', 'NOVO', 'Placa; : 5; Tela: abc', '', 'xx', '', '']
+    ['S1', 'NF', '', '', 'TALVEZ', '', 'NOVO', 'Placa; : 5; Tela: abc', '', 'xx', '', '']
   ]);
   const [item] = itens;
   assert.equal(itemBloqueado(item), true);
@@ -73,10 +73,21 @@ test('aponta campos em branco e invalidos como pendencia que bloqueia o envio', 
   ]);
 });
 
+test('nota fiscal em branco bloqueia o envio', () => {
+  const { itens } = interpretarPlanilhaOrcamento([
+    CABECALHO,
+    ['S9', '', '10', 'Não liga', 'SIM', 'NAO', 'NOVO', 'Placa: 10', '', '', '', '']
+  ]);
+  const [item] = itens;
+  assert.equal(item.notaFiscal, '');
+  assert.equal(itemBloqueado(item), true);
+  assert.ok(item.pendencias.some((p) => p.campo === 'notaFiscal' && p.mensagem === 'Nota fiscal em branco.'));
+});
+
 test('avaria e total zero so avisam', () => {
   const { itens } = interpretarPlanilhaOrcamento([
     CABECALHO,
-    ['S2', '10', 'AVARIA', 'SIM', 'NAO', 'SUCATA', '', '', '', '', '']
+    ['S2', 'NF', '10', 'AVARIA', 'SIM', 'NAO', 'SUCATA', '', '', '', '', '']
   ]);
   const [item] = itens;
   assert.equal(itemBloqueado(item), false);
@@ -85,7 +96,7 @@ test('avaria e total zero so avisam', () => {
 });
 
 test('serial em lote aberto do posto bloqueia; finalizado, cancelado e o proprio lote liberam', () => {
-  const linha = (serial) => [serial, '10', 'x', 'SIM', 'NAO', 'NOVO', 'Placa: 10', '', '', '', ''];
+  const linha = (serial) => [serial, 'NF', '10', 'x', 'SIM', 'NAO', 'NOVO', 'Placa: 10', '', '', '', ''];
   const { itens } = interpretarPlanilhaOrcamento([CABECALHO, linha('ABERTO1'), linha('FINAL1'), linha('CANC1'), linha('PROPRIO1'), linha('NOVO1')]);
   const bloqueados = marcarSeriaisJaEnviados(itens, [
     { serial: 'ABER-TO1', protocolo: 'P1-1000', status: 8 },
@@ -102,7 +113,7 @@ test('serial em lote aberto do posto bloqueia; finalizado, cancelado e o proprio
 });
 
 test('cabecalho sem coluna obrigatoria gera erro claro', () => {
-  assert.throws(() => interpretarPlanilhaOrcamento([['Serial', 'Gemco']]), /Coluna\(s\) não encontrada\(s\): Defeito encontrado/);
+  assert.throws(() => interpretarPlanilhaOrcamento([['Serial', 'Gemco']]), /Coluna\(s\) não encontrada\(s\): Nota fiscal/);
 });
 
 test('le valores monetarios e quebra itens com valor', () => {
@@ -131,9 +142,9 @@ test('le valores monetarios e quebra itens com valor', () => {
 test('consulta o produto uma vez por codigo e monta os payloads do lote', async () => {
   const { itens } = interpretarPlanilhaOrcamento([
     CABECALHO,
-    ['S1', '10', 'Não liga', 'SIM', 'NAO', 'NOVO', 'Placa Ã: 100', 'Cabo: 5', '', '', ''],
-    ['S2', '10', 'Não liga', 'SIM', 'NAO', 'NOVO', '', '', 50, '', ''],
-    ['S3', '99', 'Não liga', 'SIM', 'NAO', 'NOVO', '', '', 50, '', '']
+    ['S1', 'NF1', '10', 'Não liga', 'SIM', 'NAO', 'NOVO', 'Placa Ã: 100', 'Cabo: 5', '', '', ''],
+    ['S2', 'NF2', '10', 'Não liga', 'SIM', 'NAO', 'NOVO', '', '', 50, '', ''],
+    ['S3', 'NF3', '99', 'Não liga', 'SIM', 'NAO', 'NOVO', '', '', 50, '', '']
   ]);
   const consultas = [];
   await consultarProdutosOrcamento(itens, async ({ item }) => {
@@ -143,7 +154,7 @@ test('consulta o produto uma vez por codigo e monta os payloads do lote', async 
   assert.deepEqual(consultas.sort(), ['10', '99']);
   assert.equal(itemBloqueado(itens[2]), true);
   assert.deepEqual(montarItemCadastro(itens[0], 'P1-1'), {
-    protocolo: 'P1-1', uuid: '-', ean: '789', codBarras: '789', codGemco: '10', descricao: 'TV', fornecedor: 'ACME', linha: 'MARROM', serial: 'S1', status: 0
+    protocolo: 'P1-1', uuid: '-', ean: '789', codBarras: '789', codGemco: '10', descricao: 'TV', fornecedor: 'ACME', linha: 'MARROM', serial: 'S1', notaFiscal: 'NF1', status: 0
   });
   const valores = montarValoresOrcamento(itens[0]);
   assert.equal(valores.pecasDesc, 'pe;placa a');

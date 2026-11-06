@@ -6,6 +6,7 @@ export const ORDS_BASE_URL = '';
 // Use sempre o proxy das Functions para evitar CORS no browser
 export const ORACLE_ENDPOINTS = {
   getCatalogoQualidade: '/catalogo_qualidade',
+  getItemPadrao: '/item_padrao',
   checkUser: '/api-check-user',
   betUserInf: '/api-bet-user-inf',
   getUserInf: '/get_user_inf',
