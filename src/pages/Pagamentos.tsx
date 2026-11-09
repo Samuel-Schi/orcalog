@@ -139,61 +139,175 @@ export default function Pagamentos() {
     finally { sendingRef.current = false; setEnviando(false); }
   };
   const filtrados = pagamentos.filter((p) => (p.protocolo + ' ' + (p.descricao || '') + ' ' + (p.serial || '')).toLowerCase().includes(busca.toLowerCase()));
+  const qtdAguardando = pagamentos.filter((p) => !p.pagamento_status || p.pagamento_status === 'AGUARDANDO_NOTA').length;
+  const qtdEmAndamento = pagamentos.filter((p) => ['NOTA_ENVIADA', 'EM_VALIDACAO', 'EM_PAGAMENTO'].includes(p.pagamento_status || '')).length;
+  const qtdPago = pagamentos.filter((p) => p.pagamento_status === 'PAGO').length;
+  const saldoTotal = pagamentos.reduce((soma, p) => soma + pendente(p), 0);
+  const badgeClasse = (status?: string) =>
+    status === 'PAGO' ? ' paid' : status === 'NOTA_ENVIADA' || status === 'EM_VALIDACAO' || status === 'EM_PAGAMENTO' ? ' sent' : '';
+  const saldoTipo = selected ? Number((tipoNota === 'PRODUTO' ? selected.produto_saldo : selected.servico_saldo) || 0) : 0;
+  const fecharSelecao = () => {
+    if (enviando) return;
+    setSelected(null); setArquivo(null); setValor(''); uploadedRef.current = null;
+  };
   return (
     <div className="view-section pagamentos-page">
       <header className="pg-heading">
-        <div><span className="pg-eyebrow">FINANCEIRO</span><h2>Pagamentos</h2><p>Selecione um protocolo finalizado e envie sua nota fiscal.</p></div>
-        <button className="btn btn-secondary" type="button" disabled={loading || enviando} onClick={() => void carregar()}>Atualizar lista</button>
+        <div>
+          <h2 className="page-title pg-titulo">Pagamentos</h2>
+          <p>Escolha um protocolo finalizado e envie a nota fiscal para receber.</p>
+        </div>
+        <button className="pg-btn" type="button" disabled={loading || enviando} onClick={() => void carregar()}>
+          <i className={`material-icons${loading ? ' pg-girando' : ''}`}>refresh</i>
+          {loading ? 'Atualizando...' : 'Atualizar'}
+        </button>
       </header>
-      <div className="pg-summary">
-        <div><span>Protocolos finalizados</span><strong>{loading ? '—' : pagamentos.length}</strong></div>
-        <div><span>Aguardando nota</span><strong>{loading ? '—' : pagamentos.filter((p) => !p.pagamento_status || p.pagamento_status === 'AGUARDANDO_NOTA').length}</strong></div>
-        <div><span>Notas enviadas / em pagamento</span><strong>{loading ? '—' : pagamentos.filter((p) => ['NOTA_ENVIADA', 'EM_PAGAMENTO'].includes(p.pagamento_status || '')).length}</strong></div>
-      </div>
-      {loadError && <div className="pg-notice error" role="alert">{loadError}</div>}
-      {aviso && <div className={'pg-notice ' + aviso.tipo} role={aviso.tipo === 'error' ? 'alert' : 'status'}>{aviso.texto}</div>}
+
+      {!loading && pagamentos.length > 0 && (
+        <div className="pg-resumo">
+          <span><strong>{pagamentos.length}</strong> protocolo{pagamentos.length === 1 ? '' : 's'}</span>
+          <span className={qtdAguardando ? 'pg-resumo-atencao' : undefined}><strong>{qtdAguardando}</strong> aguardando nota</span>
+          <span><strong>{qtdEmAndamento}</strong> em análise ou pagamento</span>
+          <span><strong>{qtdPago}</strong> pago{qtdPago === 1 ? '' : 's'}</span>
+          <span className="pg-resumo-total">Saldo a faturar <strong>{money(saldoTotal)}</strong></span>
+        </div>
+      )}
+
+      {loadError && (
+        <div className="pg-notice error" role="alert">
+          <i className="material-icons" aria-hidden="true">error_outline</i>
+          <span>{loadError}</span>
+          <button type="button" className="pg-btn" onClick={() => void carregar()}>Tentar novamente</button>
+        </div>
+      )}
+      {aviso && (
+        <div className={'pg-notice ' + aviso.tipo} role={aviso.tipo === 'error' ? 'alert' : 'status'}>
+          <i className="material-icons" aria-hidden="true">{aviso.tipo === 'success' ? 'check_circle' : 'error_outline'}</i>
+          <span>{aviso.texto}</span>
+          <button type="button" className="pg-notice-fechar" aria-label="Fechar aviso" onClick={() => setAviso(null)}>
+            <i className="material-icons">close</i>
+          </button>
+        </div>
+      )}
+
       <div className="pg-layout">
         <section className="pg-panel" aria-label="Orçamentos finalizados">
-          <div className="pg-panel-heading"><div><h3>Seus protocolos</h3><p>Escolha um protocolo para preencher a nota.</p></div><span className="pg-count">{filtrados.length}</span></div>
-          <label className="pg-search"><span>Buscar protocolo</span><input type="search" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Protocolo, produto ou serial" /></label>
+          <div className="pg-panel-heading">
+            <h3>Seus protocolos <span className="pg-count">{filtrados.length}</span></h3>
+            <div className="pg-search">
+              <i className="material-icons" aria-hidden="true">search</i>
+              <input type="search" aria-label="Buscar protocolo" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Protocolo, produto ou serial" />
+            </div>
+          </div>
           <div className="pg-table-wrap"><table className="pg-table">
-            <thead><tr><th>Protocolo / itens</th><th>Total aprovado</th><th>Nota fiscal</th><th>Saldo pendente</th><th>Pagamento</th><th>Ação</th></tr></thead>
+            <thead><tr><th>Protocolo</th><th className="pg-num">Total aprovado</th><th>Nota fiscal</th><th className="pg-num">Saldo pendente</th><th>Situação</th><th aria-label="Ação" /></tr></thead>
             <tbody>
-              {loading ? <tr><td colSpan={6} className="pg-empty" role="status">Carregando protocolos…</td></tr> : filtrados.length === 0 ? <tr><td colSpan={6} className="pg-empty">{busca ? 'Nenhum protocolo corresponde à busca.' : 'Os protocolos finalizados aparecerão aqui.'}</td></tr> : filtrados.map((p) => (
-                <tr key={p.protocolo} className={selected?.protocolo === p.protocolo ? 'is-selected' : ''}>
-                  <td><strong>{p.protocolo}</strong><span>{p.descricao || p.cod_gemco || 'Produto sem descrição'}</span><small>{p.quantidade_itens || 1} item(ns) · {p.itens_aprovados || 0} aprovado(s){p.itens_reprovados ? ' · ' + p.itens_reprovados + ' reprovado(s)' : ''}</small></td>
-                  <td><strong>{Number(p.total_protocolo || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong><small>Limite máximo da nota</small></td>
-                  <td>{p.nota_fiscal_numero ? <><strong>Nº {p.nota_fiscal_numero}</strong><span>{Number(p.valor_pagamento || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span></> : <small>Não enviada</small>}{pastaLink(p) && <a href={pastaLink(p)} target="_blank" rel="noreferrer">Abrir pasta das notas ↗</a>}</td>
-                  <td><strong>{money(pendente(p))}</strong><small>{enviado(p) > 0 ? 'Enviado ' + money(enviado(p)) : 'Nenhuma nota enviada'}</small></td>
-                  <td><span className={'pg-badge' + (p.pagamento_status === 'PAGO' ? 'paid' : p.pagamento_status === 'NOTA_ENVIADA' ? 'sent' : '')}>{labels[p.pagamento_status || 'AGUARDANDO_NOTA'] || p.pagamento_status}</span></td>
-                  <td><button type="button" className="pg-select" disabled={enviando} aria-pressed={selected?.protocolo === p.protocolo} onClick={() => selecionar(p)}>{selected?.protocolo === p.protocolo ? 'Selecionado' : 'Selecionar'}</button></td>
+              {loading ? (
+                <tr><td colSpan={6} className="pg-empty" role="status"><span className="pg-spinner" aria-hidden="true" /> Carregando protocolos...</td></tr>
+              ) : filtrados.length === 0 ? (
+                <tr><td colSpan={6} className="pg-empty">{busca ? 'Nenhum protocolo corresponde à busca.' : 'Os protocolos finalizados aparecem aqui quando a análise terminar.'}</td></tr>
+              ) : filtrados.map((p) => {
+                const ativo = selected?.protocolo === p.protocolo;
+                const saldo = pendente(p);
+                return (
+                <tr key={p.protocolo} className={ativo ? 'is-selected' : ''} onClick={() => selecionar(p)}>
+                  <td>
+                    <strong className="pg-protocolo">{p.protocolo}</strong>
+                    <span className="pg-desc" title={p.descricao || ''}>{p.descricao || p.cod_gemco || 'Produto sem descrição'}</span>
+                    <small>{p.quantidade_itens || 1} item(ns) · {p.itens_aprovados || 0} aprovado(s){p.itens_reprovados ? ' · ' + p.itens_reprovados + ' reprovado(s)' : ''}</small>
+                  </td>
+                  <td className="pg-num"><strong>{money(p.total_protocolo)}</strong></td>
+                  <td>
+                    {p.nota_fiscal_numero ? <><strong>Nº {p.nota_fiscal_numero}</strong><small>{money(p.valor_pagamento)}</small></> : <small>Não enviada</small>}
+                    {pastaLink(p) && <a href={pastaLink(p)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>Ver notas</a>}
+                  </td>
+                  <td className="pg-num">
+                    <strong className={saldo > 0 ? 'pg-saldo-aberto' : 'pg-saldo-zerado'}>{money(saldo)}</strong>
+                    <small>{enviado(p) > 0 ? 'Enviado ' + money(enviado(p)) : 'Nada enviado'}</small>
+                  </td>
+                  <td><span className={'pg-badge' + badgeClasse(p.pagamento_status)}>{labels[p.pagamento_status || 'AGUARDANDO_NOTA'] || p.pagamento_status}</span></td>
+                  <td>
+                    <button type="button" className="pg-select" disabled={enviando} aria-pressed={ativo} onClick={(e) => { e.stopPropagation(); selecionar(p); }}>
+                      {ativo ? 'Selecionado' : 'Enviar nota'}
+                    </button>
+                  </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table></div>
         </section>
+
         <form className="pg-panel pg-form" ref={formRef} onSubmit={(event) => { event.preventDefault(); void enviar(); }}>
-          <div className="pg-panel-heading"><div><span className="pg-eyebrow">ENVIO DE DOCUMENTO</span><h3>Nota fiscal</h3></div><i className="material-icons" aria-hidden="true">description</i></div>
+          <div className="pg-panel-heading">
+            <h3>Nota fiscal</h3>
+            {selected && (
+              <button type="button" className="pg-notice-fechar" aria-label="Cancelar seleção" disabled={enviando} onClick={fecharSelecao}>
+                <i className="material-icons">close</i>
+              </button>
+            )}
+          </div>
           {selected ? <>
-            <div className="pg-selected"><small>Protocolo selecionado</small><strong>{selected.protocolo}</strong><span>{money(selected.total_protocolo)} aprovados · {selected.quantidade_itens || 1} item(ns)</span><span>Enviado {money(enviado(selected))} · <b>Saldo pendente {money(pendente(selected))}</b></span></div>
-            <div className="pg-financeiro-resumo" aria-label="Saldos para faturamento">
-              <div><strong>Produtos</strong><span>Aprovado {money(selected.produto_aprovado)} · Faturado {money(selected.produto_faturado)}</span><b>Saldo {money(selected.produto_saldo)}</b></div>
-              <div><strong>Serviços</strong><span>Aprovado {money(selected.servico_aprovado)} · Faturado {money(selected.servico_faturado)}</span><b>Saldo {money(selected.servico_saldo)}</b></div>
+            <div className="pg-selected">
+              <div className="pg-selected-topo">
+                <strong className="pg-protocolo">{selected.protocolo}</strong>
+                <span>{selected.quantidade_itens || 1} item(ns)</span>
+              </div>
+              <dl className="pg-saldos">
+                <div><dt>Aprovado</dt><dd>{money(selected.total_protocolo)}</dd></div>
+                <div><dt>Enviado</dt><dd>{money(enviado(selected))}</dd></div>
+                <div><dt>Saldo pendente</dt><dd className="pg-saldo-aberto">{money(pendente(selected))}</dd></div>
+              </dl>
             </div>
-            {selected.possui_nota_sem_valor && <p className="pg-notice error">Há uma nota antiga sem valor registrado. Regularize-a antes de enviar uma nota parcial.</p>}
+            {selected.possui_nota_sem_valor && <p className="pg-notice error pg-notice-form">Há uma nota antiga sem valor registrado. Regularize-a antes de enviar uma nota parcial.</p>}
             <fieldset disabled={enviando}>
-              <div className="pg-tipo-nota" role="group" aria-label="Tipo da nota fiscal"><button type="button" aria-pressed={tipoNota === 'PRODUTO'} onClick={() => { setTipoNota('PRODUTO'); setValor(''); }}>Nota de produto</button><button type="button" aria-pressed={tipoNota === 'SERVICO'} onClick={() => { setTipoNota('SERVICO'); setValor(''); }}>Nota de serviço</button></div>
+              <span className="pg-label">Tipo da nota</span>
+              <div className="pg-tipo-nota" role="group" aria-label="Tipo da nota fiscal">
+                <button type="button" aria-pressed={tipoNota === 'PRODUTO'} onClick={() => { setTipoNota('PRODUTO'); setValor(''); }}>
+                  Produto<small>Saldo {money(selected.produto_saldo)}</small>
+                </button>
+                <button type="button" aria-pressed={tipoNota === 'SERVICO'} onClick={() => { setTipoNota('SERVICO'); setValor(''); }}>
+                  Serviço<small>Saldo {money(selected.servico_saldo)}</small>
+                </button>
+              </div>
               <label htmlFor="pg-numero">Número da nota fiscal<input id="pg-numero" required maxLength={80} value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="Ex.: 000123" /></label>
-              <label htmlFor="pg-valor">Valor da nota de {tipoNota === 'PRODUTO' ? 'produto' : 'serviço'} (R$)<input id="pg-valor" required type="text" inputMode="decimal" autoComplete="off" maxLength={20} value={valor} onChange={(e) => { if (/^[\d.,]*$/.test(e.target.value)) setValor(e.target.value); }} placeholder="Ex.: 300,00" /></label>
-              <div className="pg-file-box"><i className="material-icons" aria-hidden="true">upload_file</i><strong>{arquivo ? arquivo.name : 'Anexe a nota fiscal'}</strong><small>{arquivo ? (arquivo.size / 1024).toFixed(0) + ' KB · Pronto para enviar' : 'Arquivo PDF · Até 3 MB'}</small>
-                <button className="btn btn-secondary btn-sm" type="button" onClick={() => inputRef.current?.click()}>{arquivo ? 'Trocar arquivo' : 'Selecionar PDF'}</button>
+              <div className="pg-campo">
+                <div className="pg-label-linha">
+                  <label htmlFor="pg-valor">Valor da nota (R$)</label>
+                  {saldoTipo > 0 && (
+                    <button type="button" className="pg-link" onClick={() => setValor(saldoTipo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}>
+                      Usar saldo {money(saldoTipo)}
+                    </button>
+                  )}
+                </div>
+                <input id="pg-valor" required type="text" inputMode="decimal" autoComplete="off" maxLength={20} value={valor} onChange={(e) => { if (/^[\d.,]*$/.test(e.target.value)) setValor(e.target.value); }} placeholder="Ex.: 300,00" />
+              </div>
+              <div
+                className={'pg-file-box' + (arquivo ? ' has-file' : '')}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => { e.preventDefault(); if (!enviando) anexar(e.dataTransfer.files?.[0]); }}
+              >
+                <i className="material-icons" aria-hidden="true">{arquivo ? 'picture_as_pdf' : 'upload_file'}</i>
+                <div className="pg-file-texto">
+                  <strong>{arquivo ? arquivo.name : 'Arraste o PDF da nota aqui'}</strong>
+                  <small>{arquivo ? (arquivo.size / 1024).toFixed(0) + ' KB' : 'PDF de até 3 MB'}</small>
+                </div>
+                <button className="pg-btn pg-btn-sm" type="button" onClick={() => inputRef.current?.click()}>{arquivo ? 'Trocar' : 'Selecionar'}</button>
                 <input ref={inputRef} type="file" accept="application/pdf,.pdf" hidden aria-label="Anexar nota fiscal em PDF" onChange={(e) => { anexar(e.target.files?.[0]); e.currentTarget.value = ''; }} />
               </div>
-              <p className="pg-help">Envio parcial é permitido. Saldo disponível: <strong>{money(tipoNota === 'PRODUTO' ? selected.produto_saldo : selected.servico_saldo)}</strong>. O banco bloqueia valores acima do saldo.</p>
-              <button className="btn btn-primary pg-submit" type="submit" disabled={selected.possui_nota_sem_valor || !arquivo || !numero.trim() || !valor.trim()}>{enviando ? etapa : `Enviar nota de ${tipoNota === 'PRODUTO' ? 'produto' : 'serviço'}`}</button>
+              <p className="pg-help">Pode enviar uma nota parcial. O valor não pode passar do saldo do tipo escolhido.</p>
+              <button className="pg-btn pg-btn-primario pg-submit" type="submit" disabled={selected.possui_nota_sem_valor || !arquivo || !numero.trim() || !valor.trim()}>
+                {enviando ? <><span className="pg-spinner" aria-hidden="true" /> {etapa}</> : `Enviar nota de ${tipoNota === 'PRODUTO' ? 'produto' : 'serviço'}`}
+              </button>
             </fieldset>
-            {enviando && <p role="status" className="pg-help">{etapa} Aguarde a confirmação.</p>}
-          </> : <div className="pg-form-empty"><i className="material-icons" aria-hidden="true">receipt_long</i><strong>Comece selecionando um protocolo</strong><p>Depois, informe o número e o valor da nota e anexe o PDF.</p></div>}
+            {enviando && <p role="status" className="pg-help pg-help-centro">Aguarde a confirmação, não feche a página.</p>}
+          </> : (
+            <div className="pg-form-empty">
+              <i className="material-icons" aria-hidden="true">receipt_long</i>
+              <strong>Nenhum protocolo selecionado</strong>
+              <p>Clique em um protocolo da lista para enviar a nota fiscal dele.</p>
+            </div>
+          )}
         </form>
       </div>
     </div>

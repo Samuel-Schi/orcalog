@@ -81,6 +81,88 @@ type NegociacaoSupabaseRow = {
   respondido_por?: string | null;
 };
 
+// Visual da tela (prefixo me-). Sóbrio: bordas finas, pouca cor, cor só onde pede ação.
+const estiloMeusEnvios = `
+.me-page { --me-borda: #e5e7eb; --me-texto: #1f2937; --me-muted: #6b7280; --me-fundo: #f9fafb; --me-azul: var(--azul-escuro, #0056b3); }
+.me-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.me-titulo { margin: 0 !important; padding: 0 !important; border: 0 !important; }
+.me-subtitulo { margin: 3px 0 0; font-size: .88rem; color: var(--me-muted); }
+
+.me-btn { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border: 1px solid var(--me-borda); border-radius: 6px; background: #fff; color: var(--me-texto); font: inherit; font-size: .84rem; font-weight: 500; cursor: pointer; white-space: nowrap; }
+.me-btn:hover:not(:disabled) { border-color: #c7ccd4; background: var(--me-fundo); }
+.me-btn:disabled { opacity: .6; cursor: default; }
+.me-btn .material-icons { font-size: 17px; }
+.me-btn-sm { height: 28px; padding: 0 9px; font-size: .78rem; }
+.me-btn-sm .material-icons { font-size: 15px; }
+.me-girando { animation: me-girar .9s linear infinite; }
+
+.me-busca { position: relative; display: flex; align-items: center; margin-bottom: 12px; max-width: 420px; }
+.me-busca > .material-icons { position: absolute; left: 10px; font-size: 19px; color: #9ca3af; pointer-events: none; }
+.me-busca input { height: 38px; padding: 0 34px 0 36px; border-radius: 6px; border: 1px solid var(--me-borda); font-size: .88rem; background: #fff; }
+.me-busca input:focus { border-color: var(--me-azul); box-shadow: 0 0 0 3px rgba(0,86,179,.1); }
+.me-busca-limpar { position: absolute; right: 6px; width: 26px; height: 26px; border: 0; background: none; color: #9ca3af; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.me-busca-limpar:hover { color: var(--me-texto); background: var(--me-fundo); }
+.me-busca-limpar .material-icons { font-size: 17px; }
+
+.me-estado { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 40px 16px; color: var(--me-muted); font-size: .9rem; text-align: center; }
+.me-estado[role="status"] { flex-direction: row; justify-content: center; }
+.me-vazio { border: 1px dashed var(--me-borda); border-radius: 8px; background: #fff; }
+.me-vazio > .material-icons { font-size: 34px; color: #c3c8d0; }
+.me-vazio p { margin: 0; }
+.me-erro { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; margin-bottom: 12px; border: 1px solid #f3c2c6; background: #fdf2f2; color: #8a1c24; border-radius: 6px; font-size: .86rem; }
+.me-erro > span { flex: 1; min-width: 200px; }
+.me-spinner { width: 16px; height: 16px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: me-girar .8s linear infinite; display: inline-block; }
+@keyframes me-girar { to { transform: rotate(360deg); } }
+
+.me-lote { border: 1px solid var(--me-borda) !important; border-radius: 8px !important; box-shadow: none !important; margin-bottom: 10px !important; }
+.me-lote.pronto-finalizar, .me-lote.me-lote-acao { border-left: 1px solid var(--me-borda) !important; }
+.me-lote-cab { padding: 12px 16px !important; }
+.me-lote-cab:focus-visible { outline: 2px solid var(--me-azul); outline-offset: -2px; }
+.me-lote-id { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.me-lote-protocolo { font-weight: 700; font-size: .98rem; color: var(--me-texto); font-family: ui-monospace, Consolas, monospace; letter-spacing: .2px; }
+.me-lote-meta { font-size: .82rem; color: var(--me-muted); }
+.me-lote-meta strong { color: var(--me-texto); font-weight: 600; }
+.me-sep { margin: 0 6px; color: #c3c8d0; }
+.me-lote-chamada { font-size: .8rem; color: #1e7b3c; font-weight: 600; }
+.me-lote-chamada.negociacao { color: #a15c00; }
+.me-lote-dir { gap: 12px !important; }
+.me-status { display: inline-flex; align-items: center; gap: 7px; font-size: .82rem; color: var(--me-texto); white-space: nowrap; }
+.me-status-ponto { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+.me-lote-corpo { background: #fff !important; padding: 14px 16px 16px !important; }
+.me-resumo { display: flex; flex-wrap: wrap; gap: 8px 32px; margin: 0 0 14px; padding-bottom: 12px; border-bottom: 1px solid var(--me-borda); }
+.me-resumo dt { font-size: .76rem; color: var(--me-muted); }
+.me-resumo dd { margin: 1px 0 0; font-size: .95rem; font-weight: 600; color: var(--me-texto); }
+.me-resumo-resultado dd { font-weight: 500; font-size: .88rem; }
+.me-nota { margin: -6px 0 12px; font-size: .8rem; color: var(--me-muted); }
+.me-alerta-amarelo { display: flex; flex-direction: column; gap: 3px; margin-bottom: 12px; padding: 10px 12px; border: 1px solid #f5d9a8; background: #fffaf0; color: #8a4b08; border-radius: 6px; font-size: .84rem; }
+
+.me-tabela-wrap { border: 1px solid var(--me-borda) !important; border-radius: 6px !important; margin-bottom: 0 !important; }
+.me-tabela { font-size: .82rem; }
+.me-tabela th { background: var(--me-fundo) !important; color: var(--me-muted) !important; text-transform: none !important; font-weight: 600 !important; font-size: .76rem; padding: 9px 12px !important; border-right: 0 !important; border-bottom: 1px solid var(--me-borda) !important; white-space: nowrap; }
+.me-tabela td { padding: 9px 12px !important; border-right: 0 !important; border-bottom: 1px solid #f0f1f3 !important; vertical-align: top; color: var(--me-texto); }
+.me-tabela tbody tr:last-child td { border-bottom: 0 !important; }
+.me-tabela tbody tr:hover td { background: #fafbfc; }
+.me-num { text-align: right !important; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.me-mono { font-family: ui-monospace, Consolas, monospace; font-size: .78rem; white-space: nowrap; }
+.me-produto { min-width: 220px; max-width: 320px; }
+.me-produto strong { display: block; }
+.me-produto span { display: block; color: var(--me-muted); font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.me-resultado { white-space: nowrap; font-weight: 600; }
+.me-resultado-aprovado { color: #1e7b3c; }
+.me-resultado-reprovado { color: #b42318; }
+.me-resultado-retificado { color: #a15c00; }
+.me-resultado-aguardandoanalise { color: var(--me-muted); font-weight: 500; }
+.me-retificacao { display: flex; flex-direction: column; gap: 1px; margin-top: 4px; font-size: .74rem; color: var(--me-muted); white-space: nowrap; }
+.me-status-item { min-width: 130px; }
+
+@media (max-width: 640px) {
+  .me-busca { max-width: none; }
+  .me-topo .me-btn { width: 100%; justify-content: center; }
+  .me-resumo { gap: 8px 20px; }
+}
+`;
+
 const normalizeProtocolKey = (value?: string | null) =>
   String(value || '')
     .trim()
@@ -513,26 +595,34 @@ const MeusEnvios = () => {
   };
 
   return (
-    <div id="viewAcompanhamento" className="view-section">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
-        <h2 className="page-title" style={{ marginBottom: 0, paddingBottom: 5, fontSize: '1.1rem', borderBottom: 'none' }}>
-          Meus Envios
-        </h2>
-        <button className="btn btn-secondary btn-sm" type="button" onClick={() => void carregar()} disabled={isLoading}>
-          <i className="material-icons" style={{ fontSize: 14, marginRight: 4 }}>refresh</i>
-          Atualizar
+    <div id="viewAcompanhamento" className="view-section me-page">
+      <style>{estiloMeusEnvios}</style>
+
+      <div className="me-topo">
+        <div>
+          <h2 className="page-title me-titulo">Meus Envios</h2>
+          <p className="me-subtitulo">Acompanhe seus lotes, responda negociações e finalize o que estiver pronto.</p>
+        </div>
+        <button className="me-btn" type="button" onClick={() => void carregar()} disabled={isLoading}>
+          <i className={`material-icons${isLoading ? ' me-girando' : ''}`}>refresh</i>
+          {isLoading ? 'Atualizando...' : 'Atualizar'}
         </button>
       </div>
 
-      <div className="filter-bar">
-        <i className="material-icons" style={{ color: '#888' }}>search</i>
+      <div className="me-busca">
+        <i className="material-icons" aria-hidden="true">search</i>
         <input
           type="text"
           value={filtroTexto}
           onChange={(e) => setFiltroTexto(e.target.value)}
-          placeholder="Buscar por protocolo..."
-          className="search-input"
+          placeholder="Buscar por protocolo"
+          aria-label="Buscar por protocolo"
         />
+        {filtroTexto && (
+          <button type="button" className="me-busca-limpar" aria-label="Limpar busca" onClick={() => setFiltroTexto('')}>
+            <i className="material-icons">close</i>
+          </button>
+        )}
       </div>
 
       <div className="envios-abas" role="tablist" aria-label="Situação dos envios">
@@ -556,18 +646,35 @@ const MeusEnvios = () => {
       </div>
 
       <div id="listaAcompanhamentoPA">
-        {isLoading && (
-          <p style={{ textAlign: 'center', color: '#999', marginTop: 20 }}>Carregando...</p>
+        {isLoading && filtrados.length === 0 && (
+          <div className="me-estado" role="status">
+            <span className="me-spinner" aria-hidden="true" /> Carregando seus envios...
+          </div>
         )}
-        {loadError && <p role="alert">{loadError} <button type="button" onClick={() => void carregar()}>Tentar novamente</button></p>}
+        {loadError && (
+          <div className="me-erro" role="alert">
+            <i className="material-icons" aria-hidden="true">error_outline</i>
+            <span>{loadError}</span>
+            <button type="button" className="me-btn" onClick={() => void carregar()}>Tentar novamente</button>
+          </div>
+        )}
         {!isLoading && !loadError && filtrados.length === 0 && (
-          <div style={{ textAlign: 'center', color: '#999', marginTop: 20 }}>
-            <p>{aba === 'finalizados' ? 'Nenhum protocolo finalizado.' : 'Nenhum protocolo em andamento.'}</p>
-            {filtroTexto.trim() && gruposPorAba[outraAba].length > 0 && (
-              <button className="btn btn-secondary btn-sm envios-ver-outra-aba" type="button" onClick={() => setAba(outraAba)}>
+          <div className="me-estado me-vazio">
+            <i className="material-icons" aria-hidden="true">{filtroTexto.trim() ? 'search_off' : 'inbox'}</i>
+            <p>
+              {filtroTexto.trim()
+                ? `Nenhum protocolo com "${filtroTexto.trim()}" ${aba === 'finalizados' ? 'nos finalizados' : 'em andamento'}.`
+                : aba === 'finalizados' ? 'Nenhum protocolo finalizado.' : 'Nenhum protocolo em andamento.'}
+            </p>
+            {filtroTexto.trim() && gruposPorAba[outraAba].length > 0 ? (
+              <button className="me-btn envios-ver-outra-aba" type="button" onClick={() => setAba(outraAba)}>
                 {gruposPorAba[outraAba].length} encontrado(s) em {outraAba === 'finalizados' ? 'Finalizados' : 'Em andamento'}: ver
               </button>
-            )}
+            ) : !filtroTexto.trim() && aba === 'andamento' ? (
+              <button className="me-btn" type="button" onClick={() => navigate('/importar-orcamento')}>
+                <i className="material-icons">upload_file</i> Importar orçamento
+              </button>
+            ) : null}
           </div>
         )}
 
@@ -595,60 +702,88 @@ const MeusEnvios = () => {
           const aguardandoPosto = String(negociacao?.acao_pendente_de || '').toUpperCase() === 'POSTO';
           const aviso = avisoNegociacao[protocolo];
           const mostrarAvisoSemVinculo = possuiNegociacaoPendente && !negociacao;
+          const totalLote = itens.reduce((total, item) => total + Number(item.totalOrcamento || 0), 0);
+          const temNegociacaoAplicada = itens.some((item) => item.negociacaoAplicada);
+          const temRetificacao = itens.some((item) => item.retificacao);
+          const resultados = [
+            ['Aprovado', 'aprovado(s)'],
+            ['Reprovado', 'reprovado(s)'],
+            ['Retificado', 'retificado(s)'],
+            ['Aguardando análise', 'aguardando análise']
+          ].map(([chave, rotulo]) => ({ chave, rotulo, qtd: itens.filter((item) => resultadoItem(item) === chave).length }));
+          const aberto = Boolean(abertos[protocolo]);
+          const alternar = () => setAbertos((prev) => ({ ...prev, [protocolo]: !prev[protocolo] }));
           return (
-            <div key={protocolo} className={`protocolo-card ${abertos[protocolo] ? 'open' : ''}${podeFinalizar ? ' pronto-finalizar' : ''}`}>
+            <div key={protocolo} className={`protocolo-card me-lote${aberto ? ' open' : ''}${podeFinalizar ? ' pronto-finalizar' : ''}${aguardandoPosto ? ' me-lote-acao' : ''}`}>
               <div
-                className="protocolo-header"
-                onClick={() => setAbertos((prev) => ({ ...prev, [protocolo]: !prev[protocolo] }))}
+                className="protocolo-header me-lote-cab"
+                role="button"
+                tabIndex={0}
+                aria-expanded={aberto}
+                onClick={alternar}
+                onKeyDown={(e) => {
+                  if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); alternar(); }
+                }}
               >
-                <div className="header-info-main">
-                  <span className="header-title">{protocolo}</span>
-                  <span className="header-sub">{dataEnvio}</span>
-                  {podeFinalizar && <span className="pronto-finalizar-selo">Pronto para finalizar</span>}
-                </div>
-                <div className="header-meta">
-                  <span className="item-count-badge">
+                <div className="me-lote-id">
+                  <span className="me-lote-protocolo">{protocolo}</span>
+                  <span className="me-lote-meta">
+                    {dataEnvio ? formatDateTime(dataEnvio) : 'Sem data'}
+                    <span className="me-sep">·</span>
                     {quantidadeItens}/{totalItensNoLote} {totalItensNoLote === 1 ? 'item' : 'itens'}
+                    <span className="me-sep">·</span>
+                    <strong>{formatCurrency(totalLote)}</strong>
                   </span>
-                  <span className="status-badge" style={{ background: statusCor(statusAtual) }}>
+                  {(podeFinalizar || aguardandoPosto) && (
+                    <span className={`me-lote-chamada${aguardandoPosto ? ' negociacao' : ''}`}>
+                      {aguardandoPosto ? 'O AT enviou uma proposta: responda' : 'Pronto para finalizar'}
+                    </span>
+                  )}
+                </div>
+                <div className="header-meta me-lote-dir">
+                  <span className="me-status">
+                    <span className="me-status-ponto" style={{ background: statusCor(statusAtual) }} />
                     {getStatusLabel(statusAtual)}
                   </span>
                   {podeFinalizar && <AcaoLotePosto acao="CONCLUIR" protocolo={protocolo} cnpj={cnpjLote} ids={idsLote} onSaved={() => void carregar(true)} />}
                   <i className="material-icons arrow-icon">keyboard_arrow_down</i>
                 </div>
               </div>
-              <div className="protocolo-detalhes">
-                {itens.some(item => item.negociacaoAplicada) && <p><strong>Valor oficial aprovado: </strong>{formatCurrency(itens.reduce((total,item)=>total+(valorFinalItem(item,negociacao) ?? 0),0))}</p>}
-                <div style={{ marginBottom: 16 }}>
-                  <strong>{itens.some(item => item.retificacao) ? 'Total após retificações: ' : itens.some(item => item.negociacaoAplicada) ? 'Total atualizado dos itens: ' : 'Total informado pelo posto: '}</strong>
-                  {formatCurrency(itens.reduce((total, item) => total + Number(item.totalOrcamento || 0), 0))}
-                  {' | '}<strong>Resultado: </strong>
-                  {itens.filter((item) => resultadoItem(item) === 'Aprovado').length} aprovado(s),{' '}
-                  {itens.filter((item) => resultadoItem(item) === 'Reprovado').length} reprovado(s),{' '}
-                  {itens.filter((item) => resultadoItem(item) === 'Retificado').length} retificado(s),{' '}
-                  {itens.filter((item) => resultadoItem(item) === 'Aguardando análise').length} aguardando análise
-                  {negociacao && valorAceito(negociacao) != null && (
+              <div className="protocolo-detalhes me-lote-corpo">
+                <dl className="me-resumo">
+                  <div>
+                    <dt>{temRetificacao ? 'Total após retificações' : temNegociacaoAplicada ? 'Total atualizado dos itens' : 'Total informado pelo posto'}</dt>
+                    <dd>{formatCurrency(totalLote)}</dd>
+                  </div>
+                  {temNegociacaoAplicada && (
                     <div>
-                      <strong>Valor acordado ({negociacao.negotiation_scope === 'LOTE' ? 'lote' : 'itens da negociação'}): </strong>
-                      {formatCurrency(valorAceito(negociacao))}
-                      {itens.some(item => item.retificacao) && <p>Negociação anterior à retificação, preservada para consulta. Confira os itens retificados abaixo.</p>}
+                      <dt>Valor oficial aprovado</dt>
+                      <dd>{formatCurrency(itens.reduce((total, item) => total + (valorFinalItem(item, negociacao) ?? 0), 0))}</dd>
                     </div>
                   )}
-                </div>
-                {mostrarAvisoSemVinculo && (
-                  <div
-                    className="card"
-                    style={{
-                      marginBottom: 12,
-                      borderTopColor: '#f59e0b',
-                      background: '#fff7ed'
-                    }}
-                  >
-                    <div className="section-title">Negociacao pendente de sincronizacao</div>
-                    <div style={{ color: '#9a3412' }}>
-                      Este lote tem item em negociacao no Ravena, mas o registro da negociacao ainda nao apareceu no painel.
-                      Atualize a pagina em alguns instantes. Se continuar assim, vale conferir a gravacao do protocolo no Supabase.
+                  {negociacao && valorAceito(negociacao) != null && (
+                    <div>
+                      <dt>Valor acordado ({negociacao.negotiation_scope === 'LOTE' ? 'lote' : 'itens da negociação'})</dt>
+                      <dd>{formatCurrency(valorAceito(negociacao))}</dd>
                     </div>
+                  )}
+                  <div className="me-resumo-resultado">
+                    <dt>Resultado</dt>
+                    <dd>
+                      {resultados.filter((r) => r.qtd > 0).map((r) => `${r.qtd} ${r.rotulo}`).join(' · ') || '—'}
+                    </dd>
+                  </div>
+                </dl>
+                {negociacao && valorAceito(negociacao) != null && temRetificacao && (
+                  <p className="me-nota">Negociação anterior à retificação, preservada para consulta. Confira os itens retificados abaixo.</p>
+                )}
+                {mostrarAvisoSemVinculo && (
+                  <div className="me-alerta-amarelo">
+                    <strong>Negociação pendente de sincronização</strong>
+                    <span>
+                      Este lote tem item em negociação no Ravena, mas o registro da negociação ainda não apareceu no painel.
+                      Atualize a página em alguns instantes. Se continuar assim, vale conferir a gravação do protocolo no Supabase.
+                    </span>
                   </div>
                 )}
                 {negociacao && (
@@ -814,66 +949,77 @@ const MeusEnvios = () => {
                     )}
                   </section>
                 )}
-                <div className="table-scroll">
-                  <table className="tabela-horizontal">
+                <div className="table-scroll me-tabela-wrap">
+                  <table className="tabela-horizontal me-tabela">
                     <thead>
                       <tr>
-                        <th>Cod. Barras</th>
-                        <th>Cod. GEMCO</th>
-                        <th>Descricao</th>
+                        <th>Produto</th>
+                        <th>Serial</th>
+                        <th>Cód. barras</th>
                         <th>Fornecedor</th>
                         <th>Linha</th>
-                        <th>Serial</th>
-                        <th>Classificacao</th>
-                        <th>Pecas</th>
-                        <th>Acess.</th>
-                        <th>Mao de Obra</th>
-                        <th>Embal.</th>
-                        <th>Hig.</th>
-                        <th>Total informado pelo posto</th>
-                        <th>Valor final aprovado</th>
+                        <th>Classificação</th>
+                        <th className="me-num">Peças</th>
+                        <th className="me-num">Acess.</th>
+                        <th className="me-num">Mão de obra</th>
+                        <th className="me-num">Embal.</th>
+                        <th className="me-num">Hig.</th>
+                        <th className="me-num">Total informado</th>
+                        <th className="me-num">Valor final aprovado</th>
                         <th>Resultado</th>
                         <th>Status</th>
-                        <th>Acoes</th>
+                        <th>Ações</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {itens.map((item) => (
+                      {itens.map((item) => {
+                        const valorFinal = valorFinalItem(item, negociacao);
+                        const moeda = (v?: number) => (v != null ? formatCurrency(v) : '-');
+                        const resultado = resultadoItem(item);
+                        return (
                         <tr key={item.id}>
-                          <td>{item.codBarras}</td>
-                          <td><strong>{item.codGemco}</strong></td>
-                          <td>{item.descricao}</td>
-                          <td>{item.fornecedor}</td>
-                          <td>{item.linha}</td>
-                          <td>{item.serial}</td>
-                          <td><strong>{item.tipoOrc || '-'}</strong></td>
-                          <td>{item.valPecas != null ? item.valPecas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
-                          <td>{item.valAcess != null ? item.valAcess.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
-                          <td>{item.valMaoObra != null ? item.valMaoObra.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
-                          <td>{item.valEmb != null ? item.valEmb.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
-                          <td>{item.valHig != null ? item.valHig.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}</td>
-                          <td>{item.totalOrcamento != null ? formatCurrency(item.totalOrcamento) : '-'}</td>
-                          <td>{valorFinalItem(item, negociacao) != null ? formatCurrency(valorFinalItem(item, negociacao)) : '-'}</td>
-                          <td>{resultadoItem(item)}{item.retificacao && <div>
-                            <p>{item.retificacao.motivo === 'DEVOLUCAO' ? 'Devolução' : 'Desconsiderar reparo'}</p>
-                            <p>Valor anterior: {formatCurrency(item.retificacao.original?.total_orcamento ?? 0)} · Valor atual: {formatCurrency(0)}</p>
-                            <p>{item.retificacao.responsavel} · {new Date(item.retificacao.data).toLocaleString('pt-BR')}</p>
-                          </div>}</td>
-                          <td>{item.statusText === 'CANCELADO_POSTO' ? 'Cancelado pelo posto — editar para relançar' : getStatusLabel(item.status)}</td>
+                          <td className="me-produto">
+                            <strong>{item.codGemco || '-'}</strong>
+                            <span title={item.descricao}>{item.descricao || '-'}</span>
+                          </td>
+                          <td className="me-mono">{item.serial || '-'}</td>
+                          <td className="me-mono">{item.codBarras || '-'}</td>
+                          <td>{item.fornecedor || '-'}</td>
+                          <td>{item.linha || '-'}</td>
+                          <td>{item.tipoOrc || '-'}</td>
+                          <td className="me-num">{moeda(item.valPecas)}</td>
+                          <td className="me-num">{moeda(item.valAcess)}</td>
+                          <td className="me-num">{moeda(item.valMaoObra)}</td>
+                          <td className="me-num">{moeda(item.valEmb)}</td>
+                          <td className="me-num">{moeda(item.valHig)}</td>
+                          <td className="me-num">{moeda(item.totalOrcamento)}</td>
+                          <td className="me-num"><strong>{valorFinal != null ? formatCurrency(valorFinal) : '-'}</strong></td>
+                          <td>
+                            <span className={`me-resultado me-resultado-${String(resultado).normalize('NFD').replace(/[^\w]/g, '').toLowerCase()}`}>{resultado}</span>
+                            {item.retificacao && (
+                              <div className="me-retificacao">
+                                <span>{item.retificacao.motivo === 'DEVOLUCAO' ? 'Devolução' : 'Desconsiderar reparo'}</span>
+                                <span>Valor anterior: {formatCurrency(item.retificacao.original?.total_orcamento ?? 0)} · Valor atual: {formatCurrency(0)}</span>
+                                <span>{item.retificacao.responsavel} · {new Date(item.retificacao.data).toLocaleString('pt-BR')}</span>
+                              </div>
+                            )}
+                          </td>
+                          <td className="me-status-item">{item.statusText === 'CANCELADO_POSTO' ? 'Cancelado pelo posto — editar para relançar' : getStatusLabel(item.status)}</td>
                           <td>
                             {isItemEmMontagem(item) && item.envioFinalizado !== true && (
                               <button
-                                className="btn btn-secondary btn-sm"
+                                className="me-btn me-btn-sm"
                                 type="button"
                                 onClick={() => navigate('/lancar-orcamentos', { state: { item } })}
                               >
-                                <i className="material-icons" style={{ fontSize: 14, marginRight: 4 }}>edit</i>
+                                <i className="material-icons">edit</i>
                                 Editar valores
                               </button>
                             )}
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

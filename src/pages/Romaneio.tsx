@@ -24,6 +24,68 @@ type RomaneioItem = {
   statusText?: string | null;
 };
 
+// Visual da tela (prefixo rom-), no mesmo tom sóbrio de Meus Envios. A folha/prévia segue o CSS global.
+const estiloRomaneio = `
+.rom-page { --rom-borda: #e5e7eb; --rom-texto: #1f2937; --rom-muted: #6b7280; --rom-fundo: #f9fafb; --rom-azul: var(--azul-escuro, #0056b3); }
+.rom-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.rom-titulo { margin: 0 !important; padding: 0 !important; border: 0 !important; }
+.rom-subtitulo { margin: 3px 0 0; font-size: .88rem; color: var(--rom-muted); }
+
+.rom-btn { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border: 1px solid var(--rom-borda); border-radius: 6px; background: #fff; color: var(--rom-texto); font: inherit; font-size: .84rem; font-weight: 500; cursor: pointer; white-space: nowrap; }
+.rom-btn:hover:not(:disabled) { border-color: #c7ccd4; background: var(--rom-fundo); }
+.rom-btn:disabled { opacity: .6; cursor: default; }
+.rom-btn .material-icons { font-size: 17px; }
+.rom-btn-primario { background: var(--rom-azul); border-color: var(--rom-azul); color: #fff; }
+.rom-btn-primario:hover:not(:disabled) { background: #004494; border-color: #004494; }
+.rom-girando { animation: rom-girar .9s linear infinite; }
+
+.rom-busca { position: relative; display: flex; align-items: center; margin-bottom: 12px; max-width: 420px; }
+.rom-busca > .material-icons { position: absolute; left: 10px; font-size: 19px; color: #9ca3af; pointer-events: none; }
+.rom-busca input { height: 38px; padding: 0 34px 0 36px; border-radius: 6px; border: 1px solid var(--rom-borda); font-size: .88rem; background: #fff; }
+.rom-busca input:focus { border-color: var(--rom-azul); box-shadow: 0 0 0 3px rgba(0,86,179,.1); }
+.rom-busca-limpar { position: absolute; right: 6px; width: 26px; height: 26px; border: 0; background: none; color: #9ca3af; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.rom-busca-limpar:hover { color: var(--rom-texto); background: var(--rom-fundo); }
+.rom-busca-limpar .material-icons { font-size: 17px; }
+
+.rom-estado { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 40px 16px; color: var(--rom-muted); font-size: .9rem; text-align: center; }
+.rom-estado[role="status"] { flex-direction: row; justify-content: center; }
+.rom-vazio { border: 1px dashed var(--rom-borda); border-radius: 8px; background: #fff; }
+.rom-vazio > .material-icons { font-size: 34px; color: #c3c8d0; }
+.rom-vazio p { margin: 0; max-width: 420px; }
+.rom-erro { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; margin-bottom: 12px; border: 1px solid #f3c2c6; background: #fdf2f2; color: #8a1c24; border-radius: 6px; font-size: .86rem; }
+.rom-erro > span { flex: 1; min-width: 200px; }
+.rom-spinner { width: 15px; height: 15px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: rom-girar .8s linear infinite; display: inline-block; flex-shrink: 0; }
+@keyframes rom-girar { to { transform: rotate(360deg); } }
+
+.rom-lista { gap: 10px !important; }
+.rom-lote { gap: 0 !important; background: #fff; border: 1px solid var(--rom-borda); border-radius: 8px; overflow: hidden; }
+.rom-lote-cab { display: flex; align-items: center; gap: 12px; padding: 0 14px 0 0; }
+.rom-lote-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 12px 0 12px 12px; border: 0; background: none; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.rom-lote-toggle:focus-visible { outline: 2px solid var(--rom-azul); outline-offset: -2px; }
+.rom-seta { color: #9ca3af; font-size: 22px; transition: transform .15s; flex-shrink: 0; }
+.rom-lote.expanded .rom-seta { transform: rotate(90deg); color: var(--rom-texto); }
+.rom-lote-id { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.rom-lote-protocolo { font-weight: 700; font-size: .98rem; color: var(--rom-texto); font-family: ui-monospace, Consolas, monospace; letter-spacing: .2px; }
+.rom-lote-meta { font-size: .82rem; color: var(--rom-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rom-lote-class { font-size: .78rem; color: var(--rom-muted); }
+.rom-sep { margin: 0 6px; color: #c3c8d0; }
+.rom-lote-ver { font-size: .8rem; color: var(--rom-azul); font-weight: 500; white-space: nowrap; }
+.rom-lote-toggle:hover .rom-lote-ver { text-decoration: underline; }
+.rom-lote.expanded .rom-lote-cab { border-bottom: 1px solid var(--rom-borda); background: var(--rom-fundo); }
+.rom-previa-nota { margin: 0; padding: 10px 16px 0; font-size: .8rem; color: var(--rom-muted); }
+.rom-lote .romaneio-sheet-document { margin: 10px 16px 16px; }
+
+@media (max-width: 640px) {
+  .rom-busca { max-width: none; }
+  .rom-topo .rom-btn { width: 100%; justify-content: center; }
+  .rom-lote-cab { flex-wrap: wrap; padding: 0 12px 12px 0; }
+  .rom-lote-ver { display: none; }
+  .rom-lote-meta { white-space: normal; }
+  .rom-lote-cab .rom-btn-primario { margin-left: 44px; }
+  .rom-lote .romaneio-sheet-document { margin: 10px 8px 12px; }
+}
+`;
+
 const formatDateTime = (value?: string) => {
   if (!value) return 'Sem data informada';
   const parsed = new Date(value);
@@ -48,10 +110,13 @@ const Romaneio = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [filtroTexto, setFiltroTexto] = useState('');
   const [protocoloExpandido, setProtocoloExpandido] = useState<string | null>(null);
+  const [erroCarregar, setErroCarregar] = useState('');
+  const [imprimindo, setImprimindo] = useState<string | null>(null);
 
   const carregar = async () => {
     try {
       setIsLoading(true);
+      setErroCarregar('');
       let cnpj = '';
       const profileRaw = localStorage.getItem('gat_user_profile');
       if (profileRaw) {
@@ -119,6 +184,8 @@ const Romaneio = () => {
       })) as RomaneioItem[];
 
       setItems(normalized);
+    } catch {
+      setErroCarregar('Não foi possível carregar os romaneios. Os dados exibidos podem estar desatualizados.');
     } finally {
       setIsLoading(false);
     }
@@ -153,13 +220,15 @@ const Romaneio = () => {
   }, [filtroTexto, grupos]);
 
   const imprimir = async (protocolo: string, itens: RomaneioItem[], criadoEm?: string) => {
+    if (imprimindo) return;
+    setImprimindo(protocolo);
     // QR por item: o Recebimento PA do RMS bipa e puxa serial, linha e classificacao.
     const itensComQr = await Promise.all(
       itens.map(async (item) => ({
         ...item,
         qrSvg: await gerarQrRomaneioSvg(item.protocolo || protocolo, item.serial).catch(() => '')
       }))
-    );
+    ).finally(() => setImprimindo(null));
     const documento = buildRomaneioPrintDocument({
       protocolo,
       criadoEm: formatDateTime(criadoEm),
@@ -205,88 +274,128 @@ const Romaneio = () => {
   };
 
   return (
-    <div className="view-section romaneio-page">
-      <div className="romaneio-page-top no-print">
-        <h2 className="page-title romaneio-page-title">Romaneio</h2>
-        <button className="btn btn-secondary btn-sm" type="button" onClick={carregar}>
-          <i className="material-icons" style={{ fontSize: 14, marginRight: 4 }}>refresh</i>
-          Atualizar
+    <div className="view-section romaneio-page rom-page">
+      <style>{estiloRomaneio}</style>
+
+      <div className="rom-topo no-print">
+        <div>
+          <h2 className="page-title rom-titulo">Romaneio</h2>
+          <p className="rom-subtitulo">Imprima o romaneio de cada lote para acompanhar os produtos na devolução.</p>
+        </div>
+        <button className="rom-btn" type="button" onClick={() => void carregar()} disabled={isLoading}>
+          <i className={`material-icons${isLoading ? ' rom-girando' : ''}`}>refresh</i>
+          {isLoading ? 'Atualizando...' : 'Atualizar'}
         </button>
       </div>
 
-      <div className="filter-bar no-print">
-        <i className="material-icons" style={{ color: '#888' }}>search</i>
+      <div className="rom-busca no-print">
+        <i className="material-icons" aria-hidden="true">search</i>
         <input
           type="text"
           value={filtroTexto}
           onChange={(e) => setFiltroTexto(e.target.value)}
-          placeholder="Buscar por protocolo, razao social ou GEMCO..."
-          className="search-input"
+          placeholder="Buscar por protocolo, razão social ou Gemco"
+          aria-label="Buscar romaneio"
         />
+        {filtroTexto && (
+          <button type="button" className="rom-busca-limpar" aria-label="Limpar busca" onClick={() => setFiltroTexto('')}>
+            <i className="material-icons">close</i>
+          </button>
+        )}
       </div>
 
-      {isLoading && (
-        <p style={{ textAlign: 'center', color: '#999', marginTop: 20 }}>Carregando...</p>
+      {erroCarregar && (
+        <div className="rom-erro no-print" role="alert">
+          <i className="material-icons" aria-hidden="true">error_outline</i>
+          <span>{erroCarregar}</span>
+          <button type="button" className="rom-btn" onClick={() => void carregar()}>Tentar novamente</button>
+        </div>
       )}
 
-      {!isLoading && filtrados.length === 0 && (
-        <p style={{ textAlign: 'center', color: '#999', marginTop: 20 }}>Nenhum romaneio disponivel.</p>
+      {isLoading && filtrados.length === 0 && (
+        <div className="rom-estado no-print" role="status">
+          <span className="rom-spinner" aria-hidden="true" /> Carregando romaneios...
+        </div>
       )}
 
-      <div className="romaneio-list">
+      {!isLoading && !erroCarregar && filtrados.length === 0 && (
+        <div className="rom-estado rom-vazio no-print">
+          <i className="material-icons" aria-hidden="true">{filtroTexto.trim() ? 'search_off' : 'local_shipping'}</i>
+          <p>
+            {filtroTexto.trim()
+              ? `Nenhum romaneio encontrado para "${filtroTexto.trim()}".`
+              : 'Nenhum romaneio disponível ainda. Eles aparecem aqui depois que você envia um lote.'}
+          </p>
+        </div>
+      )}
+
+      <div className="romaneio-list rom-lista">
         {filtrados.map(([protocolo, itens]) => {
           const first = itens[0];
           const expanded = protocoloExpandido === protocolo;
           const grupos = agruparPorClassificacao(itens);
+          const gerando = imprimindo === protocolo;
           let numero = 0;
 
           return (
-            <section key={protocolo} className={`romaneio-sheet-shell${expanded ? ' expanded' : ''}`}>
-              <button
-                type="button"
-                className="romaneio-toggle no-print"
-                onClick={() => setProtocoloExpandido((current) => (current === protocolo ? null : protocolo))}
-              >
-                <div className="romaneio-toggle-main">
-                  <strong>Protocolo {protocolo}</strong>
-                  <span>{first?.razaoSocial || 'Magazine Luiza S.A'}</span>
-                </div>
-                <div className="romaneio-toggle-side">
-                  <span className="romaneio-toggle-count">{itens.length === 1 ? '1 item' : `${itens.length} itens`}</span>
-                  <i className="material-icons">{expanded ? 'expand_less' : 'expand_more'}</i>
-                </div>
-              </button>
+            <section key={protocolo} className={`romaneio-sheet-shell rom-lote${expanded ? ' expanded' : ''}`}>
+              <div className="rom-lote-cab no-print">
+                <button
+                  type="button"
+                  className="rom-lote-toggle"
+                  aria-expanded={expanded}
+                  onClick={() => setProtocoloExpandido((current) => (current === protocolo ? null : protocolo))}
+                >
+                  <i className="material-icons rom-seta" aria-hidden="true">chevron_right</i>
+                  <span className="rom-lote-id">
+                    <span className="rom-lote-protocolo">{protocolo}</span>
+                    <span className="rom-lote-meta">
+                      {first?.razaoSocial || 'Magazine Luiza S.A'}
+                      <span className="rom-sep">·</span>
+                      {first?.criadoEm ? formatDateTime(first.criadoEm) : 'Sem data'}
+                      <span className="rom-sep">·</span>
+                      {itens.length === 1 ? '1 item' : `${itens.length} itens`}
+                    </span>
+                    <span className="rom-lote-class">
+                      {grupos.map((grupo) => tituloGrupo(grupo.classificacao, grupo.itens.length)).join(' · ')}
+                    </span>
+                  </span>
+                  <span className="rom-lote-ver">{expanded ? 'Ocultar prévia' : 'Ver prévia'}</span>
+                </button>
+                <button
+                  className="rom-btn rom-btn-primario"
+                  type="button"
+                  disabled={Boolean(imprimindo)}
+                  onClick={() => void imprimir(protocolo, itens, first?.criadoEm)}
+                >
+                  {gerando ? <span className="rom-spinner" aria-hidden="true" /> : <i className="material-icons">print</i>}
+                  {gerando ? 'Gerando...' : 'Imprimir'}
+                </button>
+              </div>
 
               {expanded && (
                 <>
-                  <div className="romaneio-actions no-print">
-                    <div className="romaneio-actions-text">
-                      <strong>Documento pronto para impressao</strong>
-                      <span>Confira os dados antes de imprimir</span>
-                    </div>
-                    <button className="btn btn-primary btn-sm" type="button" onClick={() => void imprimir(protocolo, itens, first?.criadoEm)}>
-                      <i className="material-icons">print</i>
-                      Imprimir
-                    </button>
-                  </div>
+                  <p className="rom-previa-nota no-print">
+                    Prévia do documento. Confira os dados antes de imprimir.
+                  </p>
 
                   <article className="romaneio-sheet-document">
                     <header className="romaneio-doc-top">
                       <div className="romaneio-doc-title-block">
                         <div className="romaneio-doc-title">ROMANEIO</div>
-                        <div className="romaneio-doc-subtitle">Controle de itens em devolucao do lote</div>
+                        <div className="romaneio-doc-subtitle">Controle de itens em devolução do lote</div>
                       </div>
                       <div className="romaneio-doc-number">
-                        <span>No</span>
+                        <span>Nº</span>
                         <strong>{protocolo}</strong>
                       </div>
                     </header>
 
                     <section className="romaneio-destinatario">
                       <div className="romaneio-quadro">
-                        <div className="romaneio-quadro-titulo">Destinatario</div>
+                        <div className="romaneio-quadro-titulo">Destinatário</div>
                         <div className="romaneio-quadro-grid">
-                          <div><span>Razao social</span><strong>{first?.razaoSocial || 'Magazine Luiza S.A'}</strong></div>
+                          <div><span>Razão social</span><strong>{first?.razaoSocial || 'Magazine Luiza S.A'}</strong></div>
                           <div><span>CNPJ</span><strong>{first?.cnpj || '-'}</strong></div>
                           <div><span>Unidade</span><strong>{first?.unidade || '-'}</strong></div>
                           <div><span>E-mail retorno</span><strong>{first?.emailRetorno || '-'}</strong></div>
@@ -295,13 +404,13 @@ const Romaneio = () => {
                     </section>
 
                     <section className="romaneio-infos-strip">
-                      <div><span>Emissao</span><strong>{formatDateTime(first?.criadoEm)}</strong></div>
+                      <div><span>Emissão</span><strong>{formatDateTime(first?.criadoEm)}</strong></div>
                       <div><span>Itens</span><strong>{itens.length}</strong></div>
-                      <div><span>Documento</span><strong>Devolucao</strong></div>
+                      <div><span>Documento</span><strong>Devolução</strong></div>
                     </section>
 
                     <p className="romaneio-resumo-classificacao">
-                      <span>Por classificacao:</span> {grupos.map((grupo) => tituloGrupo(grupo.classificacao, grupo.itens.length)).join(' · ')}
+                      <span>Por classificação:</span> {grupos.map((grupo) => tituloGrupo(grupo.classificacao, grupo.itens.length)).join(' · ')}
                     </p>
 
                     <section className="romaneio-tabela-wrap">
@@ -309,10 +418,10 @@ const Romaneio = () => {
                         <thead>
                           <tr>
                             <th>Item</th>
-                            <th>Identificacao</th>
+                            <th>Identificação</th>
                             <th>Defeito / Motivo</th>
-                            <th>Pecas trocadas</th>
-                            <th>Classificacao</th>
+                            <th>Peças trocadas</th>
+                            <th>Classificação</th>
                           </tr>
                         </thead>
                         {grupos.map((grupo) => (
@@ -330,7 +439,7 @@ const Romaneio = () => {
                                 <div>Linha: {item.linha || '-'}</div>
                               </td>
                               <td>
-                                <div><strong>Cod. Barras:</strong> {item.codBarras || '-'}</div>
+                                <div><strong>Cód. barras:</strong> {item.codBarras || '-'}</div>
                                 <div><strong>GEMCO:</strong> {item.codGemco || '-'}</div>
                                 <div><strong>Serial:</strong> {item.serial || '-'}</div>
                               </td>
@@ -346,7 +455,7 @@ const Romaneio = () => {
                     </section>
 
                     <section className="romaneio-observacoes">
-                      <div className="romaneio-quadro-titulo">Observacao</div>
+                      <div className="romaneio-quadro-titulo">Observação</div>
                       <div className="romaneio-observacoes-box" />
                     </section>
 
@@ -361,7 +470,7 @@ const Romaneio = () => {
                         <span>Assinatura do recebedor</span>
                       </div>
                       <div className="romaneio-assinatura">
-                        <span>No do romaneio</span>
+                        <span>Nº do romaneio</span>
                       </div>
                     </footer>
                   </article>
