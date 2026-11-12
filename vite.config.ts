@@ -45,7 +45,9 @@ const createLocalSupabaseSyncPlugin = (env: Record<string, string>): Plugin => {
           '/get_orcamentos_analise': () => import('./netlify/functions/get-orcamentos-analise'),
           '/status_envios_supa': () => import('./netlify/functions/get-envios-status-supabase'),
           '/lancamento_rascunho_supa': () => import('./netlify/functions/get-lancamento-drafts-supabase'),
-          '/lancamento_rascunho_supa/save': () => import('./netlify/functions/upsert-lancamento-draft-supabase')
+          '/lancamento_rascunho_supa/save': () => import('./netlify/functions/upsert-lancamento-draft-supabase'),
+          '/item_padrao/decisao': () => import('./netlify/functions/item-padrao-decisao'),
+          '/serial_gerado': () => import('./netlify/functions/gerar-serial-peca')
         };
         const carregarRota = rotasPosto[pathname as keyof typeof rotasPosto];
         if (carregarRota) {
@@ -676,6 +678,17 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), createLocalSupabaseSyncPlugin(env)],
+    build: {
+      rollupOptions: {
+        output: {
+          // Bibliotecas mudam pouco: em arquivo separado, o navegador reaproveita o cache entre publicacoes.
+          manualChunks: {
+            react: ['react', 'react-dom', 'react-router-dom'],
+            axios: ['axios']
+          }
+        }
+      }
+    },
     server: {
       port: 5173,
       open: false,

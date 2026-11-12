@@ -67,14 +67,21 @@ const TIPO_ORC_POR_CHAVE = Object.fromEntries(TIPOS_ORC.map((tipo) => [chaveOpca
 export type ItemComValor = { nome: string; valor: number };
 
 export type Pendencia = {
-  campo: CampoItem | 'serial' | 'notaFiscal' | 'valores';
+  campo: CampoItem | 'serial' | 'notaFiscal' | 'valores' | 'padrao';
   mensagem: string;
   // Pendencia que bloqueia o envio; as demais sao apenas avisos.
   bloqueia: boolean;
+  /** Descricao normalizada da peca sem padrao (campo 'padrao'). */
+  peca?: string;
 };
 
 export type ItemOrcamentoPlanilha = {
+  /** Vazio enquanto a peca sem serial nao recebeu o identificador (gerado no envio). */
   serial: string;
+  /** true = peca sem Serial Number de fabrica; o serial e o identificador gerado pelo banco. */
+  serialGerado?: boolean;
+  /** Chave fixa do item no lote (liga o identificador gerado a este item, inclusive em "Tentar novamente"). */
+  chaveItem?: string;
   notaFiscal: string;
   linha: number;
   codigo: string;
@@ -92,12 +99,38 @@ export type ItemOrcamentoPlanilha = {
   total: number;
   avaria: boolean;
   produto: ProdutoApi | null;
-  // Protocolo do lote aberto onde o serial ja foi enviado (duplicidade).
-  loteAnterior?: string;
   pendencias: Pendencia[];
+  /** Fotos e videos anexados na conferencia (vao para o Drive no envio). */
+  evidencias?: File[];
+  /** Pasta do Drive com as evidencias, depois de enviadas (reaproveitada em "Tentar novamente"). */
+  linkDrive?: string;
+  /** Pecas sem padrao no catalogo, aguardando a decisao do posto. */
+  pecasSemPadrao?: { chave: string; original: string; sugestao?: string }[];
+};
+
+export const AVISO_SEM_SERIAL = 'Sem serial: um identificador único (SSAT-…) é gerado no envio e passa a ser o serial da peça. Etiquete a peça com ele.';
+
+/** Chave fixa do item no lote; o identificador gerado para peca sem serial fica preso a ela. */
+export const novaChaveItem = () =>
+  globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+
+/** Serial do produto para exibir: o identificador gerado ou o aviso de que sera gerado no envio. */
+export const serialExibido = (item: Pick<ItemOrcamentoPlanilha, 'serial' | 'serialGerado'>) =>
+  item.serial || (item.serialGerado ? 'Gerado no envio' : '');
+
+export const AVISO_AVARIA_SEM_FOTO = 'Avaria exige foto: anexe em "Evidências" nesta tela. Sem foto, o item entra no lote como rascunho e a foto pode ser anexada depois em Lançar Orçamentos.';
+
+/** Troca as evidencias do item; o aviso de avaria some quando ha ao menos uma foto ou video. */
+export const definirEvidencias = (item: ItemOrcamentoPlanilha, arquivos: File[]) => {
+  item.evidencias = arquivos;
+  item.linkDrive = undefined;
+  item.pendencias = item.pendencias.filter((p) => p.mensagem !== AVISO_AVARIA_SEM_FOTO);
+  if (item.avaria && !arquivos.length) item.pendencias.push({ campo: 'defeitoEncontrado', mensagem: AVISO_AVARIA_SEM_FOTO, bloqueia: false });
+  return item;
 };
 
 export type ErroLinhaOrcamento = { linha: number; mensagem: string };
+export type SerialRepetido = { serial: string; linhas: number[] };
 
 const centavos = (valor: number) => Math.round(valor * 100) / 100;
 
@@ -178,29 +211,39 @@ export const interpretarPlanilhaOrcamento = (rows: unknown[][], primeiraLinha = 
   }
 
   const itens: ItemOrcamentoPlanilha[] = [];
-  const linhaPorSerial = new Map<string, number>();
   const errosLinha: ErroLinhaOrcamento[] = [];
+  const corpo = rows.slice(melhor.posicao + 1);
+  const numeroLinha = (index: number) => primeiraLinha + melhor.posicao + 1 + index;
+  const celulaTexto = (row: unknown[] | undefined, campo: Campo) => textoCelula((row || [])[melhor.indices[campo] as number]);
 
-  rows.slice(melhor.posicao + 1).forEach((row, index) => {
-    const linha = primeiraLinha + melhor.posicao + 1 + index;
+  // Duplicidade so dentro da planilha: o mesmo serial nao pode aparecer duas vezes no arquivo.
+  // TODAS as ocorrencias ficam de fora (nao da para saber qual linha e a certa).
+  const linhasPorSerial = new Map<string, number[]>();
+  corpo.forEach((row, index) => {
+    const serial = formatSerialValue(celulaTexto(row, 'serial'));
+    if (!serial) return;
+    const chave = compactLookupValue(serial);
+    linhasPorSerial.set(chave, [...(linhasPorSerial.get(chave) || []), numeroLinha(index)]);
+  });
+  const seriaisRepetidos: SerialRepetido[] = [];
+
+  corpo.forEach((row, index) => {
+    const linha = numeroLinha(index);
     const bruto = (campo: Campo) => (row || [])[melhor.indices[campo] as number];
-    const texto = (campo: Campo) => textoCelula(bruto(campo));
+    const texto = (campo: Campo) => celulaTexto(row, campo);
     if (CAMPOS.every((campo) => !texto(campo))) return;
 
+    // Serial em branco = peca sem Serial Number: recebe um identificador unico no envio do lote.
     const serial = formatSerialValue(texto('serial'));
-    if (!serial) {
-      errosLinha.push({ linha, mensagem: 'Serial em branco.' });
+    const linhasDoSerial = serial ? linhasPorSerial.get(compactLookupValue(serial)) || [] : [];
+    if (linhasDoSerial.length > 1) {
+      if (linhasDoSerial[0] === linha) seriaisRepetidos.push({ serial, linhas: linhasDoSerial });
+      errosLinha.push({ linha, mensagem: `Serial ${serial} repetido nas linhas ${linhasDoSerial.join(', ')}. Cada serial só pode aparecer uma vez na planilha.` });
       return;
     }
-    const chave = compactLookupValue(serial);
-    const anterior = linhaPorSerial.get(chave);
-    if (anterior !== undefined) {
-      errosLinha.push({ linha, mensagem: `Serial ${serial} repetido (já está na linha ${anterior}). Use uma linha por produto.` });
-      return;
-    }
-    linhaPorSerial.set(chave, linha);
 
     const pendencias: Pendencia[] = [];
+    if (!serial) pendencias.push({ campo: 'serial', mensagem: AVISO_SEM_SERIAL, bloqueia: false });
     const campos = {} as Record<CampoItem, string>;
     CAMPOS_ITEM.forEach((campo) => {
       const valorTexto = texto(campo);
@@ -241,15 +284,13 @@ export const interpretarPlanilhaOrcamento = (rows: unknown[][], primeiraLinha = 
       pendencias.push({ campo: 'valores', mensagem: 'Nenhum valor informado: o orçamento vai com total R$ 0,00.', bloqueia: false });
     }
     if (avaria) {
-      pendencias.push({
-        campo: 'defeitoEncontrado',
-        mensagem: 'Avaria exige foto: o item entra no lote como rascunho e precisa da foto em Lançar Orçamentos antes de finalizar.',
-        bloqueia: false
-      });
+      pendencias.push({ campo: 'defeitoEncontrado', mensagem: AVISO_AVARIA_SEM_FOTO, bloqueia: false });
     }
 
     itens.push({
       serial,
+      ...(serial ? {} : { serialGerado: true }),
+      chaveItem: novaChaveItem(),
       notaFiscal,
       linha,
       ...campos,
@@ -271,7 +312,25 @@ export const interpretarPlanilhaOrcamento = (rows: unknown[][], primeiraLinha = 
   if (itens.length > LIMITE_ITENS_ORCAMENTO) {
     throw new ErroImportacao(`A planilha tem ${itens.length} produtos; o limite é ${LIMITE_ITENS_ORCAMENTO} por lote. Divida em mais de uma planilha.`);
   }
-  return { itens, errosLinha };
+  return { itens, errosLinha, seriaisRepetidos };
+};
+
+export type CampoOrcamento = Campo;
+export type ValoresManuais = Partial<Record<Campo, string | number>>;
+
+/**
+ * Lancamento manual: interpreta UM produto digitado com exatamente as mesmas regras da planilha
+ * (mesmas colunas, obrigatorios e formatos). `erro` vem quando a linha nem pode ser lida (ex.: serial em branco).
+ */
+export const interpretarItemManual = (valores: ValoresManuais, linha = 1): { item?: ItemOrcamentoPlanilha; erro?: string } => {
+  try {
+    const { itens, errosLinha } = interpretarPlanilhaOrcamento([CAMPOS.map(rotuloCampo), CAMPOS.map((campo) => valores[campo] ?? '')], linha - 1);
+    if (errosLinha.length) return { erro: errosLinha[0].mensagem };
+    return { item: itens[0] };
+  } catch (error) {
+    if (error instanceof ErroImportacao) return { erro: 'Preencha os dados do produto.' };
+    throw error;
+  }
 };
 
 export const lerPlanilhaOrcamento = async (conteudo: ArrayBuffer | Uint8Array) => {
@@ -309,6 +368,7 @@ export const baixarModeloOrcamento = async () => {
   const instrucoes = utils.aoa_to_sheet([
     ['Como preencher'],
     ['Uma linha por produto. O mesmo serial não pode aparecer em duas linhas.'],
+    ['Peça sem Serial Number: deixe o Serial em branco. O portal gera um identificador único no envio (SSAT-...).'],
     ['Peças e acessórios: nome e valor (Display: 300), cada item separado por ponto e vírgula. Também aceita "Display 300" e itens em linhas separadas na célula.'],
     ['Mão de obra, embalagem e higienização: só o valor. Em branco vale zero.'],
     ['Não altere o cabeçalho da aba Orçamento.'],
@@ -332,6 +392,21 @@ export const baixarModeloOrcamento = async () => {
   utils.book_append_sheet(workbook, instrucoes, 'Instruções');
 
   writeFile(workbook, 'modelo-orcamento-posto.xlsx');
+};
+
+/** Planilha com os identificadores gerados no lote, para etiquetar as pecas sem serial. */
+export const baixarIdentificadoresGerados = async (itens: ItemOrcamentoPlanilha[], protocolo: string) => {
+  const gerados = itens.filter((item) => item.serialGerado && item.serial);
+  if (!gerados.length) return;
+  const { utils, writeFile } = await carregarXlsx();
+  const workbook = utils.book_new();
+  const sheet = utils.aoa_to_sheet([
+    ['Protocolo', 'Linha da planilha', 'Identificador (serial)', 'Nota fiscal', 'Gemco / EAN', 'Produto'],
+    ...gerados.map((item) => [protocolo, item.linha, item.serial, item.notaFiscal, item.codigo, item.produto?.descricao || ''])
+  ]);
+  sheet['!cols'] = [{ wch: 14 }, { wch: 16 }, { wch: 22 }, { wch: 16 }, { wch: 18 }, { wch: 40 }];
+  utils.book_append_sheet(workbook, sheet, 'Identificadores');
+  writeFile(workbook, `identificadores-${protocolo.replace(/[^A-Za-z0-9-]+/g, '_')}.xlsx`);
 };
 
 /** Completa descricao, fornecedor e linha pelo cadastro de produtos (Gemco ou EAN). */
@@ -371,43 +446,42 @@ export const consultarProdutosOrcamento = async (
 
 export const itemBloqueado = (item: ItemOrcamentoPlanilha) => item.pendencias.some((p) => p.bloqueia);
 
-export type ItemJaEnviado = { serial?: unknown; protocolo?: unknown; status?: unknown; cancelamento?: unknown };
+/** Seriais que aparecem mais de uma vez na lista (ja normalizados), com as posicoes (1 = primeiro item). */
+export const seriaisDuplicados = (itens: Pick<ItemOrcamentoPlanilha, 'serial'>[]): SerialRepetido[] => {
+  const posicoes = new Map<string, { serial: string; linhas: number[] }>();
+  itens.forEach((item, indice) => {
+    const chave = compactLookupValue(item.serial);
+    if (!chave) return; // peca sem serial: o identificador ainda sera gerado
+    const atual = posicoes.get(chave) || { serial: item.serial, linhas: [] };
+    atual.linhas.push(indice + 1);
+    posicoes.set(chave, atual);
+  });
+  return [...posicoes.values()].filter((p) => p.linhas.length > 1);
+};
 
-// Finalizado (4/10) ou cancelado libera o serial para um novo orcamento; qualquer outro estado e lote em aberto.
-const loteEmAberto = (existente: ItemJaEnviado) =>
-  !existente.cancelamento && ![4, 10].includes(Number(existente.status ?? 0));
+const ROTULO_INCONSISTENCIA: Record<Pendencia['campo'], string> = {
+  serial: 'Serial', notaFiscal: 'Nota fiscal', codigo: 'Produto (Gemco / EAN)', defeitoEncontrado: 'Defeito encontrado',
+  defeitoFuncional: 'Defeito funcional', garantia: 'Garantia', tipoOrc: 'Tipo Orc.', valores: 'Peças e valores',
+  padrao: 'Peça sem padrão no catálogo'
+};
+
+export type Inconsistencia = { titulo: string; linhas: number[]; detalhes: string[] };
 
 /**
- * Bloqueia serial que ja esta em lote aberto do posto, para a mesma planilha nao virar dois lotes.
- * Itens do `protocoloAtual` sao ignorados: e o proprio lote sendo reenviado apos uma falha.
- * Retorna os seriais bloqueados.
+ * Tudo que impede o envio do lote, agrupado pelo que precisa ser corrigido (com as linhas da planilha).
+ * Lista vazia = lote liberado para envio. Avisos (bloqueia: false) nao entram.
  */
-export const marcarSeriaisJaEnviados = (
-  itens: ItemOrcamentoPlanilha[],
-  existentes: ItemJaEnviado[],
-  protocoloAtual: string
-) => {
-  const protocoloPorSerial = new Map<string, string>();
-  existentes.forEach((existente) => {
-    const protocolo = String(existente.protocolo ?? '');
-    const serial = compactLookupValue(String(existente.serial ?? ''));
-    if (serial && protocolo !== protocoloAtual && loteEmAberto(existente)) protocoloPorSerial.set(serial, protocolo);
-  });
-
-  const bloqueados: string[] = [];
-  itens.forEach((item) => {
-    item.pendencias = item.pendencias.filter((p) => p.campo !== 'serial');
-    const protocolo = protocoloPorSerial.get(compactLookupValue(item.serial));
-    item.loteAnterior = protocolo;
-    if (protocolo === undefined) return;
-    bloqueados.push(item.serial);
-    item.pendencias.unshift({
-      campo: 'serial',
-      mensagem: `DUPLICIDADE: este serial já foi enviado no lote ${protocolo || 'sem protocolo'}, que ainda está em aberto. Enviar de novo criaria o mesmo produto em dois lotes. Remova a linha da planilha ou cancele o item no lote ${protocolo || 'anterior'}.`,
-      bloqueia: true
-    });
-  });
-  return bloqueados;
+export const inconsistenciasDoLote = (itens: ItemOrcamentoPlanilha[], errosLinha: ErroLinhaOrcamento[] = []): Inconsistencia[] => {
+  const grupos = new Map<string, Inconsistencia>();
+  const adicionar = (titulo: string, linha: number, detalhe: string) => {
+    const grupo = grupos.get(titulo) || { titulo, linhas: [], detalhes: [] };
+    if (!grupo.linhas.includes(linha)) grupo.linhas.push(linha);
+    if (!grupo.detalhes.includes(detalhe)) grupo.detalhes.push(detalhe);
+    grupos.set(titulo, grupo);
+  };
+  errosLinha.forEach((erro) => adicionar(/repetido/i.test(erro.mensagem) ? 'Serial repetido na planilha' : 'Linha não lida', erro.linha, erro.mensagem));
+  itens.forEach((item) => item.pendencias.filter((p) => p.bloqueia).forEach((p) => adicionar(ROTULO_INCONSISTENCIA[p.campo], item.linha, p.mensagem)));
+  return [...grupos.values()].map((g) => ({ ...g, linhas: g.linhas.sort((a, b) => a - b) }));
 };
 
 // Mesmo formato gravado por Lancar Orcamentos: "pe;nome1;nome2" sem acentos.

@@ -7,6 +7,8 @@ export const ORDS_BASE_URL = '';
 export const ORACLE_ENDPOINTS = {
   getCatalogoQualidade: '/catalogo_qualidade',
   getItemPadrao: '/item_padrao',
+  decisaoItemPadrao: '/item_padrao/decisao',
+  gerarSerialPeca: '/serial_gerado',
   checkUser: '/api-check-user',
   betUserInf: '/api-bet-user-inf',
   getUserInf: '/get_user_inf',

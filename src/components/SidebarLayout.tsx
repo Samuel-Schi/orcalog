@@ -1,10 +1,11 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Notificacoes from './Notificacoes';
 import { encerrarSessao } from '../lib/sessao';
 
-// Novo Orçamento / Lançar Orçamentos (item a item) fora do menu: a entrada é só pela planilha.
-const MOSTRAR_LANCAMENTO_OPCIONAL = false;
+// Lançamento manual (mesmo modelo da planilha) e Lançar Orçamentos ficam no grupo "Opcional";
+// a entrada principal continua sendo Importar Orçamento.
+const MOSTRAR_LANCAMENTO_OPCIONAL = true;
 
 const SidebarLayout = () => {
   const navigate = useNavigate();
@@ -96,15 +97,14 @@ const SidebarLayout = () => {
             </NavLink>
           ))}
 
-          {/* Lancamento item a item (bipagem/manual): escondido do menu, entrada só por planilha.
-              Rotas e telas continuam no código; para voltar, mude MOSTRAR_LANCAMENTO_OPCIONAL para true. */}
+          {/* Lancamento item a item: opcional; para esconder, mude MOSTRAR_LANCAMENTO_OPCIONAL para false. */}
           {MOSTRAR_LANCAMENTO_OPCIONAL && (<>
           <div className="nav-grupo-opcional" title="Opcional: lançamento item a item">
             <span>Opcional</span>
           </div>
-          <NavLink to="/novo-orcamento" onClick={closeMobile} className={({ isActive }) => `nav-item nav-item-opcional ${isActive ? 'active' : ''}`}>
-            <i className="material-icons">add_circle</i>
-            <span>Novo Orçamento</span>
+          <NavLink to="/novo-orcamento" onClick={closeMobile} title={isClosed ? 'Lançamento manual' : undefined} className={({ isActive }) => `nav-item nav-item-opcional ${isActive ? 'active' : ''}`}>
+            <i className="material-icons">keyboard</i>
+            <span>Lançamento manual</span>
           </NavLink>
           <NavLink to="/lancar-orcamentos" onClick={closeMobile} className={({ isActive }) => `nav-item nav-item-opcional ${isActive ? 'active' : ''}`}>
             <i className="material-icons">assignment</i>
@@ -126,7 +126,9 @@ const SidebarLayout = () => {
       </aside>
 
       <main className="content-body">
-        <Outlet />
+        <Suspense fallback={null}>
+          <Outlet />
+        </Suspense>
       </main>
     </div>
   );

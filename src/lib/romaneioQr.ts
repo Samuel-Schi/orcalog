@@ -1,5 +1,3 @@
-import QRCode from 'qrcode';
-
 // QR de cada item do romaneio, lido no Recebimento PA do RMS (magalog-system,
 // RecebimentoQualidade/recebimentoPaApi.ts -> lerQrRomaneio). Com VITE_RMS_URL o QR é um link:
 // a câmera do celular abre o Recebimento PA já com o item. Sem ela, vai o texto RAVENAS|protocolo|serial,
@@ -15,5 +13,7 @@ export const textoQrRomaneio = (protocolo: string, serial: string, rmsUrl = RMS_
 /** SVG do QR (string pronta para o HTML de impressão); '' quando o item não tem protocolo ou serial. */
 export const gerarQrRomaneioSvg = async (protocolo: string, serial: string) => {
   if (!protocolo.trim() || !serial.trim()) return '';
+  // Biblioteca carregada so na hora de imprimir o romaneio.
+  const { default: QRCode } = await import('qrcode');
   return QRCode.toString(textoQrRomaneio(protocolo.trim(), serial.trim()), { type: 'svg', margin: 0, errorCorrectionLevel: 'M' });
 };

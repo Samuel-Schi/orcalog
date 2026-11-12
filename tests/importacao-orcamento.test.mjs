@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx';
 const { outputFiles } = await build({ entryPoints: ['src/lib/importacaoOrcamento.ts'], bundle: true, platform: 'node', format: 'cjs', write: false });
 const compiled = new Module(path.resolve('src/lib/importacao-orcamento.test.cjs'));
 compiled._compile(outputFiles[0].text, compiled.id);
-const { consultarProdutosOrcamento, interpretarPlanilhaOrcamento, itemBloqueado, lerPlanilhaOrcamento, lerValorMonetario, marcarSeriaisJaEnviados, montarItemCadastro, montarValoresOrcamento, quebrarItensComValor } = compiled.exports;
+const { consultarProdutosOrcamento, inconsistenciasDoLote, interpretarPlanilhaOrcamento, itemBloqueado, lerPlanilhaOrcamento, lerValorMonetario, montarItemCadastro, montarValoresOrcamento, quebrarItensComValor, seriaisDuplicados } = compiled.exports;
 
 const CABECALHO = ['Serial', 'Nota fiscal', 'Gemco ou Código de barras', 'Defeito encontrado', 'Defeito funcional (SIM/NAO)', 'Garantia (SIM/NAO)', 'Tipo Orc.', 'Peças (nome: valor; nome: valor)', 'Acessórios (nome: valor; nome: valor)', 'Mão de obra (R$)', 'Embalagem (R$)', 'Higienização (R$)'];
 
@@ -41,18 +41,38 @@ test('uma linha por produto: quebra pecas e acessorios e soma os valores', async
   assert.equal(b.total, 25);
 });
 
-test('serial repetido em outra linha e erro', () => {
-  const { itens, errosLinha } = interpretarPlanilhaOrcamento([
+test('serial repetido na planilha tira todas as ocorrencias e trava o lote', () => {
+  const { itens, errosLinha, seriaisRepetidos } = interpretarPlanilhaOrcamento([
     CABECALHO,
     ['S1', 'NF', '10', 'x', 'SIM', 'NAO', 'NOVO', 'Placa: 10', '', '', '', ''],
     ['s1', 'NF', '10', 'x', 'SIM', 'NAO', 'NOVO', 'Tela: 10', '', '', '', ''],
-    ['', '', '10', 'x', 'SIM', 'NAO', 'NOVO', '', '', '', '', '']
+    ['', 'NF', '10', 'x', 'SIM', 'NAO', 'NOVO', '', '', '', '', ''],
+    ['S2', 'NF', '10', 'x', 'SIM', 'NAO', 'NOVO', 'Tela: 10', '', '', '', ''],
+    ['', 'NF', '10', 'x', 'SIM', 'NAO', 'NOVO', '', '', '', '', '']
   ]);
-  assert.equal(itens.length, 1);
-  assert.deepEqual(errosLinha, [
-    { linha: 3, mensagem: 'Serial S1 repetido (já está na linha 2). Use uma linha por produto.' },
-    { linha: 4, mensagem: 'Serial em branco.' }
+  // Serial em branco nao e erro nem duplicidade: a peca recebe identificador no envio.
+  assert.deepEqual(itens.map((i) => [i.serial, Boolean(i.serialGerado)]), [['', true], ['S2', false], ['', true]]);
+  const repetido = 'Serial S1 repetido nas linhas 2, 3. Cada serial só pode aparecer uma vez na planilha.';
+  assert.deepEqual(errosLinha, [{ linha: 2, mensagem: repetido }, { linha: 3, mensagem: repetido }]);
+  assert.deepEqual(seriaisRepetidos, [{ serial: 'S1', linhas: [2, 3] }]);
+  assert.deepEqual(inconsistenciasDoLote(itens, errosLinha).map((i) => [i.titulo, i.linhas]), [['Serial repetido na planilha', [2, 3]]]);
+  assert.deepEqual(seriaisDuplicados(itens), []);
+  assert.deepEqual(seriaisDuplicados([{ serial: 'AB-1' }, { serial: 'ab1' }, { serial: 'C' }]), [{ serial: 'AB-1', linhas: [1, 2] }]);
+});
+
+test('inconsistencias agrupam o que bloqueia por campo, com as linhas; aviso nao trava', () => {
+  const { itens } = interpretarPlanilhaOrcamento([
+    CABECALHO,
+    ['S1', '', '10', 'x', 'SIM', 'NAO', 'NOVO', 'Placa: 10', '', '', '', ''],
+    ['S2', '', '10', 'AVARIA', 'SIM', 'NAO', 'NOVO', '', '', '', '', ''],
+    ['S3', 'NF', '10', 'x', 'TALVEZ', 'NAO', 'NOVO', 'Placa: 10', '', '', '', '']
   ]);
+  assert.deepEqual(inconsistenciasDoLote(itens).map((i) => [i.titulo, i.linhas]), [
+    ['Nota fiscal', [2, 3]],
+    ['Defeito funcional', [4]]
+  ]);
+  const { itens: ok } = interpretarPlanilhaOrcamento([CABECALHO, ['S9', 'NF', '10', 'AVARIA', 'SIM', 'NAO', 'NOVO', '', '', '', '', '']]);
+  assert.deepEqual(inconsistenciasDoLote(ok), []);
 });
 
 test('aponta campos em branco e invalidos como pendencia que bloqueia o envio', () => {
@@ -93,23 +113,6 @@ test('avaria e total zero so avisam', () => {
   assert.equal(itemBloqueado(item), false);
   assert.equal(item.avaria, true);
   assert.equal(item.pendencias.length, 2);
-});
-
-test('serial em lote aberto do posto bloqueia; finalizado, cancelado e o proprio lote liberam', () => {
-  const linha = (serial) => [serial, 'NF', '10', 'x', 'SIM', 'NAO', 'NOVO', 'Placa: 10', '', '', '', ''];
-  const { itens } = interpretarPlanilhaOrcamento([CABECALHO, linha('ABERTO1'), linha('FINAL1'), linha('CANC1'), linha('PROPRIO1'), linha('NOVO1')]);
-  const bloqueados = marcarSeriaisJaEnviados(itens, [
-    { serial: 'ABER-TO1', protocolo: 'P1-1000', status: 8 },
-    { serial: 'FINAL1', protocolo: 'P1-1001', status: 4 },
-    { serial: 'CANC1', protocolo: 'P1-1002', status: 0, cancelamento: '2026-11-01' },
-    { serial: 'PROPRIO1', protocolo: 'P5-5555', status: 8 }
-  ], 'P5-5555');
-  assert.deepEqual(bloqueados, ['ABER-TO1']);
-  assert.match(itens[0].pendencias[0].mensagem, /lote P1-1000/);
-  assert.deepEqual(itens.map(itemBloqueado), [true, false, false, false, false]);
-  // Conferir de novo nao acumula a mesma pendencia.
-  marcarSeriaisJaEnviados(itens, [{ serial: 'ABERTO1', protocolo: 'P1-1000', status: 3 }], 'P5-5555');
-  assert.equal(itens[0].pendencias.filter((p) => p.campo === 'serial').length, 1);
 });
 
 test('cabecalho sem coluna obrigatoria gera erro claro', () => {
@@ -161,4 +164,29 @@ test('consulta o produto uma vez por codigo e monta os payloads do lote', async 
   assert.equal(valores.acessDesc, 'ac;cabo');
   assert.equal(valores.pecasDetalhes, JSON.stringify([{ nome: 'Placa Ã', valor: 100 }]));
   assert.equal(valores.totalOrcamento, 105);
+});
+
+test('lancamento manual usa as mesmas regras da planilha (sem UUID)', () => {
+  const { interpretarItemManual } = compiled.exports;
+  const { item } = interpretarItemManual({
+    serial: 'abc12345', notaFiscal: 'NF-9', codigo: '123456', defeitoEncontrado: 'Tela quebrada',
+    defeitoFuncional: 'SIM', garantia: 'NAO', tipoOrc: 'NOVO',
+    pecas: 'Display: 300,50; Flex: 50', acessorios: '', maoObra: '20', embalagem: '', higienizacao: ''
+  }, 3);
+  assert.equal(item.serial, 'ABC1-2345');
+  assert.equal(item.linha, 3);
+  assert.equal(item.total, 370.5);
+  assert.deepEqual(item.pendencias, []);
+  assert.equal(itemBloqueado(item), false);
+
+  const semNf = interpretarItemManual({ serial: 'x1', codigo: '1', defeitoEncontrado: 'a', defeitoFuncional: 'SIM', garantia: 'SIM', tipoOrc: 'NOVO', pecas: 'Display' }).item;
+  assert.equal(itemBloqueado(semNf), true);
+  assert.ok(semNf.pendencias.some((p) => p.campo === 'notaFiscal'));
+  assert.ok(semNf.pendencias.some((p) => /sem valor/.test(p.mensagem)));
+
+  const semSerial = interpretarItemManual({ notaFiscal: 'NF', codigo: '1', defeitoEncontrado: 'a', defeitoFuncional: 'SIM', garantia: 'SIM', tipoOrc: 'NOVO' }).item;
+  assert.equal(semSerial.serial, '');
+  assert.equal(semSerial.serialGerado, true);
+  assert.equal(itemBloqueado(semSerial), false);
+  assert.ok(interpretarItemManual({}).erro);
 });

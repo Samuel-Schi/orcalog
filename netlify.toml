@@ -20,9 +20,27 @@
     X-Frame-Options = "DENY"
     Permissions-Policy = "camera=(self), geolocation=(), microphone=()"
 
+# Arquivos de /assets tem hash no nome: podem ficar em cache por 1 ano (o index.html continua sempre revalidado).
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
 [[redirects]]
   from = "/catalogo_qualidade"
   to = "/.netlify/functions/get-catalogo-qualidade"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/serial_gerado"
+  to = "/.netlify/functions/gerar-serial-peca"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/item_padrao/decisao"
+  to = "/.netlify/functions/item-padrao-decisao"
   status = 200
   force = true
 
@@ -175,6 +193,12 @@
   to = "/.netlify/functions/notificacoes-pa"
   status = 200
   force = true
+
+# Arquivo de /assets que nao existe mais (versao antiga) responde 404 em vez do index.html.
+[[redirects]]
+  from = "/assets/*"
+  to = "/index.html"
+  status = 404
 
 [[redirects]]
   from = "/*"

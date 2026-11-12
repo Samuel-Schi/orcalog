@@ -1,7 +1,7 @@
 import CatalogoSelect from '../components/CatalogoSelect';
 import FotosProduto from '../components/FotosProduto';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BrowserMultiFormatReader, type IScannerControls } from '@zxing/browser';
+import type { IScannerControls } from '@zxing/browser';
 import { useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
@@ -591,6 +591,9 @@ const LancarOrcamentos = () => {
         const BarcodeDetectorCtor = (window as any).BarcodeDetector;
         if (!BarcodeDetectorCtor) {
           if (!scanVideoRef.current) return;
+          // Leitor pesado (~400 KB): so baixa quando o navegador nao tem BarcodeDetector e a camera abre.
+          const { BrowserMultiFormatReader } = await import('@zxing/browser');
+          if (cancelled || !scanVideoRef.current) return;
           const reader = new BrowserMultiFormatReader();
           fallbackControls = await reader.decodeFromConstraints(
             {

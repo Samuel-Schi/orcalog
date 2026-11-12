@@ -210,12 +210,92 @@ const uploadArquivoDrive = async (
   };
 };
 
+// --- Video em partes (upload resumable do Drive) ---
+// O Netlify aceita ~6 MB por chamada; o video vai em partes de ate 3 MB pela mesma funcao.
+export const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+const PARTE_VIDEO_MULTIPLO = 256 * 1024;
+
+type VideoBody = {
+  acao?: string; folderName?: string; folderId?: string; name?: string; mimeType?: string; tamanho?: number;
+  sessao?: string; inicio?: number; total?: number; base64?: string;
+};
+
+const sessaoValida = (valor: unknown) => {
+  try {
+    const url = new URL(String(valor || ''));
+    // So aceita a URL de sessao do proprio Drive (evita usar a funcao como proxy para outro endereco).
+    return url.protocol === 'https:' && url.hostname === 'www.googleapis.com'
+      && url.pathname === '/upload/drive/v3/files' && Boolean(url.searchParams.get('upload_id')) ? url.toString() : '';
+  } catch {
+    return '';
+  }
+};
+
+const iniciarVideo = async (env: UploadEnv, body: VideoBody) => {
+  const mimeType = trimText(body.mimeType, 120);
+  const tamanho = Number(body.tamanho);
+  if (!mimeType.startsWith('video/')) return jsonResponse(400, { error: 'Envie apenas arquivos de video.' });
+  if (!Number.isInteger(tamanho) || tamanho <= 0) return jsonResponse(400, { error: 'Tamanho do video invalido.' });
+  if (tamanho > MAX_VIDEO_BYTES) return jsonResponse(413, { error: `Video maior que ${MAX_VIDEO_BYTES / 1024 / 1024} MB.` });
+
+  const token = await getGoogleAccessToken(env);
+  const existente = body.folderId ? await buscarPastaExistente(token, String(body.folderId).trim(), env) : null;
+  const folder = existente || await criarPastaDrive(token, sanitizeDriveName(body.folderName, `Portal_AT_${Date.now()}`), env);
+  const response = await fetch(`${DRIVE_UPLOAD_URL}?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json; charset=UTF-8',
+      'X-Upload-Content-Type': mimeType,
+      'X-Upload-Content-Length': String(tamanho)
+    },
+    body: JSON.stringify({ name: sanitizeDriveName(body.name, 'video', true), parents: [folder.id] })
+  });
+  const sessao = sessaoValida(response.headers.get('location'));
+  if (!response.ok || !sessao) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error?.message || 'Nao foi possivel iniciar o envio do video ao Drive.');
+  }
+  return jsonResponse(200, { folderId: folder.id, folderLink: folder.link, folderReused: Boolean(existente), sessao });
+};
+
+const enviarParteVideo = async (body: VideoBody) => {
+  const sessao = sessaoValida(body.sessao);
+  const inicio = Number(body.inicio);
+  const total = Number(body.total);
+  const parte = Buffer.from(String(body.base64 || ''), 'base64');
+  if (!sessao) return jsonResponse(400, { error: 'Sessao de envio do video invalida.' });
+  if (!Number.isInteger(inicio) || !Number.isInteger(total) || inicio < 0 || total <= 0 || total > MAX_VIDEO_BYTES || !parte.length) {
+    return jsonResponse(400, { error: 'Parte do video invalida.' });
+  }
+  const fim = inicio + parte.length - 1;
+  if (fim >= total || (fim < total - 1 && parte.length % PARTE_VIDEO_MULTIPLO !== 0)) {
+    return jsonResponse(400, { error: 'Parte do video fora do tamanho esperado.' });
+  }
+  const response = await fetch(sessao, {
+    method: 'PUT',
+    headers: { 'Content-Range': `bytes ${inicio}-${fim}/${total}` },
+    body: parte
+  });
+  if (response.status === 308) {
+    const recebido = /bytes=0-(\d+)/.exec(response.headers.get('range') || '');
+    return jsonResponse(200, { concluido: false, recebido: recebido ? Number(recebido[1]) + 1 : 0 });
+  }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.id) throw new Error(data.error?.message || 'O Drive nao confirmou a parte do video.');
+  return jsonResponse(200, { concluido: true, file: { id: String(data.id), name: String(data.name || ''), link: String(data.webViewLink || '') } });
+};
+
 export const createUploadHandler = (env: UploadEnv): Handler => async (event) => {
   if (event.httpMethod !== 'POST') return methodNotAllowed(['POST']);
 
   try {
     const parsedBody = parseJsonBody(event, MAX_UPLOAD_BODY_BYTES);
     if (!parsedBody.ok) return parsedBody.response;
+
+    const acao = (parsedBody.value as VideoBody)?.acao;
+    if (acao === 'iniciar_video') return await iniciarVideo(env, parsedBody.value as VideoBody);
+    if (acao === 'parte_video') return await enviarParteVideo(parsedBody.value as VideoBody);
 
     const body = parsedBody.value as { folderName?: string; folderId?: string; publicFolder?: boolean; files?: DriveUploadFile[] };
     const files = Array.isArray(body.files) ? body.files : [];
