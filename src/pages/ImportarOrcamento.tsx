@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 import { ErroImportacao, validarArquivoExcel } from '../lib/importacaoProdutos';
@@ -144,6 +145,29 @@ export const estiloImportar = `
 .imp-barra-status { display: inline-flex; align-items: center; gap: 8px; color: var(--imp-azul); font-weight: 600; }
 .imp-barra-resumo { color: var(--imp-muted); }
 .imp-barra-resumo strong { color: var(--imp-texto); }
+/* Barra de envio acima da tabela (lote grande: nao precisa rolar ate o fim para enviar). */
+.imp-barra-envio.topo { position: static; margin: 16px 0 0; padding: 12px 14px; background: var(--imp-fundo); border: 1px solid var(--imp-borda); border-radius: 10px; }
+.imp-barra-erro { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: #8a1c24; cursor: pointer; text-align: left; }
+.imp-barra-erro .material-icons { font-size: 18px; }
+.imp-barra-erro u { text-underline-offset: 2px; }
+
+.imp-paginacao { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 10px; font-size: .82rem; color: var(--imp-muted); }
+.imp-paginacao strong { color: var(--imp-texto); }
+.imp-paginacao-botoes { display: inline-flex; align-items: center; gap: 6px; }
+.imp-paginacao-botoes .imp-btn { height: 32px; padding: 0 10px; }
+.imp-paginacao-pagina { min-width: 92px; text-align: center; font-weight: 600; color: var(--imp-texto); }
+
+.imp-pop-fundo { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(15, 23, 42, .55); }
+.imp-pop { width: 100%; max-width: 440px; background: #fff; border-radius: 14px; box-shadow: 0 24px 60px rgba(15, 23, 42, .28); padding: 22px 22px 18px; display: grid; gap: 12px; text-align: center; }
+.imp-pop-icone { width: 52px; height: 52px; margin: 0 auto; border-radius: 50%; display: grid; place-items: center; background: #fdecea; color: #b42318; }
+.imp-pop-icone .material-icons { font-size: 28px; }
+.imp-pop h3 { margin: 0; font-size: 1.05rem; color: var(--imp-texto, #1f2937); }
+.imp-pop p { margin: 0; font-size: .88rem; line-height: 1.5; color: #4b5563; overflow-wrap: anywhere; }
+.imp-pop-acoes { display: flex; gap: 8px; justify-content: center; margin-top: 4px; }
+.imp-pop-acoes .imp-btn { flex: 1; height: 42px; }
+body.dark-mode .imp-pop { background: #1f2937; }
+body.dark-mode .imp-pop h3 { color: #e2e8f0; }
+body.dark-mode .imp-pop p { color: #cbd5e1; }
 
 .imp-sucesso { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 16px; padding: 16px 18px; border-radius: 12px; background: #e8f5ec; border: 1px solid #b7dfc3; }
 .imp-sucesso-icone { font-size: 36px !important; color: #28a745; }
@@ -168,9 +192,13 @@ export const estiloImportar = `
   .imp-card-head { flex-wrap: wrap; }
   .imp-card-acao { margin-left: 0; width: 100%; }
   .imp-barra-envio { margin: 16px -16px -16px; padding: 12px 16px; }
+  .imp-barra-envio.topo { margin: 16px 0 0; padding: 12px; }
   .imp-barra-envio .imp-btn { width: 100%; }
+  .imp-paginacao { justify-content: center; }
 }
 `;
+
+const ITENS_POR_PAGINA = 20;
 
 const ImportarOrcamento = () => {
   const navigate = useNavigate();
@@ -186,6 +214,9 @@ const ImportarOrcamento = () => {
   const [itens, setItens] = useState<ItemOrcamentoPlanilha[]>([]);
   const [errosLinha, setErrosLinha] = useState<ErroLinhaOrcamento[]>([]);
   const [soPendencias, setSoPendencias] = useState(false);
+  const [pagina, setPagina] = useState(1);
+  const [popupErro, setPopupErro] = useState(false);
+  const tabelaRef = useRef<HTMLDivElement | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [etapaEnvio, setEtapaEnvio] = useState('');
   const [erroEnvio, setErroEnvio] = useState('');
@@ -361,6 +392,25 @@ const ImportarOrcamento = () => {
   };
 
   const itensVisiveis = soPendencias ? itens.filter((item) => item.pendencias.length > 0) : itens;
+  // Paginacao da tabela: lote grande nao vira uma rolagem sem fim. Volta para a 1a pagina ao trocar filtro ou planilha.
+  const totalPaginas = Math.max(1, Math.ceil(itensVisiveis.length / ITENS_POR_PAGINA));
+  const paginaAtual = Math.min(pagina, totalPaginas);
+  const inicioPagina = (paginaAtual - 1) * ITENS_POR_PAGINA;
+  const itensPagina = itensVisiveis.slice(inicioPagina, inicioPagina + ITENS_POR_PAGINA);
+  useEffect(() => { setPagina(1); }, [soPendencias, itens.length]);
+  const irParaPagina = (nova: number) => {
+    setPagina(Math.min(Math.max(1, nova), totalPaginas));
+    tabelaRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  };
+
+  // Erro do envio abre em pop-up (antes ficava escondido no fim da pagina).
+  useEffect(() => { if (erroEnvio) setPopupErro(true); }, [erroEnvio]);
+  useEffect(() => {
+    if (!popupErro) return;
+    const fechar = (e: KeyboardEvent) => { if (e.key === 'Escape') setPopupErro(false); };
+    window.addEventListener('keydown', fechar);
+    return () => window.removeEventListener('keydown', fechar);
+  }, [popupErro]);
   const totalComPendencia = itens.filter((item) => item.pendencias.length > 0).length;
   const dadosOk = Boolean(email.trim() && unidade.trim());
   const temResultado = itens.length > 0 || errosLinha.length > 0;
@@ -609,6 +659,66 @@ const ImportarOrcamento = () => {
             </div>
           )}
 
+          {concluido ? (
+            <div className="imp-sucesso" role="status">
+              <i className="material-icons imp-sucesso-icone">check_circle</i>
+              <div className="imp-sucesso-texto">
+                <strong>Lote {concluido.protocolo} criado</strong>
+                <span>
+                  {concluido.salvos} orçamento(s) salvo(s).
+                  {itens.some((item) => item.linkDrive) && ` Fotos e vídeos de ${itens.filter((item) => item.linkDrive).length} produto(s) enviados ao Drive.`}
+                  {concluido.comFoto > 0 && ` ${concluido.comFoto} item(ns) com avaria sem foto aguardam a foto em Lançar Orçamentos.`}
+                  {itens.some((item) => item.serialGerado) && ` ${itens.filter((item) => item.serialGerado).length} peça(s) sem serial receberam identificador: baixe a lista e etiquete as peças.`}
+                  {' '}Finalize o lote em Meus Envios para mandar para aprovação.
+                </span>
+              </div>
+              {itens.some((item) => item.serialGerado && item.serial) && (
+                <button className="imp-btn imp-btn-ghost" type="button"
+                  onClick={() => { baixarIdentificadoresGerados(itens, concluido.protocolo).catch(() => setErroEnvio('Não foi possível gerar a lista de identificadores.')); }}>
+                  <i className="material-icons">qr_code_2</i> Baixar identificadores
+                </button>
+              )}
+              <button className="imp-btn imp-btn-success" type="button" onClick={() => navigate('/meus-envios')}>
+                <i className="material-icons">list_alt</i> Ir para Meus Envios
+              </button>
+            </div>
+          ) : (
+            <div className="imp-barra-envio topo">
+              <div className="imp-barra-info">
+                {enviando ? (
+                  <span className="imp-barra-status" role="status" aria-live="polite">
+                    <span className="imp-spinner" aria-hidden="true" /> {etapaEnvio || 'Enviando...'}
+                  </span>
+                ) : erroEnvio ? (
+                  <button type="button" className="imp-barra-erro" onClick={() => setPopupErro(true)}>
+                    <i className="material-icons">error_outline</i>
+                    <span>O envio não foi concluído. <u>Ver detalhes</u></span>
+                  </button>
+                ) : !podeEnviar && !lendo ? (
+                  <span className="imp-barra-dica">
+                    <i className="material-icons">info</i>
+                    {inconsistencias.length
+                      ? `Envio bloqueado: ${inconsistencias.length} inconsistência(s) para corrigir na planilha.`
+                      : 'Envie uma planilha para conferir.'}
+                  </span>
+                ) : !dadosOk ? (
+                  <span className="imp-barra-dica aviso">
+                    <i className="material-icons">info</i>
+                    Preencha o e-mail de retorno e a unidade (etapa 1) antes de enviar.
+                  </span>
+                ) : (
+                  <span className="imp-barra-resumo">
+                    <strong>{itens.length}</strong> produto{itens.length === 1 ? '' : 's'} · <strong>{formatCurrency(resumo.total)}</strong>
+                  </span>
+                )}
+              </div>
+              <button className="imp-btn imp-btn-success imp-btn-lg" type="button" disabled={!podeEnviar} onClick={() => void enviarLote()}>
+                <i className="material-icons">{erroEnvio && !enviando ? 'refresh' : 'send'}</i>
+                {enviando ? 'Enviando...' : erroEnvio ? 'Tentar novamente' : `Enviar lote (${itens.length} produto${itens.length === 1 ? '' : 's'})`}
+              </button>
+            </div>
+          )}
+
           {itens.length > 0 && (
             <div className="imp-filtro" role="tablist" aria-label="Filtrar itens">
               <button type="button" role="tab" aria-selected={!soPendencias} className={!soPendencias ? 'ativo' : ''} onClick={() => setSoPendencias(false)}>
@@ -628,7 +738,7 @@ const ImportarOrcamento = () => {
           )}
 
           {itensVisiveis.length > 0 && (
-          <div className="table-scroll novo-orcamento-resultado-tabela importacao-orc-scroll imp-tabela-wrap">
+          <div ref={tabelaRef} className="table-scroll novo-orcamento-resultado-tabela importacao-orc-scroll imp-tabela-wrap">
             <table className="tabela-horizontal importacao-orc-tabela imp-tabela">
               <thead>
                 <tr>
@@ -649,7 +759,7 @@ const ImportarOrcamento = () => {
                 </tr>
               </thead>
               <tbody>
-                {itensVisiveis.map((item) => {
+                {itensPagina.map((item) => {
                   const bloqueado = itemBloqueado(item);
                   const valores = [
                     ...item.pecas.map((p) => `${p.nome}: ${formatCurrency(p.valor)}`),
@@ -693,67 +803,42 @@ const ImportarOrcamento = () => {
           </div>
           )}
 
-          {erroEnvio && (
-            <div className="imp-alerta erro" role="alert">
-              <i className="material-icons">error_outline</i><div>{erroEnvio}</div>
-            </div>
-          )}
-
-          {concluido ? (
-            <div className="imp-sucesso" role="status">
-              <i className="material-icons imp-sucesso-icone">check_circle</i>
-              <div className="imp-sucesso-texto">
-                <strong>Lote {concluido.protocolo} criado</strong>
-                <span>
-                  {concluido.salvos} orçamento(s) salvo(s).
-                  {itens.some((item) => item.linkDrive) && ` Fotos e vídeos de ${itens.filter((item) => item.linkDrive).length} produto(s) enviados ao Drive.`}
-                  {concluido.comFoto > 0 && ` ${concluido.comFoto} item(ns) com avaria sem foto aguardam a foto em Lançar Orçamentos.`}
-                  {itens.some((item) => item.serialGerado) && ` ${itens.filter((item) => item.serialGerado).length} peça(s) sem serial receberam identificador: baixe a lista e etiquete as peças.`}
-                  {' '}Finalize o lote em Meus Envios para mandar para aprovação.
-                </span>
-              </div>
-              {itens.some((item) => item.serialGerado && item.serial) && (
-                <button className="imp-btn imp-btn-ghost" type="button"
-                  onClick={() => { baixarIdentificadoresGerados(itens, concluido.protocolo).catch(() => setErroEnvio('Não foi possível gerar a lista de identificadores.')); }}>
-                  <i className="material-icons">qr_code_2</i> Baixar identificadores
+          {itensVisiveis.length > ITENS_POR_PAGINA && (
+            <nav className="imp-paginacao" aria-label="Paginação dos itens">
+              <span>
+                Mostrando <strong>{inicioPagina + 1}–{inicioPagina + itensPagina.length}</strong> de <strong>{itensVisiveis.length}</strong>
+              </span>
+              <span className="imp-paginacao-botoes">
+                <button className="imp-btn imp-btn-ghost" type="button" disabled={paginaAtual <= 1} onClick={() => irParaPagina(paginaAtual - 1)} aria-label="Página anterior">
+                  <i className="material-icons">chevron_left</i> Anterior
                 </button>
-              )}
-              <button className="imp-btn imp-btn-success" type="button" onClick={() => navigate('/meus-envios')}>
-                <i className="material-icons">list_alt</i> Ir para Meus Envios
-              </button>
-            </div>
-          ) : (
-            <div className="imp-barra-envio">
-              <div className="imp-barra-info">
-                {enviando ? (
-                  <span className="imp-barra-status" role="status" aria-live="polite">
-                    <span className="imp-spinner" aria-hidden="true" /> {etapaEnvio || 'Enviando...'}
-                  </span>
-                ) : !podeEnviar && !lendo ? (
-                  <span className="imp-barra-dica">
-                    <i className="material-icons">info</i>
-                    {inconsistencias.length
-                      ? `Envio bloqueado: ${inconsistencias.length} inconsistência(s) para corrigir na planilha.`
-                      : 'Envie uma planilha para conferir.'}
-                  </span>
-                ) : !dadosOk ? (
-                  <span className="imp-barra-dica aviso">
-                    <i className="material-icons">info</i>
-                    Preencha o e-mail de retorno e a unidade (etapa 1) antes de enviar.
-                  </span>
-                ) : (
-                  <span className="imp-barra-resumo">
-                    <strong>{itens.length}</strong> produto{itens.length === 1 ? '' : 's'} · <strong>{formatCurrency(resumo.total)}</strong>
-                  </span>
-                )}
-              </div>
-              <button className="imp-btn imp-btn-success imp-btn-lg" type="button" disabled={!podeEnviar} onClick={() => void enviarLote()}>
-                <i className="material-icons">{erroEnvio && !enviando ? 'refresh' : 'send'}</i>
-                {enviando ? 'Enviando...' : erroEnvio ? 'Tentar novamente' : `Enviar lote (${itens.length} produto${itens.length === 1 ? '' : 's'})`}
-              </button>
-            </div>
+                <span className="imp-paginacao-pagina" aria-live="polite">Página {paginaAtual} de {totalPaginas}</span>
+                <button className="imp-btn imp-btn-ghost" type="button" disabled={paginaAtual >= totalPaginas} onClick={() => irParaPagina(paginaAtual + 1)} aria-label="Próxima página">
+                  Próxima <i className="material-icons">chevron_right</i>
+                </button>
+              </span>
+            </nav>
           )}
         </section>
+      )}
+
+      {popupErro && erroEnvio && createPortal(
+        <div className="imp-pop-fundo" onClick={() => setPopupErro(false)}>
+          <section className="imp-pop imp-page" role="alertdialog" aria-modal="true" aria-labelledby="imp-pop-titulo" aria-describedby="imp-pop-texto" onClick={(e) => e.stopPropagation()}>
+            <span className="imp-pop-icone" aria-hidden="true"><i className="material-icons">error_outline</i></span>
+            <h3 id="imp-pop-titulo">Não foi possível enviar o lote</h3>
+            <p id="imp-pop-texto">{erroEnvio}</p>
+            <div className="imp-pop-acoes">
+              <button className="imp-btn imp-btn-ghost" type="button" onClick={() => setPopupErro(false)} autoFocus={!podeEnviar}>Fechar</button>
+              {podeEnviar && (
+                <button className="imp-btn imp-btn-success" type="button" autoFocus onClick={() => { setPopupErro(false); void enviarLote(); }}>
+                  <i className="material-icons">refresh</i> Tentar novamente
+                </button>
+              )}
+            </div>
+          </section>
+        </div>,
+        document.body
       )}
     </div>
   );
