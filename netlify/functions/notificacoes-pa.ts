@@ -1,5 +1,5 @@
 import type { Handler } from '@netlify/functions';
-import { fetchWithTimeout, handleFunctionError, jsonResponse, methodNotAllowed, parseJsonBody } from './_shared';
+import { fetchWithTimeout, handleFunctionError, jsonResponse, methodNotAllowed, parseJsonBody } from './_shared.js';
 
 export const createNotificationsHandler = (env: Record<string, string | undefined>): Handler => async (event) => {
   try {

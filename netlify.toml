@@ -4,7 +4,7 @@
   functions = "netlify/functions"
   [build.environment]
     HUSKY = "0"
-    NODE_VERSION = "20"
+    NODE_VERSION = "26"
 
 [dev]
   command = "node scripts/dev.mjs --host 127.0.0.1 --port 5173"

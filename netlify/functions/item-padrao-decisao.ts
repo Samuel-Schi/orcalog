@@ -1,6 +1,6 @@
 import type { Handler } from '@netlify/functions';
-import { rpcLote } from './_lote-envio';
-import { jsonResponse, methodNotAllowed, parseJsonBody, trimText } from './_shared';
+import { rpcLote } from './_lote-envio.js';
+import { jsonResponse, methodNotAllowed, parseJsonBody, trimText } from './_shared.js';
 
 /*
  * Decisao de padronizacao feita pelo posto na conferencia (supabase/item_padrao_padronizacao_fluxo.sql):

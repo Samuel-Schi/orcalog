@@ -1,5 +1,5 @@
 import type { Handler } from '@netlify/functions';
-import { fetchWithTimeout, handleFunctionError, methodNotAllowed, proxyResponse } from './_shared';
+import { fetchWithTimeout, handleFunctionError, methodNotAllowed, proxyResponse } from './_shared.js';
 
 const URL = 'https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/post_orcamento_final';
 

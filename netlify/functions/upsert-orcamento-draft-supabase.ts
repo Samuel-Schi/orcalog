@@ -7,7 +7,7 @@ import {
   parseJsonBody,
   sanitizeIdentifier,
   trimText
-} from './_shared';
+} from './_shared.js';
 
 type DraftPayload = {
   paUsuario?: string;

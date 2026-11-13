@@ -1,71 +1,59 @@
 {
-  "git": {
-    "deploymentEnabled": false
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "installCommand": "npm ci",
+  "buildCommand": "npm run typecheck && npm run build",
+  "outputDirectory": "dist",
+  "regions": ["gru1"],
+  "functions": {
+    "api/netlify.ts": { "maxDuration": 60 }
   },
-  "rewrites": [
-    {
-      "source": "/api-check-user",
-      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/check_user"
-    },
-    {
-      "source": "/api-bet-user-inf",
-      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/bet_user_inf"
-    },
-    {
-      "source": "/api-get-user-inf",
-      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/get_user_inf"
-    },
-    {
-      "source": "/api-get-produto-cadastro",
-      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/get_produto_cadastro"
-    },
-    {
-      "source": "/get_user_inf",
-      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/get_user_inf"
-    },
-    {
-      "source": "/get_produto_cadastro",
-      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/get_produto_cadastro"
-    },
-    {
-      "source": "/api-redash/(.*)",
-      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/$1"
-    },
-    {
-      "source": "/api-recebimento/product",
-      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/recebimento-product"
-    },
-    {
-      "source": "/salvar-orcamento",
-      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/salvar-orcamento"
-    },
-    {
-      "source": "/salvar_orcamento",
-      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/salvar_orcamento"
-    },
-    {
-      "source": "/get_orcamentos_analise",
-      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/get_orcamentos_analise"
-    },
-    {
-      "source": "/register_posto",
-      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/register_posto"
-    },
-    {
-      "source": "/post_orcamento_final",
-      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/post_orcamento_final"
-    },
-    {
-      "source": "/get_envios",
-      "destination": "https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/get_envios"
-    },
-    {
-      "source": "/upload_foto_drive",
-      "destination": "/api/upload-foto-drive"
-    },
+  "headers": [
     {
       "source": "/(.*)",
-      "destination": "/"
+      "headers": [
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self'; connect-src 'self' https://minhareceita.org https://*.supabase.co; form-action 'self'" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Permissions-Policy", "value": "camera=(self), geolocation=(), microphone=()" }
+      ]
+    },
+    {
+      "source": "/assets/(.*)",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
     }
+  ],
+  "rewrites": [
+    { "source": "/catalogo_qualidade", "destination": "/api/netlify?__fn=get-catalogo-qualidade" },
+    { "source": "/serial_gerado", "destination": "/api/netlify?__fn=gerar-serial-peca" },
+    { "source": "/item_padrao/decisao", "destination": "/api/netlify?__fn=item-padrao-decisao" },
+    { "source": "/item_padrao", "destination": "/api/netlify?__fn=get-item-padrao" },
+    { "source": "/api-check-user", "destination": "/api/netlify?__fn=check-user" },
+    { "source": "/api-bet-user-inf", "destination": "/api/netlify?__fn=bet-user-inf" },
+    { "source": "/get_user_inf", "destination": "/api/netlify?__fn=get-user-inf" },
+    { "source": "/get_produto_cadastro", "destination": "/api/netlify?__fn=get-produto-cadastro" },
+    { "source": "/get_produto_codigo_barras", "destination": "/api/netlify?__fn=get-produto-codigo-barras" },
+    { "source": "/consulta_cnpj", "destination": "/api/netlify?__fn=consulta-cnpj" },
+    { "source": "/salvar-orcamento", "destination": "/api/netlify?__fn=salvar-orcamento" },
+    { "source": "/orcamento_rascunho_supa", "destination": "/api/netlify?__fn=get-orcamento-draft-supabase" },
+    { "source": "/orcamento_rascunho_supa/save", "destination": "/api/netlify?__fn=upsert-orcamento-draft-supabase" },
+    { "source": "/lancamento_rascunho_supa", "destination": "/api/netlify?__fn=get-lancamento-drafts-supabase" },
+    { "source": "/lancamento_rascunho_supa/save", "destination": "/api/netlify?__fn=upsert-lancamento-draft-supabase" },
+    { "source": "/sync_orcamento_supabase", "destination": "/api/netlify?__fn=sync-orcamento-supabase" },
+    { "source": "/pagamentos_supa", "destination": "/api/netlify?__fn=get-pagamentos-supabase" },
+    { "source": "/pagamentos_supa/save", "destination": "/api/netlify?__fn=save-pagamento-supabase" },
+    { "source": "/status_envios_supa", "destination": "/api/netlify?__fn=get-envios-status-supabase" },
+    { "source": "/negociacoes_envios_supa", "destination": "/api/netlify?__fn=get-envios-negociacoes-supabase" },
+    { "source": "/negociacoes_envios_supa/resposta", "destination": "/api/netlify?__fn=post-envio-negociacao-resposta" },
+    { "source": "/update_valores", "destination": "/api/netlify?__fn=lancar-valores-orcamento" },
+    { "source": "/upload_foto_drive", "destination": "/api/netlify?__fn=upload-foto-drive" },
+    { "source": "/get_orcamentos_analise", "destination": "/api/netlify?__fn=get-orcamentos-analise" },
+    { "source": "/register_posto", "destination": "/api/netlify?__fn=register-posto" },
+    { "source": "/post_orcamento_final", "destination": "/api/netlify?__fn=post-orcamento-final" },
+    { "source": "/get_envios", "destination": "/api/netlify?__fn=get-envios" },
+    { "source": "/notificacoes_pa", "destination": "/api/netlify?__fn=notificacoes-pa" },
+    { "source": "/.netlify/functions/:fn", "destination": "/api/netlify?__fn=:fn" },
+    { "source": "/((?!assets/|api/).*)", "destination": "/index.html" }
   ]
 }

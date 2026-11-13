@@ -1,5 +1,5 @@
 import type { Handler } from '@netlify/functions';
-import { fetchWithTimeout, handleFunctionError, jsonResponse, methodNotAllowed, proxyResponse } from './_shared';
+import { fetchWithTimeout, handleFunctionError, jsonResponse, methodNotAllowed, proxyResponse } from './_shared.js';
 
 export const handler: Handler = async (event) => {
   try {

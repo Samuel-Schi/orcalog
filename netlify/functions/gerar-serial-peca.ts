@@ -1,6 +1,6 @@
 import type { Handler } from '@netlify/functions';
-import { rpcLote } from './_lote-envio';
-import { jsonResponse, methodNotAllowed, parseJsonBody, trimText } from './_shared';
+import { rpcLote } from './_lote-envio.js';
+import { jsonResponse, methodNotAllowed, parseJsonBody, trimText } from './_shared.js';
 
 /** Identificador para peca sem serial (supabase/serial_gerado.sql). Mesmo item do mesmo lote = mesmo codigo. */
 export const montarPedidoSerial = (body: Record<string, unknown>) => {

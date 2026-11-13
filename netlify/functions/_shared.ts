@@ -1,5 +1,5 @@
 import type { HandlerEvent, HandlerResponse } from '@netlify/functions';
-import { decodificarBytes } from '../../src/lib/texto';
+import { decodificarBytes } from '../../src/lib/texto.js';
 
 const DEFAULT_TIMEOUT_MS = 12000;
 const MAX_JSON_BODY_BYTES = 256000;

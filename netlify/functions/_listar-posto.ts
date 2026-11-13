@@ -1,6 +1,6 @@
 import type { Handler } from '@netlify/functions';
-import { rpcLote } from './_lote-envio';
-import { handleFunctionError, jsonResponse, methodNotAllowed } from './_shared';
+import { rpcLote } from './_lote-envio.js';
+import { handleFunctionError, jsonResponse, methodNotAllowed } from './_shared.js';
 
 export const listarPosto: Handler = async (event) => {
   if (event.httpMethod !== 'GET') return methodNotAllowed(['GET']);

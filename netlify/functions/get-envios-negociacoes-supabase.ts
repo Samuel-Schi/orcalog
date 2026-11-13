@@ -5,7 +5,7 @@ import {
   jsonResponse,
   methodNotAllowed,
   sanitizeQueryParams
-} from './_shared';
+} from './_shared.js';
 
 export const handler: Handler = async (event) => {
   try {

@@ -6,7 +6,7 @@ import {
   parseJsonBody,
   proxyResponse,
   sanitizeQueryParams
-} from './_shared';
+} from './_shared.js';
 
 const CHECK_URL = 'https://g6ddac1ab68a179-database01.adb.sa-saopaulo-1.oraclecloudapps.com/ords/admin/apis_gestao_at_1/check_user';
 

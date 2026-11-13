@@ -1,5 +1,5 @@
 import type { Handler } from '@netlify/functions';
-import { fetchWithTimeout, handleFunctionError, jsonResponse, methodNotAllowed } from './_shared';
+import { fetchWithTimeout, handleFunctionError, jsonResponse, methodNotAllowed } from './_shared.js';
 
 export const consultarCatalogo = async (env: Record<string, string | undefined>) => {
   const base = (env.SUPABASE_ORCAMENTOS_URL || env.SUPABASE_URL || '').trim()

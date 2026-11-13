@@ -1,4 +1,4 @@
-import { fetchWithTimeout } from './_shared';
+import { fetchWithTimeout } from './_shared.js';
 
 export function configuracaoLote() {
   const base = String(process.env.SUPABASE_ORCAMENTOS_URL || process.env.SUPABASE_URL || '').replace(/\/rest\/v1\/?$/i,'').replace(/\/$/,'');

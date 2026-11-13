@@ -1,5 +1,5 @@
 import type { Handler } from '@netlify/functions';
-import { fetchWithTimeout, handleFunctionError, jsonResponse, methodNotAllowed } from './_shared';
+import { fetchWithTimeout, handleFunctionError, jsonResponse, methodNotAllowed } from './_shared.js';
 
 const pageSize = 1000;
 

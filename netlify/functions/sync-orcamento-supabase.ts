@@ -1,5 +1,5 @@
 import type { Handler } from '@netlify/functions';
-import { rpcLote } from './_lote-envio';
+import { rpcLote } from './_lote-envio.js';
 import {
   handleFunctionError,
   jsonResponse,
@@ -7,7 +7,7 @@ import {
   parseJsonBody,
   sanitizeIdentifier,
   trimText
-} from './_shared';
+} from './_shared.js';
 
 export type SyncPayload = {
   id?: number;

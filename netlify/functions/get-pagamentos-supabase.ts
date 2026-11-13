@@ -1,6 +1,6 @@
 import type { Handler } from '@netlify/functions';
-import { fetchWithTimeout, handleFunctionError, jsonResponse, methodNotAllowed, sanitizeIdentifier, sanitizeQueryParams } from './_shared';
-import { consolidarPagamentosPorProtocolo, type NegociacaoPagamentoRaw, type PagamentoItemRaw } from '../../src/lib/pagamentosConsolidado';
+import { fetchWithTimeout, handleFunctionError, jsonResponse, methodNotAllowed, sanitizeIdentifier, sanitizeQueryParams } from './_shared.js';
+import { consolidarPagamentosPorProtocolo, type NegociacaoPagamentoRaw, type PagamentoItemRaw } from '../../src/lib/pagamentosConsolidado.js';
 
 export const handler: Handler = async (event) => {
   try {

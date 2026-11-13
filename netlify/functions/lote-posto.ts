@@ -1,6 +1,6 @@
 import type { Handler } from '@netlify/functions';
-import { rpcLote } from './_lote-envio';
-import { jsonResponse, methodNotAllowed, parseJsonBody } from './_shared';
+import { rpcLote } from './_lote-envio.js';
+import { jsonResponse, methodNotAllowed, parseJsonBody } from './_shared.js';
 
 export const handler: Handler = async (event) => {
   if (event.httpMethod !== 'POST') return methodNotAllowed(['POST']);
