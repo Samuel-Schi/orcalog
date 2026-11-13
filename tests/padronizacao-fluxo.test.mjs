@@ -28,34 +28,40 @@ const catalogo = () => padrao.indexarCatalogo(
   [{ codigo: 'PEC2', alias: 'TELA' }]
 );
 
-test('com padrao a peca vai com o nome oficial; sem padrao trava o envio ate a decisao', () => {
+test('padronizacao automatica: parecida troca sozinha, desconhecida vai com o original, nada trava', () => {
   const { itens } = importacao.interpretarPlanilhaOrcamento([CAB, linha('S1', 'Tela: 100; Placa principall: 50'), linha('S2', 'Tampa traseira: 10'), linha('S3', 'placa principall: 20')]);
   envio.aplicarPadraoPecas(itens, catalogo());
-  assert.equal(itens[0].pecas[0].nome, 'DISPLAY');
-  assert.equal(itens[0].pecas[1].nome, 'Placa principall', 'nao troca por aproximacao');
-  assert.deepEqual(itens.map(importacao.itemBloqueado), [true, true, true]);
-  const grupos = envio.gruposSemPadrao(itens);
-  assert.deepEqual(grupos.map((g) => [g.original, g.sugestao, g.linhasPlanilha]), [
-    ['Placa principall', 'PLACA PRINCIPAL', [2, 4]],
-    ['Tampa traseira', undefined, [3]]
-  ]);
-  assert.deepEqual(importacao.inconsistenciasDoLote(itens).map((i) => [i.titulo, i.linhas]), [['Peça sem padrão no catálogo', [2, 3, 4]]]);
+  assert.equal(itens[0].pecas[0].nome, 'DISPLAY', 'apelido troca sem aviso');
+  assert.equal(itens[0].pecas[1].nome, 'PLACA PRINCIPAL', 'parecida troca sozinha');
+  assert.equal(itens[1].pecas[0].nome, 'Tampa traseira', 'desconhecida fica com o nome original');
+  assert.deepEqual(itens.map(importacao.itemBloqueado), [false, false, false]);
+  assert.deepEqual(importacao.inconsistenciasDoLote(itens), []);
 
-  // Escolher o padrao vale para todos os produtos com a mesma descricao.
-  let lote = envio.aplicarDecisaoPadrao(itens, grupos[0].chave, { tipo: 'padrao', padrao: { codigo: 'PEC1', nomeCanonico: 'PLACA PRINCIPAL', tipo: 'PECA' } });
-  assert.equal(lote[0].pecas[1].nome, 'PLACA PRINCIPAL');
+  // O envio leva so nome e valor (o nome digitado fica fora do payload).
+  const valores = importacao.montarValoresOrcamento(itens[0]);
+  assert.equal(valores.pecasDesc, 'pe;display;placa principal');
+  assert.deepEqual(JSON.parse(valores.pecasDetalhes), [{ nome: 'DISPLAY', valor: 100 }, { nome: 'PLACA PRINCIPAL', valor: 50 }]);
+
+  const trocadas = envio.gruposPadronizados(itens);
+  assert.deepEqual(trocadas.map((g) => [g.original, g.canonico, g.desfeita, g.linhasPlanilha]), [['Placa principall', 'PLACA PRINCIPAL', false, [2, 4]]]);
+  assert.deepEqual(envio.gruposSemPadrao(itens).map((g) => [g.original, g.linhasPlanilha]), [['Tampa traseira', [3]]]);
+  assert.ok(itens[0].pendencias.some((p) => !p.bloqueia && /padronizada automaticamente/.test(p.mensagem)));
+
+  // Desfazer vale para todos os produtos com a mesma descricao: volta ao digitado e vira "sem padrao".
+  let lote = envio.alternarPadronizacao(itens, trocadas[0].chave, true);
+  assert.equal(lote[0].pecas[1].nome, 'Placa principall');
+  assert.equal(lote[2].pecas[0].nome, 'placa principall');
+  assert.equal(lote[0].pecas[0].nome, 'DISPLAY', 'nao mexe em outra peca do item');
+  assert.equal(envio.gruposPadronizados(lote)[0].desfeita, true);
+  assert.deepEqual(envio.gruposSemPadrao(lote).map((g) => g.original).sort(), ['Placa principall', 'Tampa traseira']);
+  assert.deepEqual(lote.map(importacao.itemBloqueado), [false, false, false]);
+
+  // Refazer devolve o padrao.
+  lote = envio.alternarPadronizacao(lote, trocadas[0].chave, false);
   assert.equal(lote[2].pecas[0].nome, 'PLACA PRINCIPAL');
-  assert.deepEqual(lote.map(importacao.itemBloqueado), [false, true, false]);
-  assert.equal(lote[0].pecasDetalhes, undefined);
-  assert.equal(importacao.montarValoresOrcamento(lote[0]).pecasDesc, 'pe;display;placa principal');
-
-  // Solicitar padrao novo libera com a descricao original e um aviso.
-  lote = envio.aplicarDecisaoPadrao(lote, grupos[1].chave, { tipo: 'solicitado' });
-  assert.equal(lote[1].pecas[0].nome, 'Tampa traseira');
-  assert.equal(importacao.itemBloqueado(lote[1]), false);
-  assert.ok(lote[1].pendencias.some((p) => /Padrão solicitado/.test(p.mensagem)));
-  assert.deepEqual(envio.gruposSemPadrao(lote), []);
-  // A trava final do envio aceita o lote resolvido.
+  assert.deepEqual(envio.gruposSemPadrao(lote).map((g) => g.original), ['Tampa traseira']);
+  assert.equal(lote[0].pendencias.filter((p) => p.campo === 'padrao').length, 1, 'desfazer/refazer nao acumula aviso');
+  // A trava final do envio aceita o lote.
   envio.validarLoteParaEnvio(lote);
 });
 

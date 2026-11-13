@@ -58,7 +58,7 @@ export default function Notificacoes() {
       <span className="pa-sr-only" role="status">{!carregando && !erro && `${avisos.length} notificações não lidas`}</span>
       {createPortal(<dialog ref={dialogo} id="pa-avisos-lista" className="pa-avisos-lista" aria-labelledby="pa-avisos-titulo" onCancel={() => setAberto(false)} onClose={() => setAberto(false)}>
         <header className="pa-avisos-header"><h3 id="pa-avisos-titulo">Notificações do posto</h3><button type="button" autoFocus onClick={() => setAberto(false)} aria-label="Fechar notificações">✕</button></header>
-        <p className="pa-avisos-ajuda">Mudanças de status e propostas de negociação. Os avisos são consultados ao entrar no sistema.</p>
+        <p className="pa-avisos-ajuda">Propostas de negociação enviadas pelo AT. Os avisos são consultados ao entrar no sistema.</p>
         {erro && <p role="alert">{erro}</p>}
         {!cnpj && <p>Entre novamente para identificar seu posto.</p>}
         {cnpj && carregando && <p>Carregando notificações…</p>}

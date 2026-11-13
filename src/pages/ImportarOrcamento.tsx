@@ -16,17 +16,17 @@ import {
   type ItemOrcamentoPlanilha,
   type Pendencia
 } from '../lib/importacaoOrcamento';
-import { indexarCatalogoApi, type CatalogoPadrao, type ItemPadrao } from '../lib/pecaPadrao';
+import { indexarCatalogoApi, type CatalogoPadrao } from '../lib/pecaPadrao';
 import EvidenciasItem from '../components/EvidenciasItem';
 import PadronizacaoPecas from '../components/PadronizacaoPecas';
 import {
-  aplicarDecisaoPadrao,
+  alternarPadronizacao,
   aplicarPadraoPecas,
   consultarCadastroProduto,
   enviarLoteOrcamento,
+  gruposPadronizados,
   gruposSemPadrao,
-  registrarDecisaoPadrao,
-  type GrupoSemPadrao,
+  registrarPedidosPadraoNovo,
   formatCnpj,
   formatCurrency,
   gerarProtocolo,
@@ -275,6 +275,7 @@ const ImportarOrcamento = () => {
     if (lendo || enviando) return;
     setArquivo(selecionado.name);
     setErroArquivo('');
+    setAvisoPadrao('');
     setErroEnvio('');
     setConcluido(null);
     setItens([]);
@@ -338,6 +339,10 @@ const ImportarOrcamento = () => {
     try {
       const resultado = await enviarLoteOrcamento(itens, base, setEtapaEnvio);
       setConcluido({ protocolo, salvos: resultado.salvos, comFoto: resultado.comFoto });
+      if (semPadrao.length) {
+        const pedidos = await registrarPedidosPadraoNovo(semPadrao, { protocolo, paUsuario, cnpj: cnpjDigitos });
+        if (pedidos.falhas) setAvisoPadrao(`Lote enviado, mas ${pedidos.falhas} pedido(s) de padrão novo não foram registrados no catálogo (${pedidos.motivo}).`);
+      }
     } catch (error) {
       if (error instanceof ErroImportacao) setErroEnvio(`${error.message} Nada foi gravado.`);
       else setErroEnvio(`Não foi possível concluir o envio: ${mensagemErro(error)} Clique em "Tentar novamente": os itens já gravados não são duplicados.`);
@@ -347,31 +352,11 @@ const ImportarOrcamento = () => {
     }
   };
 
+  // Padronizacao automatica (nao trava o envio): parecidas ja trocadas (o posto pode desfazer) e desconhecidas
+  // com o nome original; o pedido de padrao novo das desconhecidas e registrado depois do envio.
   const semPadrao = useMemo(() => gruposSemPadrao(itens), [itens]);
-  const contextoDecisao = (grupo: GrupoSemPadrao) => ({
-    nomeOriginal: grupo.original, linha: grupo.linhasProduto[0], protocolo,
-    paUsuario: (localStorage.getItem('gat_user') || '').trim(), cnpj: cnpj.replace(/\D/g, '')
-  });
-  // Padrao existente: a peca ja vai com o nome oficial; o apelido fica no catalogo para os proximos lotes.
-  const escolherPadrao = async (grupo: GrupoSemPadrao, padrao: ItemPadrao) => {
-    setItens((atual) => aplicarDecisaoPadrao(atual, grupo.chave, { tipo: 'padrao', padrao }));
-    setAvisoPadrao('');
-    try {
-      await registrarDecisaoPadrao({ tipo: 'ALIAS', codigo: padrao.codigo, ...contextoDecisao(grupo) });
-      catalogoPadrao?.porAlias.set(grupo.chave, padrao);
-    } catch (error) {
-      setAvisoPadrao(`"${grupo.original}" foi padronizada como "${padrao.nomeCanonico}" neste lote, mas não ficou registrada para os próximos (${mensagemErro(error)}).`);
-    }
-  };
-  // Padrao novo: so libera depois que o pedido foi gravado (senao o pedido se perderia).
-  const solicitarPadrao = async (grupo: GrupoSemPadrao, nomeSugerido: string) => {
-    try {
-      await registrarDecisaoPadrao({ tipo: 'SOLICITACAO', nomeSugerido, ...contextoDecisao(grupo) });
-    } catch (error) {
-      throw new Error(`Pedido não registrado: ${mensagemErro(error)}`);
-    }
-    setItens((atual) => aplicarDecisaoPadrao(atual, grupo.chave, { tipo: 'solicitado' }));
-  };
+  const padronizadas = useMemo(() => gruposPadronizados(itens), [itens]);
+  const alternarPadrao = (chave: string, desfazer: boolean) => setItens((atual) => alternarPadronizacao(atual, chave, desfazer));
 
   // Evidencias ficam no proprio item; o envio do lote sobe para o Drive.
   const anexarEvidencias = (alvo: ItemOrcamentoPlanilha, arquivos: File[]) => {
@@ -637,8 +622,7 @@ const ImportarOrcamento = () => {
             </div>
           )}
           {catalogoPadrao && !concluido && (
-            <PadronizacaoPecas grupos={semPadrao} catalogo={catalogoPadrao} desabilitado={enviando}
-              onEscolher={escolherPadrao} onSolicitar={solicitarPadrao} />
+            <PadronizacaoPecas padronizadas={padronizadas} semPadrao={semPadrao} desabilitado={enviando} onAlternar={alternarPadrao} />
           )}
 
           {inconsistencias.length > 0 && (

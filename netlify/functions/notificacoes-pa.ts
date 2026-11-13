@@ -23,6 +23,8 @@ export const createNotificationsHandler = (env: Record<string, string | undefine
     const headers = { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json', Prefer: 'return=representation' };
     if (event.httpMethod === 'GET') {
       url.searchParams.set('select', 'id,protocolo,tipo,mensagem,criado_em,lida_em');
+      // O sino mostra so propostas de negociacao (decisao de 13/11); avisos de mudanca de status nao vem.
+      url.searchParams.set('tipo', 'eq.NEGOCIACAO');
       url.searchParams.set('lida_em', 'is.null');
       url.searchParams.set('order', 'id.desc');
       url.searchParams.set('limit', '100');

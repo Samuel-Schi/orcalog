@@ -15,16 +15,16 @@ import {
   type ItemOrcamentoPlanilha,
   type Pendencia
 } from '../lib/importacaoOrcamento';
-import { indexarCatalogoApi, normalizarNome, type CatalogoPadrao, type ItemPadrao } from '../lib/pecaPadrao';
+import { indexarCatalogoApi, normalizarNome, type CatalogoPadrao } from '../lib/pecaPadrao';
 import PadronizacaoPecas from '../components/PadronizacaoPecas';
 import {
-  aplicarDecisaoPadrao,
+  alternarPadronizacao,
   aplicarPadraoPecas,
   consultarCadastroProduto,
   enviarLoteOrcamento,
+  gruposPadronizados,
   gruposSemPadrao,
-  registrarDecisaoPadrao,
-  type GrupoSemPadrao,
+  registrarPedidosPadraoNovo,
   formatCnpj,
   formatCurrency,
   gerarProtocolo,
@@ -318,7 +318,7 @@ const NovoOrcamento = () => {
       }
       if (catalogoPadrao) aplicarPadraoPecas([item], catalogoPadrao);
 
-      // Peca sem padrao nao impede adicionar: e resolvida no painel "Padronização das peças" do lote.
+      // Padronizacao da peca nunca impede adicionar (troca automatica ou nome original; ver painel do lote).
       const bloqueios = item.pendencias.filter((p) => p.bloqueia && p.campo !== 'padrao');
       if (bloqueios.length) {
         setPendenciasForm(bloqueios.map((p) => p.mensagem));
@@ -355,29 +355,11 @@ const NovoOrcamento = () => {
     setItens((atual) => atual.filter((_, i) => i !== indice));
   };
 
-  // Mesma padronizacao da planilha; a posicao do item no lote faz o papel da linha.
-  const semPadrao = useMemo(() => gruposSemPadrao(itens.map((item, i) => ({ ...item, linha: i + 1 }))), [itens]);
-  const contextoDecisao = (grupo: GrupoSemPadrao) => ({
-    nomeOriginal: grupo.original, linha: grupo.linhasProduto[0], protocolo, paUsuario, cnpj: cnpj.replace(/\D/g, '')
-  });
-  const escolherPadrao = async (grupo: GrupoSemPadrao, padrao: ItemPadrao) => {
-    setItens((atual) => aplicarDecisaoPadrao(atual, grupo.chave, { tipo: 'padrao', padrao }));
-    setAvisoPadrao('');
-    try {
-      await registrarDecisaoPadrao({ tipo: 'ALIAS', codigo: padrao.codigo, ...contextoDecisao(grupo) });
-      catalogoPadrao?.porAlias.set(grupo.chave, padrao);
-    } catch (error) {
-      setAvisoPadrao(`"${grupo.original}" foi padronizada como "${padrao.nomeCanonico}" neste lote, mas não ficou registrada para os próximos (${mensagemErro(error)}).`);
-    }
-  };
-  const solicitarPadrao = async (grupo: GrupoSemPadrao, nomeSugerido: string) => {
-    try {
-      await registrarDecisaoPadrao({ tipo: 'SOLICITACAO', nomeSugerido, ...contextoDecisao(grupo) });
-    } catch (error) {
-      throw new Error(`Pedido não registrado: ${mensagemErro(error)}`);
-    }
-    setItens((atual) => aplicarDecisaoPadrao(atual, grupo.chave, { tipo: 'solicitado' }));
-  };
+  // Mesma padronizacao automatica da planilha; a posicao do item no lote faz o papel da linha.
+  const itensNumerados = useMemo(() => itens.map((item, i) => ({ ...item, linha: i + 1 })), [itens]);
+  const semPadrao = useMemo(() => gruposSemPadrao(itensNumerados), [itensNumerados]);
+  const padronizadas = useMemo(() => gruposPadronizados(itensNumerados), [itensNumerados]);
+  const alternarPadrao = (chave: string, desfazer: boolean) => setItens((atual) => alternarPadronizacao(atual, chave, desfazer));
 
   const anexarEvidencias = (indice: number, arquivos: File[]) => {
     setErroEnvio('');
@@ -410,6 +392,10 @@ const NovoOrcamento = () => {
       );
       setConcluido({ protocolo, salvos: resultado.salvos, comFoto: resultado.comFoto });
       try { localStorage.removeItem(draftKey(paUsuario)); } catch { /* ignore */ }
+      if (semPadrao.length) {
+        const pedidos = await registrarPedidosPadraoNovo(semPadrao, { protocolo, paUsuario, cnpj: cnpjDigitos });
+        if (pedidos.falhas) setAvisoPadrao(`Lote enviado, mas ${pedidos.falhas} pedido(s) de padrão novo não foram registrados no catálogo (${pedidos.motivo}).`);
+      }
     } catch (error) {
       if (error instanceof ErroImportacao) setErroEnvio(`${error.message} Nada foi gravado.`);
       else setErroEnvio(`Não foi possível concluir o envio: ${mensagemErro(error)} Clique em "Tentar novamente": os itens já gravados não são duplicados.`);
@@ -670,8 +656,7 @@ const NovoOrcamento = () => {
           </div>
         )}
         {catalogoPadrao && !concluido && (
-          <PadronizacaoPecas grupos={semPadrao} catalogo={catalogoPadrao} rotuloPosicao="item" desabilitado={bloqueado}
-            onEscolher={escolherPadrao} onSolicitar={solicitarPadrao} />
+          <PadronizacaoPecas padronizadas={padronizadas} semPadrao={semPadrao} rotuloPosicao="item" desabilitado={bloqueado} onAlternar={alternarPadrao} />
         )}
 
         {inconsistencias.length > 0 && (

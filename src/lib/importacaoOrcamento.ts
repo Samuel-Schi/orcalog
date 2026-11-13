@@ -64,7 +64,12 @@ const SIM_NAO: Record<string, string> = { SIM: 'SIM', S: 'SIM', NAO: 'NAO', N: '
 export const TIPOS_ORC = ['SALDO A', 'NOVO', 'GARANTIA', 'SUCATA'];
 const TIPO_ORC_POR_CHAVE = Object.fromEntries(TIPOS_ORC.map((tipo) => [chaveOpcao(tipo), tipo]));
 
-export type ItemComValor = { nome: string; valor: number };
+export type ItemComValor = {
+  nome: string;
+  valor: number;
+  /** Nome digitado, quando o portal trocou pelo padrao parecido do catalogo (permite desfazer). Nao vai no envio. */
+  nomeOriginal?: string;
+};
 
 export type Pendencia = {
   campo: CampoItem | 'serial' | 'notaFiscal' | 'valores' | 'padrao';
@@ -104,8 +109,10 @@ export type ItemOrcamentoPlanilha = {
   evidencias?: File[];
   /** Pasta do Drive com as evidencias, depois de enviadas (reaproveitada em "Tentar novamente"). */
   linkDrive?: string;
-  /** Pecas sem padrao no catalogo, aguardando a decisao do posto. */
+  /** Pecas sem nada parecido no catalogo: vao com o nome original e geram pedido de padrao novo no envio. */
   pecasSemPadrao?: { chave: string; original: string; sugestao?: string }[];
+  /** Pecas trocadas automaticamente pelo padrao parecido (desfeita = o posto voltou ao nome original). */
+  pecasPadronizadas?: { chave: string; original: string; canonico: string; desfeita?: boolean }[];
 };
 
 export const AVISO_SEM_SERIAL = 'Sem serial: um identificador único (SSAT-…) é gerado no envio e passa a ser o serial da peça. Etiquete a peça com ele.';
@@ -515,7 +522,7 @@ export const montarItemCadastro = (item: ItemOrcamentoPlanilha, protocolo: strin
 export const montarValoresOrcamento = (item: ItemOrcamentoPlanilha) => ({
   defeitoEncontrado: item.defeitoEncontrado,
   pecasDesc: selecaoCatalogo(item.pecas, 'pe'),
-  pecasDetalhes: JSON.stringify(item.pecas),
+  pecasDetalhes: JSON.stringify(item.pecas.map(({ nome, valor }) => ({ nome, valor }))),
   valPecas: item.valPecas,
   acessDesc: selecaoCatalogo(item.acessorios, 'ac'),
   acessDetalhes: JSON.stringify(item.acessorios),

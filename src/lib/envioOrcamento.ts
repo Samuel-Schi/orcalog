@@ -9,7 +9,7 @@ import {
   seriaisDuplicados,
   type ItemOrcamentoPlanilha
 } from './importacaoOrcamento';
-import { normalizarNome, padronizarPeca, type CatalogoPadrao, type ItemPadrao } from './pecaPadrao';
+import { normalizarNome, padronizarPeca, type CatalogoPadrao } from './pecaPadrao';
 import { enviarEvidenciasDrive, nomePastaEvidencias } from './evidenciasDrive';
 
 /*
@@ -52,44 +52,56 @@ export const consultarCadastroProduto = async ({ item }: { item: string }) => {
   return parseMaybeJson(res.data);
 };
 
+const avisoTrocada = (original: string, canonico: string) =>
+  `Peça "${original}" padronizada automaticamente como "${canonico}".`;
+const avisoSemPadrao = (original: string) =>
+  `Peça "${original}" não está no catálogo: vai com o nome original e o pedido de padrão novo é registrado no envio.`;
+
 // Padroniza o nome de cada peca pelo catalogo canonico, escopado pela linha do produto (vinda do gemco).
-// `padronizada` (nome exato ou apelido) reescreve para o nome canonico: e assim que vai no envio.
-// Sem padrao (parecido ou desconhecido) NAO reescreve por aproximacao: vira pendencia que trava o envio
-// ate o posto escolher um padrao existente ou pedir um padrao novo (painel "Padronização das peças").
+// Nada aqui trava o envio (decisao do usuario em 13/11):
+//  - nome exato ou apelido: troca pelo nome oficial, sem aviso;
+//  - nome PARECIDO com um padrao: troca pelo padrao e avisa (o posto pode desfazer no painel);
+//  - nome DESCONHECIDO: vai com o nome original e o pedido de padrao novo e registrado no envio.
 export const aplicarPadraoPecas = (itens: ItemOrcamentoPlanilha[], catalogo: CatalogoPadrao) => {
   for (const item of itens) {
     const linhaProduto = item.produto?.linha;
     item.pendencias = item.pendencias.filter((p) => p.campo !== 'padrao');
     item.pecasSemPadrao = [];
+    item.pecasPadronizadas = [];
     for (const peca of item.pecas) {
       const r = padronizarPeca(peca.nome, catalogo, linhaProduto);
+      const linhaErrada = (canonico: string) => item.pendencias.push({
+        campo: 'valores',
+        mensagem: `Peça "${canonico}" não consta na linha ${linhaProduto || '—'} do catálogo. Confira a linha do produto.`,
+        bloqueia: false
+      });
       if (r.status === 'padronizada' && r.canonico) {
         peca.nome = r.canonico;
-        if (r.linhaOk === false) {
-          item.pendencias.push({
-            campo: 'valores',
-            mensagem: `Peça "${r.canonico}" não consta na linha ${linhaProduto || '—'} do catálogo. Confira a linha do produto.`,
-            bloqueia: false
-          });
-        }
+        if (r.linhaOk === false) linhaErrada(r.canonico);
         continue;
       }
       const chave = normalizarNome(r.original);
+      if (r.status === 'revisar' && r.sugestao) {
+        peca.nomeOriginal = r.original;
+        peca.nome = r.sugestao;
+        if (r.linhaOk === false) linhaErrada(r.sugestao);
+        if (!item.pecasPadronizadas.some((p) => p.chave === chave)) {
+          item.pecasPadronizadas.push({ chave, original: r.original, canonico: r.sugestao });
+          item.pendencias.push({ campo: 'padrao', peca: chave, mensagem: avisoTrocada(r.original, r.sugestao), bloqueia: false });
+        }
+        continue;
+      }
       if (item.pecasSemPadrao.some((p) => p.chave === chave)) continue;
-      item.pecasSemPadrao.push({ chave, original: r.original, sugestao: r.sugestao });
-      item.pendencias.push({
-        campo: 'padrao',
-        peca: chave,
-        mensagem: `Peça "${r.original}" sem padrão no catálogo${r.sugestao ? ` (parece "${r.sugestao}")` : ''}: escolha um padrão ou solicite um novo em "Padronização das peças".`,
-        bloqueia: true
-      });
+      item.pecasSemPadrao.push({ chave, original: r.original });
+      item.pendencias.push({ campo: 'padrao', peca: chave, mensagem: avisoSemPadrao(r.original), bloqueia: false });
     }
   }
 };
 
 export type GrupoSemPadrao = { chave: string; original: string; sugestao?: string; linhasProduto: string[]; linhasPlanilha: number[] };
+export type GrupoPadronizado = { chave: string; original: string; canonico: string; desfeita: boolean; linhasPlanilha: number[] };
 
-/** Pecas sem padrao no lote, uma vez por descricao (a decisao vale para todos os produtos com ela). */
+/** Pecas sem nada parecido no catalogo, uma vez por descricao (com as linhas da planilha e do produto). */
 export const gruposSemPadrao = (itens: ItemOrcamentoPlanilha[]): GrupoSemPadrao[] => {
   const grupos = new Map<string, GrupoSemPadrao>();
   for (const item of itens) {
@@ -104,26 +116,58 @@ export const gruposSemPadrao = (itens: ItemOrcamentoPlanilha[]): GrupoSemPadrao[
   return [...grupos.values()];
 };
 
-export type DecisaoPadrao = { tipo: 'padrao'; padrao: ItemPadrao } | { tipo: 'solicitado' };
+/** Pecas trocadas automaticamente pelo padrao parecido, uma vez por descricao. */
+export const gruposPadronizados = (itens: ItemOrcamentoPlanilha[]): GrupoPadronizado[] => {
+  const grupos = new Map<string, GrupoPadronizado>();
+  for (const item of itens) {
+    for (const peca of item.pecasPadronizadas || []) {
+      const grupo = grupos.get(peca.chave) || { chave: peca.chave, original: peca.original, canonico: peca.canonico, desfeita: Boolean(peca.desfeita), linhasPlanilha: [] };
+      if (!grupo.linhasPlanilha.includes(item.linha)) grupo.linhasPlanilha.push(item.linha);
+      grupos.set(peca.chave, grupo);
+    }
+  }
+  return [...grupos.values()];
+};
 
 /**
- * Aplica a decisao do posto em todos os produtos do lote com a mesma descricao.
- * Padrao escolhido: a peca passa a usar o nome oficial. Padrao solicitado: segue com a descricao original
- * (aviso) ate a aprovacao. Devolve itens novos (para o React re-renderizar).
+ * Desfaz (ou refaz) a troca automatica de uma descricao em todos os produtos do lote.
+ * Desfeita, a peca volta ao nome digitado e passa a contar como "sem padrao" (pedido de padrao novo no envio).
+ * Devolve itens novos (para o React re-renderizar).
  */
-export const aplicarDecisaoPadrao = (itens: ItemOrcamentoPlanilha[], chave: string, decisao: DecisaoPadrao) =>
+export const alternarPadronizacao = (itens: ItemOrcamentoPlanilha[], chave: string, desfazer: boolean) =>
   itens.map((item) => {
-    if (!item.pecasSemPadrao?.some((p) => p.chave === chave)) return item;
-    const original = item.pecasSemPadrao.find((p) => p.chave === chave)?.original || '';
-    const pecas = decisao.tipo === 'padrao'
-      ? item.pecas.map((p) => (normalizarNome(p.nome) === chave ? { ...p, nome: decisao.padrao.nomeCanonico } : p))
-      : item.pecas;
-    const pendencias = item.pendencias.filter((p) => p.peca !== chave);
-    if (decisao.tipo === 'solicitado') {
-      pendencias.push({ campo: 'valores', mensagem: `Padrão solicitado para "${original}": vai com a descrição original até a aprovação.`, bloqueia: false });
-    }
-    return { ...item, pecas, pendencias, pecasSemPadrao: item.pecasSemPadrao.filter((p) => p.chave !== chave) };
+    const registro = item.pecasPadronizadas?.find((p) => p.chave === chave);
+    if (!registro || Boolean(registro.desfeita) === desfazer) return item;
+    const pecas = item.pecas.map((p) => (p.nomeOriginal && normalizarNome(p.nomeOriginal) === chave
+      ? { ...p, nome: desfazer ? p.nomeOriginal : registro.canonico }
+      : p));
+    const pendencias = item.pendencias.filter((p) => !(p.campo === 'padrao' && p.peca === chave));
+    pendencias.push({
+      campo: 'padrao', peca: chave, bloqueia: false,
+      mensagem: desfazer ? avisoSemPadrao(registro.original) : avisoTrocada(registro.original, registro.canonico)
+    });
+    const semPadrao = (item.pecasSemPadrao || []).filter((p) => p.chave !== chave);
+    if (desfazer) semPadrao.push({ chave, original: registro.original });
+    return {
+      ...item, pecas, pendencias, pecasSemPadrao: semPadrao,
+      pecasPadronizadas: item.pecasPadronizadas!.map((p) => (p.chave === chave ? { ...p, desfeita: desfazer } : p))
+    };
   });
+
+/**
+ * Registra no catalogo o pedido de padrao novo de cada descricao desconhecida (chamado depois do envio).
+ * Nunca derruba o envio: devolve quantos pedidos falharam e o motivo do primeiro.
+ */
+export const registrarPedidosPadraoNovo = async (
+  grupos: GrupoSemPadrao[],
+  contexto: { protocolo: string; paUsuario: string; cnpj: string }
+) => {
+  const resultados = await Promise.allSettled(grupos.map((grupo) => registrarDecisaoPadrao({
+    tipo: 'SOLICITACAO', nomeOriginal: grupo.original, nomeSugerido: grupo.original, linha: grupo.linhasProduto[0], ...contexto
+  })));
+  const falha = resultados.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+  return { falhas: resultados.filter((r) => r.status === 'rejected').length, motivo: falha ? mensagemErro(falha.reason) : '' };
+};
 
 /** Registra a decisao no catalogo: apelido (padrao existente) ou pedido de padrao novo. */
 export const registrarDecisaoPadrao = async (dados: {
