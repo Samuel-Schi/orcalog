@@ -3,19 +3,20 @@
 -- Seguro e idempotente: so INSERE (padrao novo, apelido, linha); nao apaga nem renomeia nada.
 -- Codigos novos continuam a sequencia PEC a partir do maior codigo que ja existe no banco.
 --   padroes novos: 143 | apelidos: 629 | pares peca x linha: 457
-BEGIN;
-
+-- Cada comando e independente (sem tabela temporaria): funciona no SQL Editor do Supabase, que pode rodar
+-- comando por comando. Se parar no meio, e so rodar de novo.
 CREATE OR REPLACE FUNCTION public.normalizar_nome_peca(p text) RETURNS text
 LANGUAGE sql IMMUTABLE AS $$
   SELECT btrim(regexp_replace(upper(translate(coalesce(p, ''),
     'ÁÀÂÃÄÅÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑÝáàâãäåéèêëíìîïóòôõöúùûüçñý',
     'AAAAAAEEEEIIIIOOOOOUUUUCNYaaaaaaeeeeiiiiooooouuuucny')), '\s+', ' ', 'g'))
 $$;
-ALTER TABLE public.item_alias ADD COLUMN IF NOT EXISTS origem text NOT NULL DEFAULT 'SEED';
-LOCK TABLE public.item_padrao IN EXCLUSIVE MODE;
 
-CREATE TEMP TABLE stg_padrao (nome text, tipo text, ordem int) ON COMMIT DROP;
-INSERT INTO stg_padrao (nome, tipo, ordem) VALUES
+ALTER TABLE public.item_alias ADD COLUMN IF NOT EXISTS origem text NOT NULL DEFAULT 'SEED';
+
+-- 1) pecas novas (codigo continua do maior PEC existente)
+WITH s (nome, tipo, ordem) AS (VALUES
+
   ('MANUAL', 'ACESSORIO', 1),
   ('ETIQUETA ENCE / PROCEL', 'ACESSORIO', 2),
   ('PE', 'PECA', 3),
@@ -158,17 +159,20 @@ INSERT INTO stg_padrao (nome, tipo, ordem) VALUES
   ('FITA DE VEDACAO', 'PECA', 140),
   ('CORREIA', 'PECA', 141),
   ('COBERTURA INFERIOR', 'PECA', 142),
-  ('CARTUCHO', 'PECA', 143);
-
+  ('CARTUCHO', 'PECA', 143)
+), novos AS (
+  SELECT s.* FROM s
+  WHERE NOT EXISTS (SELECT 1 FROM public.item_padrao p WHERE p.nome_norm = public.normalizar_nome_peca(s.nome))
+)
 INSERT INTO public.item_padrao (codigo, nome_canonico, nome_norm, tipo)
-SELECT 'PEC' || lpad((m.mx + row_number() OVER (ORDER BY s.ordem))::text, 4, '0'),
-       s.nome, public.normalizar_nome_peca(s.nome), s.tipo
-FROM stg_padrao s
-CROSS JOIN (SELECT coalesce(max(substring(codigo FROM '^PEC(\d+)$')::int), 0) AS mx FROM public.item_padrao) m
-WHERE NOT EXISTS (SELECT 1 FROM public.item_padrao p WHERE p.nome_norm = public.normalizar_nome_peca(s.nome));
+SELECT 'PEC' || lpad((m.mx + row_number() OVER (ORDER BY n.ordem))::text, 4, '0'),
+       n.nome, public.normalizar_nome_peca(n.nome), n.tipo
+FROM novos n
+CROSS JOIN (SELECT coalesce(max(substring(codigo FROM '^PEC(\d+)$')::int), 0) AS mx FROM public.item_padrao) m;
 
-CREATE TEMP TABLE stg_alias (alias text, canonico text) ON COMMIT DROP;
-INSERT INTO stg_alias (alias, canonico) VALUES
+-- 2) apelidos (escritas antigas -> peca padrao)
+WITH a (alias, canonico) AS (VALUES
+
   ('MANUALM', 'MANUAL'),
   ('MANUALK', 'MANUAL'),
   ('TROCA DE PROCEL', 'ETIQUETA ENCE / PROCEL'),
@@ -797,18 +801,19 @@ INSERT INTO stg_alias (alias, canonico) VALUES
   ('GAVETA DE CHIP', 'GAVETA CHIP'),
   ('ALTO FALANTE', 'ALTO-FALANTE'),
   ('CJ FORNO', 'RESISTENCIA SUPERIOR'),
-  ('UNIDADE DE DISCO RIGIDO', 'DISCO RIGIDO');
-
+  ('UNIDADE DE DISCO RIGIDO', 'DISCO RIGIDO')
+)
 INSERT INTO public.item_alias (alias_norm, alias, codigo, origem)
 SELECT DISTINCT ON (public.normalizar_nome_peca(a.alias))
        public.normalizar_nome_peca(a.alias), a.alias, p.codigo, 'LEGADO_2026'
-FROM stg_alias a
+FROM a
 JOIN public.item_padrao p ON p.nome_norm = public.normalizar_nome_peca(a.canonico)
 WHERE NOT EXISTS (SELECT 1 FROM public.item_padrao x WHERE x.nome_norm = public.normalizar_nome_peca(a.alias))
 ON CONFLICT (alias_norm) DO NOTHING;
 
-CREATE TEMP TABLE stg_linha (canonico text, linha text) ON COMMIT DROP;
-INSERT INTO stg_linha (canonico, linha) VALUES
+-- 3) em quais linhas de produto cada peca aparece
+WITH l (canonico, linha) AS (VALUES
+
   ('MANUAL', 'ED1 - ELETRO 1'),
   ('MANUAL', 'ED2 - ELETRO 2'),
   ('MANUAL', 'AR - CONDICIONADOR DE AR'),
@@ -1265,11 +1270,11 @@ INSERT INTO stg_linha (canonico, linha) VALUES
   ('AMORTECEDOR', 'ED1 - ELETRO 1'),
   ('PLACA INVERTER', 'ED1 - ELETRO 1'),
   ('VALVULA DE ENTRADA DE AGUA', 'ED1 - ELETRO 1'),
-  ('PLACA DE INTERFACE', 'ED1 - ELETRO 1');
-
+  ('PLACA DE INTERFACE', 'ED1 - ELETRO 1')
+)
 INSERT INTO public.item_padrao_linha (codigo, linha)
 SELECT DISTINCT p.codigo, l.linha
-FROM stg_linha l
+FROM l
 JOIN public.item_padrao p ON p.nome_norm = public.normalizar_nome_peca(l.canonico)
 ON CONFLICT DO NOTHING;
 
@@ -1278,5 +1283,3 @@ SELECT
   (SELECT count(*) FROM public.item_padrao) AS padroes_total,
   (SELECT count(*) FROM public.item_alias WHERE origem = 'LEGADO_2026') AS apelidos_legado,
   (SELECT count(*) FROM public.item_padrao_linha) AS pares_peca_linha;
-
-COMMIT;
