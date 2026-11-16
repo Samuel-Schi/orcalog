@@ -1,0 +1,92 @@
+-- ETAPA 4: limpa o catalogo de pecas (Ravenas). Gerado em 2026-11-16.
+-- ORDEM: rodar DEPOIS de item_padrao_legado_2026.sql e do deploy que faz o Lancar Orcamentos ler as pecas
+-- do item_padrao (commit "Lancar Orcamentos: pecas do catalogo canonico").
+-- NADA E APAGADO: so marca ativo = false (desfazer no fim do arquivo).
+--
+-- 1) 45 pecas canonicas que sao a MESMA peca de outra, com descricao detalhada demais
+--    (ex.: "BATERIA INTERNA RECARREGAVEL DE LITIO-POLIMERO MINIATURA" -> BATERIA). Nenhuma aparece na base
+--    ORCAMENTO 2026. O nome antigo vira APELIDO da peca geral: o que ja foi gravado com ele continua padronizando.
+--    Pecas funcionais proprias (COMPRESSOR INVERTER, TUBO CAPILAR, VALVULAS, SENSORES...) continuam ativas.
+-- 2) Linhas de PECA do catalogo_qualidade: duplicata do item_padrao (a tela passa a ler pecas do item_padrao).
+--    DEFEITO / SERVICO / ACESSORIO / CONDICAO continuam como estao.
+BEGIN;
+
+CREATE TEMP TABLE redundante (codigo text PRIMARY KEY, nome text, pai text) ON COMMIT DROP;
+INSERT INTO redundante (codigo, nome, pai) VALUES
+  ('PEC0218', 'BATERIA INTERNA DE LITIO-POLIMERO', 'BATERIA'),
+  ('PEC0207', 'BATERIA INTERNA RECARREGAVEL DE IONS DE LITIO', 'BATERIA'),
+  ('PEC0190', 'BATERIA INTERNA RECARREGAVEL DE LITIO DO CONTROLE', 'BATERIA'),
+  ('PEC0175', 'BATERIA INTERNA RECARREGAVEL DE LITIO-POLIMERO MINIATURA', 'BATERIA'),
+  ('PEC0249', 'BATERIA RECARREGAVEL INTERNA DE LITIO', 'BATERIA'),
+  ('PEC0183', 'BATERIA RECARREGAVEL INTERNA DO ESTOJO DE CARREGAMENTO', 'BATERIA'),
+  ('PEC0181', 'BATERIA DE LITIO RECARREGAVEL MINIATURA', 'BATERIA'),
+  ('PEC0192', 'CARCACA COMPLETA', 'CARCACA'),
+  ('PEC0244', 'PAINEL DISPLAY LCD', 'TELA'),
+  ('PEC0202', 'TELA DISPLAY LCD', 'TELA'),
+  ('PEC0037', 'LCD', 'TELA'),
+  ('PEC0247', 'PLACA PRINCIPAL DECODIFICADORA DE AUDIO + BT', 'PLACA PRINCIPAL'),
+  ('PEC0178', 'PLACA LOGICA PRINCIPAL COM MODULO BLUETOOTH E DAC', 'PLACA PRINCIPAL'),
+  ('PEC0173', 'PLACA LOGICA PRINCIPAL COM MODULO BLUETOOTH E SENSORES', 'PLACA PRINCIPAL'),
+  ('PEC0213', 'PLACA LOGICA PRINCIPAL DA IMPRESSORA', 'PLACA PRINCIPAL'),
+  ('PEC0188', 'PLACA LOGICA PRINCIPAL DO CONTROLE', 'PLACA PRINCIPAL'),
+  ('PEC0198', 'PLACA-MAE INTEGRADA', 'PLACA MAE'),
+  ('PEC0193', 'PLACA-MAE PRINCIPAL DO CONSOLE', 'PLACA MAE'),
+  ('PEC0217', 'PLACA-MAE PRINCIPAL DO TABLET', 'PLACA MAE'),
+  ('PEC0219', 'SUB-PLACA CONECTORA DE CARGA USB-C', 'SUB PLACA'),
+  ('PEC0005', 'PLACA SUB', 'SUB PLACA'),
+  ('PEC0204', 'TECLADO FISICO INTEGRADO', 'TECLADO'),
+  ('PEC0134', 'TERMOSTATO ANALOGICO REGULADOR DE TEMPERATURA', 'TERMOSTATO'),
+  ('PEC0165', 'TERMOSTATO REGULADOR DE TEMPERATURA', 'TERMOSTATO'),
+  ('PEC0156', 'TERMOSTATO REGULADOR DE TEMPERATURA COM CABO', 'TERMOSTATO'),
+  ('PEC0205', 'TOUCHPAD COMPLETO COM MODULO SENSOR', 'TOUCHPAD'),
+  ('PEC0155', 'RESISTENCIA ELETRICA BLINDADA DE AQUECIMENTO', 'RESISTENCIA DE AQUECIMENTO'),
+  ('PEC0137', 'RESISTENCIA ELETRICA CIRCULAR DE AQUECIMENTO', 'RESISTENCIA DE AQUECIMENTO'),
+  ('PEC0222', 'RESISTENCIA DE AQUECIMENTO ELETRICO MICROMETRICA', 'RESISTENCIA DE AQUECIMENTO'),
+  ('PEC0170', 'RESISTENCIA DE AQUECIMENTO EM ESPIRAL', 'RESISTENCIA DE AQUECIMENTO'),
+  ('PEC0141', 'MOTOR ELETRICO UNIVERSAL', 'MOTOR'),
+  ('PEC0221', 'MOTOR ELETRICO DE ALTA ROTACAO', 'MOTOR'),
+  ('PEC0152', 'MOTOR ELETRICO COM CABECOTE PLANETARIO', 'MOTOR'),
+  ('PEC0167', 'MOTOR ELETRICO DO VENTILADOR COM CAPACITOR', 'MOTOR VENTILADOR'),
+  ('PEC0180', 'MICROFONE MINIATURA SMD', 'MICROFONE'),
+  ('PEC0191', 'CONECTOR DE CARGA USB-C DO CONTROLE', 'CONECTOR DE CARGA USB-C'),
+  ('PEC0184', 'CONECTOR DE CARGA USB-C DO ESTOJO', 'CONECTOR DE CARGA USB-C'),
+  ('PEC0194', 'FONTE DE ALIMENTACAO INTERNA BIVOLT DO CONSOLE', 'FONTE DE ALIMENTACAO INTERNA'),
+  ('PEC0201', 'UNIDADE DE ARMAZENAMENTO SSD M.2 NVME', 'SSD'),
+  ('PEC0040', 'SSD BOARD', 'SSD'),
+  ('PEC0200', 'PENTE DE MEMORIA RAM', 'MEMORIA RAM'),
+  ('PEC0203', 'CABO FLAT DE VIDEO', 'CABO FLAT'),
+  ('PEC0245', 'CABO FLAT FFC', 'CABO FLAT'),
+  ('PEC0206', 'COOLER VENTOINHA + DISSIPADOR DE COBRE', 'VENTOINHA'),
+  ('PEC0195', 'COOLER VENTOINHA DE REFRIGERACAO DO PROCESSADOR', 'VENTOINHA');
+
+-- liga o nome antigo (e os apelidos dele) a peca geral
+CREATE TEMP TABLE mapa ON COMMIT DROP AS
+SELECT r.codigo AS antigo, p.codigo AS novo, r.nome
+FROM redundante r
+JOIN public.item_padrao p ON p.nome_norm = public.normalizar_nome_peca(r.pai) AND p.ativo;
+
+INSERT INTO public.item_alias (alias_norm, alias, codigo, origem)
+SELECT public.normalizar_nome_peca(m.nome), m.nome, m.novo, 'DESATIVADA'
+FROM mapa m
+ON CONFLICT (alias_norm) DO NOTHING;
+
+UPDATE public.item_alias a SET codigo = m.novo FROM mapa m WHERE a.codigo = m.antigo;
+
+UPDATE public.item_padrao p SET ativo = false FROM mapa m WHERE p.codigo = m.antigo;
+
+UPDATE public.catalogo_qualidade SET ativo = false WHERE upper(tipo) IN ('PECA', 'PECAS') AND ativo;
+
+-- Conferencia
+SELECT 'desativadas (viraram apelido)' AS o_que, count(*) AS qtd,
+       string_agg(m.nome || ' -> ' || p.nome_canonico, ' | ' ORDER BY m.nome) AS detalhe
+FROM mapa m JOIN public.item_padrao p ON p.codigo = m.novo
+UNION ALL
+SELECT 'pecas canonicas ativas', count(*), NULL FROM public.item_padrao WHERE ativo AND tipo = 'PECA'
+UNION ALL
+SELECT 'catalogo_qualidade ativo (defeito/servico/acessorio/condicao)', count(*), NULL FROM public.catalogo_qualidade WHERE ativo;
+
+COMMIT;
+
+-- DESFAZER (se precisar):
+--   UPDATE public.catalogo_qualidade SET ativo = true WHERE upper(tipo) IN ('PECA', 'PECAS');
+--   UPDATE public.item_padrao SET ativo = true WHERE codigo IN ('PEC0218', 'PEC0207', 'PEC0190', 'PEC0175', 'PEC0249', 'PEC0183', 'PEC0181', 'PEC0192', 'PEC0244', 'PEC0202', 'PEC0037', 'PEC0247', 'PEC0178', 'PEC0173', 'PEC0213', 'PEC0188', 'PEC0198', 'PEC0193', 'PEC0217', 'PEC0219', 'PEC0005', 'PEC0204', 'PEC0134', 'PEC0165', 'PEC0156', 'PEC0205', 'PEC0155', 'PEC0137', 'PEC0222', 'PEC0170', 'PEC0141', 'PEC0221', 'PEC0152', 'PEC0167', 'PEC0180', 'PEC0191', 'PEC0184', 'PEC0194', 'PEC0201', 'PEC0040', 'PEC0200', 'PEC0203', 'PEC0245', 'PEC0206', 'PEC0195');

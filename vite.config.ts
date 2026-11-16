@@ -47,6 +47,7 @@ const createLocalSupabaseSyncPlugin = (env: Record<string, string>): Plugin => {
           '/lancamento_rascunho_supa': () => import('./netlify/functions/get-lancamento-drafts-supabase'),
           '/lancamento_rascunho_supa/save': () => import('./netlify/functions/upsert-lancamento-draft-supabase'),
           '/item_padrao/decisao': () => import('./netlify/functions/item-padrao-decisao'),
+          '/catalogo_qualidade': () => import('./netlify/functions/get-catalogo-qualidade'),
           '/serial_gerado': () => import('./netlify/functions/gerar-serial-peca')
         };
         const carregarRota = rotasPosto[pathname as keyof typeof rotasPosto];
@@ -137,70 +138,7 @@ const createLocalSupabaseSyncPlugin = (env: Record<string, string>): Plugin => {
           return;
         }
 
-        // No deploy, esta rota e atendida pela Netlify Function. O Vite nao
-        // interpreta os redirects do netlify.toml, entao a reproduzimos aqui
-        // para que o catalogo tambem funcione com `npm run dev`.
-        if (req.method === 'GET' && pathname === '/catalogo_qualidade') {
-          res.setHeader('Content-Type', 'application/json; charset=utf-8');
-          res.setHeader('Cache-Control', 'no-store');
-
-          if (!supabaseUrl || !supabaseSecret) {
-            res.statusCode = 500;
-            res.end(JSON.stringify({ error: 'Variaveis do Supabase nao configuradas no .env local.' }));
-            return;
-          }
-
-          try {
-            const normalizedSupabaseUrl = supabaseUrl
-              .replace(/\/rest\/v1\/?$/i, '')
-              .replace(/\/$/, '');
-            const rows: unknown[] = [];
-            const pageSize = 500;
-
-            for (let offset = 0; ; offset += pageSize) {
-              const supaUrl = new URL(`${normalizedSupabaseUrl}/rest/v1/catalogo_qualidade`);
-              supaUrl.searchParams.set('select', 'id,linha,tipo,item,ativo');
-              supaUrl.searchParams.set('ativo', 'eq.true');
-              supaUrl.searchParams.set('order', 'id.asc');
-              supaUrl.searchParams.set('limit', String(pageSize));
-              supaUrl.searchParams.set('offset', String(offset));
-
-              const response = await fetch(supaUrl.toString(), {
-                headers: {
-                  Accept: 'application/json',
-                  apikey: supabaseSecret,
-                  Authorization: `Bearer ${supabaseSecret}`
-                }
-              });
-              if (!response.ok) {
-                res.statusCode = 502;
-                res.end(JSON.stringify({ error: 'Falha ao consultar o catalogo no Supabase.' }));
-                return;
-              }
-
-              const page: unknown = await response.json();
-              if (!Array.isArray(page)) {
-                res.statusCode = 502;
-                res.end(JSON.stringify({ error: 'Resposta invalida do catalogo.' }));
-                return;
-              }
-              rows.push(...page);
-              if (page.length < pageSize) break;
-            }
-
-            res.statusCode = 200;
-            res.end(JSON.stringify(rows));
-          } catch (error) {
-            res.statusCode = 500;
-            res.end(JSON.stringify({
-              error: 'Falha ao consultar o catalogo no Vite local.',
-              detail: error instanceof Error ? error.message : String(error)
-            }));
-          }
-          return;
-        }
-
-        // Mesma ideia do /catalogo_qualidade: reproduz o redirect da Function no dev.
+        // No deploy esta rota e atendida pela Netlify Function; o Vite nao le o netlify.toml, entao reproduz aqui.
         if (req.method === 'GET' && pathname === '/item_padrao') {
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
           res.setHeader('Cache-Control', 'no-store');
