@@ -7,6 +7,7 @@ import {
   textoCelula,
   type ProdutoApi
 } from './importacaoProdutos';
+import { exigeFotoAvaria } from './avaria';
 
 // SheetJS e carregado sob demanda para nao pesar no bundle principal.
 const carregarXlsx = () => import('xlsx');
@@ -285,7 +286,7 @@ export const interpretarPlanilhaOrcamento = (rows: unknown[][], primeiraLinha = 
     const valEmb = valorColuna('embalagem');
     const valHig = valorColuna('higienizacao');
     const total = centavos(valPecas + valAcess + valMaoObra + valEmb + valHig);
-    const avaria = /AVARIA/i.test(campos.defeitoEncontrado);
+    const avaria = exigeFotoAvaria(campos.defeitoEncontrado);
 
     if (!total && !pendencias.some((p) => p.campo === 'valores')) {
       pendencias.push({ campo: 'valores', mensagem: 'Nenhum valor informado: o orçamento vai com total R$ 0,00.', bloqueia: false });

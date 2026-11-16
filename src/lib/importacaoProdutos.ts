@@ -80,9 +80,13 @@ export const parseSerialPayload = (raw: string) => {
   return cleaned;
 };
 
+// "0", "000", "SEM SERIAL", "S/ SERIAL", "S/SERIAL" = peca sem Serial Number: vale como serial em branco,
+// e o portal gera o identificador unico no envio (igual a celula vazia).
+const SERIAL_PLACEHOLDER = /^(0+|SEMSERIAL|SSERIAL)$/;
+
 export const formatSerialValue = (raw: string) => {
   const compact = compactLookupValue(parseSerialPayload(raw));
-  if (!compact) return '';
+  if (!compact || SERIAL_PLACEHOLDER.test(compact)) return '';
   if (compact.length <= 4) return compact;
   return compact.match(/.{1,4}/g)?.join('-') ?? compact;
 };

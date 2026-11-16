@@ -6,6 +6,7 @@ import { useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 import { agruparCatalogo, getCatalogoByLinha, type CatalogoLinha, type CatalogoRegistro } from '../lib/catalogoPadrao';
+import { exigeFotoAvaria } from '../lib/avaria';
 
 type OrcamentoItem = {
   envioRecebido?: boolean;
@@ -479,9 +480,7 @@ const LancarOrcamentos = () => {
     [valPecas, valAcess, valMaoObra, valEmb, valHig]
   );
   const precisaFoto = useMemo(
-    () => catalogoLinha
-      ? defeitosSelecionados.some((defeito) => /AVARIA/i.test(defeito))
-      : /AVARIA/i.test(defeitoEncontrado),
+    () => exigeFotoAvaria(catalogoLinha ? defeitosSelecionados : defeitoEncontrado),
     [catalogoLinha, defeitoEncontrado, defeitosSelecionados]
   );
   const resumoLancamento = useMemo(() => {

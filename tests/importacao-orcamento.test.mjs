@@ -21,7 +21,7 @@ const planilha = (linhas) => {
 test('uma linha por produto: quebra pecas e acessorios e soma os valores', async () => {
   const { itens, errosLinha } = await lerPlanilhaOrcamento(planilha([
     CABECALHO,
-    ['abc12345', 'NF-1', 123456, 'Tela quebrada', 'sim', 'Não', 'novo', 'Display: 300; Flex: R$ 1.020,00', 'Controle = 35', '80,50', '', ''],
+    ['abc12345', 'NF-1', 123456, 'Nao liga', 'sim', 'Não', 'novo', 'Display: 300; Flex: R$ 1.020,00', 'Controle = 35', '80,50', '', ''],
     ['', '', '', '', '', '', '', '', '', '', '', ''],
     ['xyz999', 'NF-2', '7891234567890', 'Não liga', 'NAO', 'NAO', 'Saldo A', '', '', '', 10, 15]
   ]));
@@ -115,6 +115,31 @@ test('avaria e total zero so avisam', () => {
   assert.equal(item.pendencias.length, 2);
 });
 
+test('foto so e exigida em avaria estetica; defeito funcional fica opcional', () => {
+  const linha = (defeito) => ['S3', 'NF', '10', defeito, 'SIM', 'NAO', 'NOVO', 'Tampa: 10', '', '', '', ''];
+  const avaria = (defeito) => interpretarPlanilhaOrcamento([CABECALHO, linha(defeito)]).itens[0].avaria;
+  for (const d of ['AVARIA ESTETICA', 'Avaria estética', 'ARRANHADO / RISCADO', 'tampa amassada', 'TRINCADO', 'Tela quebrada']) {
+    assert.equal(avaria(d), true, d);
+  }
+  for (const d of ['NAO LIGA', 'Sem imagem', 'RUIDO NO MOTOR']) {
+    assert.equal(avaria(d), false, d);
+  }
+});
+
+test('0, SEM SERIAL, S/ SERIAL e S/SERIAL viram serial gerado', () => {
+  const marcadores = ['0', '000', 'SEM SERIAL', 'sem serial', 'S/ SERIAL', 'S/SERIAL'];
+  const { itens, errosLinha } = interpretarPlanilhaOrcamento([
+    CABECALHO,
+    ...marcadores.map((s, i) => [s, `NF${i}`, '10', 'NAO LIGA', 'SIM', 'NAO', 'NOVO', 'Tampa: 10', '', '', '', ''])
+  ]);
+  assert.equal(errosLinha.length, 0);
+  assert.equal(itens.length, marcadores.length);
+  for (const item of itens) {
+    assert.equal(item.serial, '');
+    assert.equal(item.serialGerado, true);
+  }
+});
+
 test('cabecalho sem coluna obrigatoria gera erro claro', () => {
   assert.throws(() => interpretarPlanilhaOrcamento([['Serial', 'Gemco']]), /Coluna\(s\) não encontrada\(s\): Nota fiscal/);
 });
@@ -169,7 +194,7 @@ test('consulta o produto uma vez por codigo e monta os payloads do lote', async 
 test('lancamento manual usa as mesmas regras da planilha (sem UUID)', () => {
   const { interpretarItemManual } = compiled.exports;
   const { item } = interpretarItemManual({
-    serial: 'abc12345', notaFiscal: 'NF-9', codigo: '123456', defeitoEncontrado: 'Tela quebrada',
+    serial: 'abc12345', notaFiscal: 'NF-9', codigo: '123456', defeitoEncontrado: 'Nao liga',
     defeitoFuncional: 'SIM', garantia: 'NAO', tipoOrc: 'NOVO',
     pecas: 'Display: 300,50; Flex: 50', acessorios: '', maoObra: '20', embalagem: '', higienizacao: ''
   }, 3);
