@@ -56,6 +56,18 @@ test('granularidade diferente pede revisao, nao padroniza calado', () => {
   assert.equal(r.canonico, null); // nunca reescreve sozinho
 });
 
+test('sugestao respeita a linha: PLACA em ED1 sugere a placa da ED1, nao a de telefonia', () => {
+  const r = padronizarPeca('PLACA', catalogo, 'ED1 - ELETRO 1');
+  assert.equal(r.sugestao, 'PLACA PRINCIPAL DA EVAPORADORA');
+  assert.equal(r.linhaOk, true);
+});
+
+test('sugestao nao cruza linha: PLACA em audio sem placa de audio vira nova', () => {
+  const r = padronizarPeca('PLACA', catalogo, 'EA - AUDIO');
+  assert.equal(r.status, 'nova');
+  assert.equal(r.sugestao, undefined);
+});
+
 test('nome desconhecido vira nova', () => {
   const r = padronizarPeca('XPTO 9000 INEXISTENTE', catalogo, 'ED1 - ELETRO 1');
   assert.equal(r.status, 'nova');

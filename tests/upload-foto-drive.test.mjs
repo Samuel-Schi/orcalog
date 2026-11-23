@@ -122,6 +122,53 @@ test('cria nova pasta quando o folderId informado não pertence à pasta raiz', 
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test('reusarPorNome acha a pasta do protocolo na raiz (Shared Drive) e não cria outra', async () => {
+  const originalFetch = globalThis.fetch;
+  let buscou = '';
+  globalThis.fetch = async (url, init = {}) => {
+    const target = String(url);
+    if (target.includes('oauth2')) return Response.json({ access_token: 't' });
+    if (target.includes('upload/drive')) {
+      assert.ok(init.body.includes(Buffer.from('"parents":["pasta-protocolo"]')));
+      return Response.json({ id: 'arquivo-1' });
+    }
+    if ((init.method || 'GET') === 'GET' && target.includes('/drive/v3/files?')) {
+      buscou = target;
+      return Response.json({ files: [{ id: 'pasta-protocolo', webViewLink: 'https://drive.google.com/drive/folders/pasta-protocolo' }] });
+    }
+    throw new Error('Não deveria criar nova pasta: ' + target);
+  };
+  try {
+    const response = await comCredenciais()({ httpMethod: 'POST', body: pdfBody({ folderName: "Portal_AT_P2311-9044", reusarPorNome: true }) });
+    assert.equal(response.statusCode, 200);
+    assert.equal(JSON.parse(response.body).folderId, 'pasta-protocolo');
+    assert.equal(JSON.parse(response.body).folderReused, true);
+    const params = new URL(buscou).searchParams;
+    assert.equal(params.get('supportsAllDrives'), 'true');
+    assert.equal(params.get('includeItemsFromAllDrives'), 'true');
+    assert.match(params.get('q'), /'local-parent' in parents and name = 'Portal_AT_P2311-9044'/);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('reusarPorNome cria a pasta do protocolo quando ela ainda não existe', async () => {
+  const originalFetch = globalThis.fetch;
+  let criou = false;
+  globalThis.fetch = async (url, init = {}) => {
+    const target = String(url);
+    if (target.includes('oauth2')) return Response.json({ access_token: 't' });
+    if (target.includes('upload/drive')) return Response.json({ id: 'arquivo-1' });
+    if ((init.method || 'GET') === 'GET') return Response.json({ files: [] });
+    criou = true;
+    assert.equal(JSON.parse(init.body).name, 'Portal_AT_P1');
+    return Response.json({ id: 'nova-pasta' });
+  };
+  try {
+    const response = await comCredenciais()({ httpMethod: 'POST', body: pdfBody({ folderName: 'Portal_AT_P1', reusarPorNome: true }) });
+    assert.equal(response.statusCode, 200);
+    assert.equal(criou, true);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('envia os bytes da foto ao Drive e devolve o link da pasta', async () => {
   const originalFetch = globalThis.fetch;
   const originalEnv = {

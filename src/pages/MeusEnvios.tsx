@@ -125,6 +125,7 @@ const estiloMeusEnvios = `
 .me-sep { margin: 0 6px; color: #c3c8d0; }
 .me-lote-chamada { font-size: .8rem; color: #1e7b3c; font-weight: 600; }
 .me-lote-chamada.negociacao { color: #a15c00; }
+.me-link-lancar { background: none; border: 0; padding: 0; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
 .me-lote-dir { gap: 12px !important; }
 .me-status { display: inline-flex; align-items: center; gap: 7px; font-size: .82rem; color: var(--me-texto); white-space: nowrap; }
 .me-status-ponto { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
@@ -686,6 +687,13 @@ const MeusEnvios = () => {
           const podeFinalizar = loteCompleto
             && itens.length > 0
             && itens.every((item) => isItemEmMontagem(item) && item.orcamentoPronto !== false && item.envioFinalizado !== true);
+          // Lote ainda em montagem sem o botao: diz o que falta em vez de so esconder o "Finalizar lote".
+          const itensSemOrcamento = Math.max(0, totalItensNoLote - itens.length)
+            + itens.filter((item) => isItemEmMontagem(item) && item.orcamentoPronto === false).length;
+          const bloqueioFinalizar = !podeFinalizar && itensSemOrcamento > 0
+            && itens.every((item) => isItemEmMontagem(item) && item.envioFinalizado !== true)
+            ? `Para finalizar: ${itensSemOrcamento} item(ns) sem orçamento lançado (avaria aguardando foto ou envio interrompido). Termine em Lançar Orçamentos.`
+            : '';
           const idsLote = idsLotePorProtocolo[normalizeProtocolKey(protocolo)] || itens
             .map((item) => item.dbId == null ? '' : String(item.dbId))
             .filter((id) => /^\d+$/.test(id));
@@ -737,6 +745,14 @@ const MeusEnvios = () => {
                   {(podeFinalizar || aguardandoPosto) && (
                     <span className={`me-lote-chamada${aguardandoPosto ? ' negociacao' : ''}`}>
                       {aguardandoPosto ? 'O AT enviou uma proposta: responda' : 'Pronto para finalizar'}
+                    </span>
+                  )}
+                  {bloqueioFinalizar && !aguardandoPosto && (
+                    <span className="me-lote-chamada negociacao">
+                      {bloqueioFinalizar}{' '}
+                      <button type="button" className="me-link-lancar" onClick={(e) => { e.stopPropagation(); navigate('/lancar-orcamentos'); }}>
+                        Abrir Lançar Orçamentos
+                      </button>
                     </span>
                   )}
                 </div>

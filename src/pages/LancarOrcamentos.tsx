@@ -7,6 +7,7 @@ import axios from 'axios';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 import { agruparCatalogo, getCatalogoByLinha, type CatalogoLinha, type CatalogoRegistro } from '../lib/catalogoPadrao';
 import { exigeFotoAvaria } from '../lib/avaria';
+import { nomePastaProtocolo, prefixoArquivoProduto } from '../lib/evidenciasDrive';
 
 type OrcamentoItem = {
   envioRecebido?: boolean;
@@ -213,26 +214,6 @@ const sanitizeDriveToken = (value: string, fallback: string) => {
   return cleaned || fallback;
 };
 
-const buildFotoFolderName = (item: OrcamentoItem) => {
-  const date = new Date();
-  const timestamp = [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, '0'),
-    String(date.getDate()).padStart(2, '0'),
-    String(date.getHours()).padStart(2, '0'),
-    String(date.getMinutes()).padStart(2, '0'),
-    String(date.getSeconds()).padStart(2, '0')
-  ].join('');
-
-  return [
-    'Portal_AT',
-    sanitizeDriveToken(item.protocolo, 'SEM_PROTOCOLO'),
-    sanitizeDriveToken(item.codGemco, 'SEM_GEMCO'),
-    sanitizeDriveToken(item.serial, 'SEM_SERIAL'),
-    timestamp
-  ].join('_');
-};
-
 const uploadFotosDrive = async (item: OrcamentoItem, files: File[]) => {
   if (files.length === 0) throw new Error('Nenhuma foto foi selecionada para o upload.');
 
@@ -258,10 +239,12 @@ const uploadFotosDrive = async (item: OrcamentoItem, files: File[]) => {
   const response = await oracleApi.post<DriveUploadResponse>(
     ORACLE_ENDPOINTS.uploadFotoDrive,
     {
-      folderName: buildFotoFolderName(item),
+      // Mesma pasta do protocolo usada no envio do lote; o nome do arquivo diz o produto.
+      folderName: nomePastaProtocolo(item.protocolo || ''),
+      reusarPorNome: true,
       files: uploadFiles.map((file) => ({
         ...file,
-        name: `Foto_Avaria_${protocolo}_${file.name}`.replace(/\s+/g, '_')
+        name: `${prefixoArquivoProduto(item.serial || '', item.codGemco || '')}_Foto_Avaria_${protocolo}_${file.name}`.replace(/\s+/g, '_')
       }))
     },
     { headers: { 'Content-Type': 'application/json' }, timeout: 55000 }

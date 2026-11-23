@@ -10,7 +10,7 @@ import {
   type ItemOrcamentoPlanilha
 } from './importacaoOrcamento';
 import { normalizarNome, padronizarPeca, type CatalogoPadrao } from './pecaPadrao';
-import { enviarEvidenciasDrive, nomePastaEvidencias } from './evidenciasDrive';
+import { enviarEvidenciasDrive, nomePastaProtocolo, prefixoArquivoProduto } from './evidenciasDrive';
 
 /*
  * Envio do orcamento no modelo novo (uma linha por produto, sem UUID).
@@ -296,7 +296,9 @@ export const enviarLoteOrcamento = async (
     onEtapa(`Enviando fotos e vídeos ao Drive: produto ${indice + 1} de ${comEvidencia.length}...`);
     const cadastro = cadastros.get(item);
     try {
-      item.linkDrive = await envioEvidencias(item.evidencias || [], nomePastaEvidencias(protocolo, cadastro?.codGemco || '', item.serial),
+      // Todas as evidencias do lote na mesma pasta do protocolo; o nome do arquivo diz o produto.
+      item.linkDrive = await envioEvidencias(item.evidencias || [],
+        { nome: nomePastaProtocolo(protocolo), prefixoArquivo: prefixoArquivoProduto(item.serial, cadastro?.codGemco || '') },
         (enviados, total) => onEtapa(`Enviando fotos e vídeos ao Drive: produto ${indice + 1} de ${comEvidencia.length} (${enviados}/${total} arquivos)...`));
     } catch (error) {
       fotosNaoEnviadas += 1;

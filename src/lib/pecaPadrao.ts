@@ -154,12 +154,19 @@ export const padronizarPeca = (
   }
 
   // 3) granularidade (um contem o outro) e 4) fuzzy -> revisar
-  let melhor: { item: ItemPadrao; score: number } | null = null;
+  // A sugestao respeita a linha do produto: peca cadastrada so em outra linha nao e sugerida
+  // ("PLACA" numa geladeira nao vira placa de audio) e, no empate, ganha a da propria linha.
+  const pesoLinha = (ok: boolean | null) => (ok === true ? 2 : ok === null ? 1 : 0);
+  let melhor: { item: ItemPadrao; score: number; linhaOk: boolean | null } | null = null;
   for (const item of catalogo.lista) {
+    const linhaOk = avaliarLinha(item.codigo, catalogo, linhaProduto);
+    if (linhaOk === false) continue;
     const alvo = normalizarNome(item.nomeCanonico);
     const contido = alvo.includes(norm) || norm.includes(alvo);
     const score = contido ? Math.max(0.9, similaridade(norm, alvo)) : similaridade(norm, alvo);
-    if (!melhor || score > melhor.score) melhor = { item, score };
+    const melhorQue = !melhor || score > melhor.score
+      || (score === melhor.score && pesoLinha(linhaOk) > pesoLinha(melhor.linhaOk));
+    if (melhorQue) melhor = { item, score, linhaOk };
   }
 
   if (melhor && melhor.score >= LIMIAR_FUZZY) {
@@ -168,7 +175,7 @@ export const padronizarPeca = (
       canonico: null,
       codigo: null,
       status: 'revisar',
-      linhaOk: avaliarLinha(melhor.item.codigo, catalogo, linhaProduto),
+      linhaOk: melhor.linhaOk,
       sugestao: melhor.item.nomeCanonico,
       motivo: `Parecido com "${melhor.item.nomeCanonico}" — confirme antes de padronizar.`
     };

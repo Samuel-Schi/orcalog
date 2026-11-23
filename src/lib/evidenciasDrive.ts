@@ -49,6 +49,15 @@ export const nomePastaEvidencias = (protocolo: string, gemco: string, serial: st
   return ['Portal_AT', token(protocolo, 'SEM_PROTOCOLO'), token(gemco, 'SEM_GEMCO'), token(serial, 'SEM_SERIAL'), carimbo].join('_');
 };
 
+/** Pasta unica do protocolo: todas as fotos e videos do lote vao para ela (o servidor reaproveita pelo nome). */
+export const nomePastaProtocolo = (protocolo: string) => `Portal_AT_${token(protocolo, 'SEM_PROTOCOLO')}`;
+
+/** Prefixo dos arquivos dentro da pasta do protocolo: identifica o produto de cada foto. */
+export const prefixoArquivoProduto = (serial: string, gemco: string) =>
+  `${token(serial, 'SEM_SERIAL')}_${token(gemco, 'SEM_GEMCO')}`;
+
+type PastaDestino = string | { nome: string; prefixoArquivo?: string };
+
 const paraBase64 = async (blob: Blob) => {
   const bytes = new Uint8Array(await blob.arrayBuffer());
   let binario = '';
@@ -84,15 +93,19 @@ const postarPadrao: Postar = async (body) =>
  */
 export const enviarEvidenciasDrive = async (
   arquivos: File[],
-  pasta: string,
+  pasta: PastaDestino,
   onProgresso?: (enviados: number, total: number) => void,
   postar: Postar = postarPadrao
 ) => {
   if (!arquivos.length) throw new Error('Nenhuma evidência para enviar.');
+  // String = pasta propria do produto (formato antigo); objeto = pasta do protocolo, reaproveitada pelo nome.
+  const porProtocolo = typeof pasta !== 'string';
+  const nomePasta = typeof pasta === 'string' ? pasta : pasta.nome;
+  const prefixo = typeof pasta === 'string' || !pasta.prefixoArquivo ? '' : `${pasta.prefixoArquivo}_`;
   let folderId = '';
   let folderLink = '';
   let enviados = 0;
-  const destino = () => (folderId ? { folderId } : { folderName: pasta });
+  const destino = () => (folderId ? { folderId } : { folderName: nomePasta, ...(porProtocolo ? { reusarPorNome: true } : {}) });
   const guardarPasta = (data: any) => {
     if (!data?.folderId || !data?.folderLink) throw new Error('O Drive não confirmou a pasta das evidências.');
     folderId = String(data.folderId);
@@ -116,13 +129,13 @@ export const enviarEvidenciasDrive = async (
     const base64 = await paraBase64(blob);
     if (base64.length > MAX_LOTE_FOTOS_BASE64) throw new Error(`A foto ${file.name} é grande demais para enviar.`);
     if (grupo.reduce((t, f) => t + f.base64.length, 0) + base64.length > MAX_LOTE_FOTOS_BASE64) await enviarGrupo();
-    grupo.push({ name: `Evidencia_${indice + 1}_${nome}`.replace(/\s+/g, '_'), mimeType: blob.type || 'image/jpeg', base64 });
+    grupo.push({ name: `${prefixo}Evidencia_${indice + 1}_${nome}`.replace(/\s+/g, '_'), mimeType: blob.type || 'image/jpeg', base64 });
   }
   await enviarGrupo();
 
   // Videos: sessao resumable no Drive e partes de 3 MB.
   for (const [indice, file] of arquivos.filter((f) => tipoEvidencia(f) === 'video').entries()) {
-    const inicio = await postar({ acao: 'iniciar_video', ...destino(), name: `Video_${indice + 1}_${file.name}`.replace(/\s+/g, '_'), mimeType: file.type, tamanho: file.size });
+    const inicio = await postar({ acao: 'iniciar_video', ...destino(), name: `${prefixo}Video_${indice + 1}_${file.name}`.replace(/\s+/g, '_'), mimeType: file.type, tamanho: file.size });
     if (!inicio?.sessao) throw new Error(`Não foi possível iniciar o envio do vídeo ${file.name}.`);
     guardarPasta(inicio);
     let concluido = false;

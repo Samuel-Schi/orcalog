@@ -169,6 +169,28 @@ const buscarPastaExistente = async (token: string, folderId: string, env: Upload
   };
 };
 
+// Pasta unica por protocolo: procura dentro da raiz uma pasta com exatamente esse nome.
+const buscarPastaPorNome = async (token: string, folderName: string, env: UploadEnv) => {
+  const { parentFolderId } = getGoogleDriveConfig(env);
+  const nome = folderName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const params = new URLSearchParams({
+    q: `'${parentFolderId}' in parents and name = '${nome}' and mimeType = '${DRIVE_FOLDER_MIME}' and trashed = false`,
+    supportsAllDrives: 'true',
+    includeItemsFromAllDrives: 'true',
+    corpora: 'allDrives',
+    orderBy: 'createdTime',
+    pageSize: '1',
+    fields: 'files(id,webViewLink)'
+  });
+  const response = await fetch(`${DRIVE_FILES_URL}?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw erroDrive(`procurar a pasta "${folderName}" dentro da pasta raiz`, parentFolderId, response, data, env);
+  const pasta = Array.isArray(data.files) ? data.files[0] : null;
+  return pasta?.id
+    ? { id: String(pasta.id), link: String(pasta.webViewLink || `https://drive.google.com/drive/folders/${pasta.id}`) }
+    : null;
+};
+
 const compartilharComQualquerUm = async (token: string, folderId: string) => {
   try {
     const response = await fetch(`${DRIVE_FILES_URL}/${folderId}/permissions?supportsAllDrives=true`, {
@@ -240,7 +262,7 @@ export const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 const PARTE_VIDEO_MULTIPLO = 256 * 1024;
 
 type VideoBody = {
-  acao?: string; folderName?: string; folderId?: string; name?: string; mimeType?: string; tamanho?: number;
+  acao?: string; folderName?: string; folderId?: string; reusarPorNome?: boolean; name?: string; mimeType?: string; tamanho?: number;
   sessao?: string; inicio?: number; total?: number; base64?: string;
 };
 
@@ -263,8 +285,10 @@ const iniciarVideo = async (env: UploadEnv, body: VideoBody) => {
   if (tamanho > MAX_VIDEO_BYTES) return jsonResponse(413, { error: `Video maior que ${MAX_VIDEO_BYTES / 1024 / 1024} MB.` });
 
   const token = await getGoogleAccessToken(env);
-  const existente = body.folderId ? await buscarPastaExistente(token, String(body.folderId).trim(), env) : null;
-  const folder = existente || await criarPastaDrive(token, sanitizeDriveName(body.folderName, `Portal_AT_${Date.now()}`), env);
+  const nomePasta = sanitizeDriveName(body.folderName, `Portal_AT_${Date.now()}`);
+  const existente = (body.folderId ? await buscarPastaExistente(token, String(body.folderId).trim(), env) : null)
+    || (body.reusarPorNome === true ? await buscarPastaPorNome(token, nomePasta, env) : null);
+  const folder = existente || await criarPastaDrive(token, nomePasta, env);
   const response = await fetch(`${DRIVE_UPLOAD_URL}?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink`, {
     method: 'POST',
     headers: {
@@ -321,7 +345,7 @@ export const createUploadHandler = (env: UploadEnv): Handler => async (event) =>
     if (acao === 'iniciar_video') return await iniciarVideo(env, parsedBody.value as VideoBody);
     if (acao === 'parte_video') return await enviarParteVideo(parsedBody.value as VideoBody);
 
-    const body = parsedBody.value as { folderName?: string; folderId?: string; publicFolder?: boolean; files?: DriveUploadFile[] };
+    const body = parsedBody.value as { folderName?: string; folderId?: string; reusarPorNome?: boolean; publicFolder?: boolean; files?: DriveUploadFile[] };
     const files = Array.isArray(body.files) ? body.files : [];
     const validFiles = files
       .map((file) => ({
@@ -337,7 +361,8 @@ export const createUploadHandler = (env: UploadEnv): Handler => async (event) =>
 
     const folderName = sanitizeDriveName(body.folderName, `Portal_AT_${Date.now()}`);
     const token = await getGoogleAccessToken(env);
-    const existente = body.folderId ? await buscarPastaExistente(token, String(body.folderId).trim(), env) : null;
+    const existente = (body.folderId ? await buscarPastaExistente(token, String(body.folderId).trim(), env) : null)
+      || (body.reusarPorNome === true ? await buscarPastaPorNome(token, folderName, env) : null);
     const folder = existente || await criarPastaDrive(token, folderName, env);
     const folderPublic = body.publicFolder === true ? await compartilharComQualquerUm(token, folder.id) : false;
     const uploadedFiles = await Promise.all(
