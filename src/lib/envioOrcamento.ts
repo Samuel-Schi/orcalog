@@ -188,7 +188,13 @@ export type DadosEnvio = {
   emailRetorno: string;
 };
 
-export type ResultadoEnvio = { status: 'ok'; salvos: number; comFoto: number };
+export type ResultadoEnvio = { status: 'ok'; salvos: number; comFoto: number; fotosNaoEnviadas: number; erroDrive: string };
+
+const mensagemErroDrive = (error: unknown) => {
+  const resposta = (error as { response?: { data?: { error?: unknown } } })?.response?.data?.error;
+  if (typeof resposta === 'string') return resposta;
+  return error instanceof Error ? error.message : 'Falha ao enviar ao Google Drive.';
+};
 
 type PostarSerial = (body: Record<string, unknown>) => Promise<{ itens?: { chave?: string; codigo?: string }[] }>;
 const postarSerialPadrao: PostarSerial = async (body) =>
@@ -281,12 +287,22 @@ export const enviarLoteOrcamento = async (
 
   // 3. Evidencias anexadas na conferencia vao para o Drive (uma pasta por produto).
   // O link fica no item: se o envio falhar depois, "Tentar novamente" nao sobe os arquivos de novo.
+  // Foto so e obrigatoria em avaria estetica: se o Drive falhar, o item sem avaria segue sem foto
+  // e o com avaria fica como rascunho aguardando a foto (passo 4). O envio do lote nao trava.
   const comEvidencia = pendentes.filter(({ item }) => item.evidencias?.length && !item.linkDrive);
+  let fotosNaoEnviadas = 0;
+  let erroDrive = '';
   for (const [indice, { item }] of comEvidencia.entries()) {
     onEtapa(`Enviando fotos e vídeos ao Drive: produto ${indice + 1} de ${comEvidencia.length}...`);
     const cadastro = cadastros.get(item);
-    item.linkDrive = await envioEvidencias(item.evidencias || [], nomePastaEvidencias(protocolo, cadastro?.codGemco || '', item.serial),
-      (enviados, total) => onEtapa(`Enviando fotos e vídeos ao Drive: produto ${indice + 1} de ${comEvidencia.length} (${enviados}/${total} arquivos)...`));
+    try {
+      item.linkDrive = await envioEvidencias(item.evidencias || [], nomePastaEvidencias(protocolo, cadastro?.codGemco || '', item.serial),
+        (enviados, total) => onEtapa(`Enviando fotos e vídeos ao Drive: produto ${indice + 1} de ${comEvidencia.length} (${enviados}/${total} arquivos)...`));
+    } catch (error) {
+      fotosNaoEnviadas += 1;
+      erroDrive ||= mensagemErroDrive(error);
+      console.error('[envioOrcamento] evidencias nao enviadas', { serial: item.serial, avaria: item.avaria, erro: mensagemErroDrive(error) });
+    }
   }
 
   // Avaria com evidencia ja anexada segue direto; sem evidencia continua como rascunho para a foto.
@@ -326,6 +342,8 @@ export const enviarLoteOrcamento = async (
   return {
     status: 'ok',
     salvos: itens.filter((item) => !item.avaria || item.linkDrive).length,
-    comFoto: itens.filter((item) => item.avaria && !item.linkDrive).length
+    comFoto: itens.filter((item) => item.avaria && !item.linkDrive).length,
+    fotosNaoEnviadas,
+    erroDrive
   };
 };

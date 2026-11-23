@@ -103,6 +103,18 @@ const getGoogleAccessToken = async (env: UploadEnv) => {
   return String(data.access_token);
 };
 
+// Erro do Drive com a operacao, o ID envolvido e a service account: "File not found" sozinho nao diz nada.
+const erroDrive = (operacao: string, id: string, response: Response, data: { error?: { message?: string } }, env: UploadEnv) => {
+  let conta = '';
+  try { conta = getGoogleDriveConfig(env).email; } catch { /* sem config: o erro original ja diz */ }
+  const detalhe = data.error?.message || `HTTP ${response.status}`;
+  const dica = response.status === 404
+    ? ` Confira se o ID existe e se a service account ${conta || '(sem e-mail)'} e membro do Shared Drive (Gerente de conteudo ou Colaborador).`
+    : '';
+  console.error('[upload-foto-drive]', JSON.stringify({ operacao, id, status: response.status, detalhe, conta }));
+  return new Error(`Google Drive: falha ao ${operacao} (ID ${id}): ${detalhe}.${dica}`);
+};
+
 const criarPastaDrive = async (token: string, folderName: string, env: UploadEnv) => {
   const { parentFolderId } = getGoogleDriveConfig(env);
   const response = await fetch(`${DRIVE_FILES_URL}?supportsAllDrives=true&fields=id,webViewLink`, {
@@ -120,7 +132,7 @@ const criarPastaDrive = async (token: string, folderName: string, env: UploadEnv
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data.id) {
-    throw new Error(data.error?.message || 'Nao foi possivel criar a pasta no Drive.');
+    throw erroDrive('criar pasta dentro da pasta raiz (GOOGLE_DRIVE_PARENT_FOLDER_ID)', parentFolderId, response, data, env);
   }
 
   return {
@@ -140,10 +152,17 @@ const buscarPastaExistente = async (token: string, folderId: string, env: Upload
     `${DRIVE_FILES_URL}/${folderId}?supportsAllDrives=true&fields=id,mimeType,parents,trashed,webViewLink`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
-  if (!response.ok) return null;
   const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    // Nao bloqueia: cai para criar uma pasta nova, mas deixa rastro no log.
+    console.warn('[upload-foto-drive]', JSON.stringify({ operacao: 'reaproveitar pasta', id: folderId, status: response.status, detalhe: data.error?.message }));
+    return null;
+  }
   const parents = Array.isArray(data.parents) ? data.parents.map(String) : [];
-  if (data.mimeType !== DRIVE_FOLDER_MIME || data.trashed || !parents.includes(parentFolderId)) return null;
+  if (data.mimeType !== DRIVE_FOLDER_MIME || data.trashed || !parents.includes(parentFolderId)) {
+    console.warn('[upload-foto-drive]', JSON.stringify({ operacao: 'reaproveitar pasta', id: folderId, motivo: 'nao e pasta do portal dentro da raiz', parents }));
+    return null;
+  }
   return {
     id: String(data.id),
     link: String(data.webViewLink || `https://drive.google.com/drive/folders/${data.id}`)
@@ -157,6 +176,10 @@ const compartilharComQualquerUm = async (token: string, folderId: string) => {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=utf-8' },
       body: JSON.stringify({ type: 'anyone', role: 'reader' })
     });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      console.warn('[upload-foto-drive]', JSON.stringify({ operacao: 'compartilhar pasta (anyone/reader)', id: folderId, status: response.status, detalhe: data.error?.message }));
+    }
     return response.ok;
   } catch {
     return false;
@@ -167,7 +190,8 @@ const uploadArquivoDrive = async (
   token: string,
   folderId: string,
   file: Required<DriveUploadFile>,
-  index: number
+  index: number,
+  env: UploadEnv
 ) => {
   const boundary = `portal_at_${Date.now()}_${index}`;
   const safeName = sanitizeDriveName(file.name, `foto_${index + 1}`, true);
@@ -200,7 +224,7 @@ const uploadArquivoDrive = async (
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data.id) {
-    throw new Error(data.error?.message || `Nao foi possivel enviar o arquivo ${safeName}.`);
+    throw erroDrive(`enviar o arquivo ${safeName} para a pasta`, folderId, response, data, env);
   }
 
   return {
@@ -254,7 +278,7 @@ const iniciarVideo = async (env: UploadEnv, body: VideoBody) => {
   const sessao = sessaoValida(response.headers.get('location'));
   if (!response.ok || !sessao) {
     const data = await response.json().catch(() => ({}));
-    throw new Error(data.error?.message || 'Nao foi possivel iniciar o envio do video ao Drive.');
+    throw erroDrive('iniciar o envio do video na pasta', folder.id, response, data, env);
   }
   return jsonResponse(200, { folderId: folder.id, folderLink: folder.link, folderReused: Boolean(existente), sessao });
 };
@@ -317,7 +341,7 @@ export const createUploadHandler = (env: UploadEnv): Handler => async (event) =>
     const folder = existente || await criarPastaDrive(token, folderName, env);
     const folderPublic = body.publicFolder === true ? await compartilharComQualquerUm(token, folder.id) : false;
     const uploadedFiles = await Promise.all(
-      validFiles.map((file, index) => uploadArquivoDrive(token, folder.id, file, index))
+      validFiles.map((file, index) => uploadArquivoDrive(token, folder.id, file, index, env))
     );
 
     return jsonResponse(200, {

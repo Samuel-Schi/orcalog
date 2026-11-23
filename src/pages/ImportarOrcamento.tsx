@@ -220,7 +220,7 @@ const ImportarOrcamento = () => {
   const [enviando, setEnviando] = useState(false);
   const [etapaEnvio, setEtapaEnvio] = useState('');
   const [erroEnvio, setErroEnvio] = useState('');
-  const [concluido, setConcluido] = useState<{ protocolo: string; salvos: number; comFoto: number } | null>(null);
+  const [concluido, setConcluido] = useState<{ protocolo: string; salvos: number; comFoto: number; fotosNaoEnviadas: number; erroDrive: string } | null>(null);
   const [catalogoPadrao, setCatalogoPadrao] = useState<CatalogoPadrao | null>(null);
   const [catalogoFalhou, setCatalogoFalhou] = useState(false);
   const catalogoRef = useRef<Promise<CatalogoPadrao | null> | null>(null);
@@ -338,7 +338,7 @@ const ImportarOrcamento = () => {
     const base = { protocolo, paUsuario, cnpj: cnpjDigitos, razaoSocial, unidade, emailRetorno: email };
     try {
       const resultado = await enviarLoteOrcamento(itens, base, setEtapaEnvio);
-      setConcluido({ protocolo, salvos: resultado.salvos, comFoto: resultado.comFoto });
+      setConcluido({ protocolo, salvos: resultado.salvos, comFoto: resultado.comFoto, fotosNaoEnviadas: resultado.fotosNaoEnviadas, erroDrive: resultado.erroDrive });
       if (semPadrao.length) {
         const pedidos = await registrarPedidosPadraoNovo(semPadrao, { protocolo, paUsuario, cnpj: cnpjDigitos });
         if (pedidos.falhas) setAvisoPadrao(`Lote enviado, mas ${pedidos.falhas} pedido(s) de padrão novo não foram registrados no catálogo (${pedidos.motivo}).`);
@@ -652,6 +652,7 @@ const ImportarOrcamento = () => {
                   {concluido.salvos} orçamento(s) salvo(s).
                   {itens.some((item) => item.linkDrive) && ` Fotos e vídeos de ${itens.filter((item) => item.linkDrive).length} produto(s) enviados ao Drive.`}
                   {concluido.comFoto > 0 && ` ${concluido.comFoto} item(ns) com avaria sem foto aguardam a foto em Lançar Orçamentos.`}
+                  {concluido.fotosNaoEnviadas > 0 && ` Não foi possível enviar as fotos de ${concluido.fotosNaoEnviadas} produto(s) ao Drive (${concluido.erroDrive}); os itens foram salvos mesmo assim.`}
                   {itens.some((item) => item.serialGerado) && ` ${itens.filter((item) => item.serialGerado).length} peça(s) sem serial receberam identificador: baixe a lista e etiquete as peças.`}
                   {' '}Finalize o lote em Meus Envios para mandar para aprovação.
                 </span>
