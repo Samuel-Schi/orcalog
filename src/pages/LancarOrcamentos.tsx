@@ -1,5 +1,6 @@
 import CatalogoSelect from '../components/CatalogoSelect';
 import FotosProduto from '../components/FotosProduto';
+import PopupAviso from '../components/PopupAviso';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { IScannerControls } from '@zxing/browser';
 import { useLocation } from 'react-router-dom';
@@ -388,7 +389,8 @@ const LancarOrcamentos = () => {
   const [defeitoFuncional, setDefeitoFuncional] = useState('');
   const [garantia, setGarantia] = useState('');
   const [tipoOrc, setTipoOrc] = useState('');
-  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  // popup: mostra no centro (erros sempre vão em pop-up); titulo: título do pop-up.
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string; popup?: boolean; titulo?: string } | null>(null);
   const [scanValue, setScanValue] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [scanError, setScanError] = useState('');
@@ -556,7 +558,8 @@ const LancarOrcamentos = () => {
   };
 
   useEffect(() => {
-    if (!toast) return;
+    // Pop-up (erro ou salvamento) fica até o posto fechar; só o aviso rápido do canto some sozinho.
+    if (!toast || toast.type === 'error' || toast.popup) return;
     const handle = setTimeout(() => setToast(null), 3500);
     return () => clearTimeout(handle);
   }, [toast]);
@@ -1053,7 +1056,9 @@ const LancarOrcamentos = () => {
       limparFormulario();
       setToast({
         type: 'success',
-        message: 'Valores salvos em Montagem. Finalize o lote em Meus Envios para enviar à AT.'
+        popup: true,
+        titulo: 'Valores salvos!',
+        message: 'O produto foi salvo em Montagem. Quando terminar, finalize o lote em Meus Envios para enviar à AT.'
       });
     } catch (err) {
       if (axios.isAxiosError(err)) {
@@ -1458,7 +1463,14 @@ const LancarOrcamentos = () => {
         )}
       </div>
 
-      {toast && (
+      {/* Erros e o salvamento do produto viram pop-up central; avisos rápidos continuam no canto. */}
+      <PopupAviso
+        aviso={toast && (toast.type === 'error' || toast.popup)
+          ? { tipo: toast.type === 'success' ? 'sucesso' : 'erro', titulo: toast.titulo || (toast.type === 'success' ? 'Tudo certo!' : 'Algo deu errado'), mensagem: toast.message }
+          : null}
+        onClose={() => setToast(null)}
+      />
+      {toast && toast.type === 'success' && !toast.popup && (
         <div className="toast-container">
           <div className={`toast ${toast.type === 'success' ? 'toast-success' : 'toast-error'}`}>
             <div className="toast-title">{toast.type === 'success' ? 'Sucesso' : 'Erro'}</div>

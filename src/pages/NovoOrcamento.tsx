@@ -49,6 +49,7 @@ type Formulario = {
   defeitoEncontrado: string;
   defeitoFuncional: string;
   garantia: string;
+  avariaEstetica: string;
   tipoOrc: string;
   pecas: LinhaValor[];
   acessorios: LinhaValor[];
@@ -72,6 +73,7 @@ const formularioVazio = (): Formulario => ({
   defeitoEncontrado: '',
   defeitoFuncional: '',
   garantia: '',
+  avariaEstetica: '',
   tipoOrc: '',
   pecas: [linhaVazia()],
   acessorios: [linhaVazia()],
@@ -99,6 +101,7 @@ const formularioDoItem = (item: ItemOrcamentoPlanilha): Formulario => {
     defeitoEncontrado: item.defeitoEncontrado,
     defeitoFuncional: item.defeitoFuncional,
     garantia: item.garantia,
+    avariaEstetica: item.avariaEstetica || '',
     tipoOrc: item.tipoOrc,
     pecas: linhas(item.pecas),
     acessorios: linhas(item.acessorios),
@@ -290,6 +293,7 @@ const NovoOrcamento = () => {
       defeitoEncontrado: form.defeitoEncontrado,
       defeitoFuncional: form.defeitoFuncional,
       garantia: form.garantia,
+      avariaEstetica: form.avariaEstetica,
       tipoOrc: form.tipoOrc,
       pecas: juntarItens(form.pecas),
       acessorios: juntarItens(form.acessorios),
@@ -589,6 +593,13 @@ const NovoOrcamento = () => {
             </select>
           </div>
           <div className="imp-field c3">
+            <label htmlFor="man-avaria">Avaria estética <span className="imp-req">*</span></label>
+            <select id="man-avaria" value={form.avariaEstetica} disabled={bloqueado} onChange={(e) => set('avariaEstetica', e.target.value)}
+              title="SIM: a foto da avaria é obrigatória. NÃO: foto opcional.">
+              <option value="">Selecione</option><option value="SIM">SIM (foto obrigatória)</option><option value="NAO">NÃO (foto opcional)</option>
+            </select>
+          </div>
+          <div className="imp-field c3">
             <label htmlFor="man-tipo">{rotuloCampo('tipoOrc')} <span className="imp-req">*</span></label>
             <select id="man-tipo" value={form.tipoOrc} disabled={bloqueado} onChange={(e) => set('tipoOrc', e.target.value)}>
               <option value="">Selecione</option>
@@ -764,9 +775,9 @@ const NovoOrcamento = () => {
               <strong>Lote {concluido.protocolo} criado</strong>
               <span>
                 {concluido.salvos} orçamento(s) salvo(s).
-                {itens.some((item) => item.linkDrive) && ` Fotos e vídeos de ${itens.filter((item) => item.linkDrive).length} produto(s) enviados ao Drive.`}
+                {itens.some((item) => item.linkDrive) && ` Fotos e vídeos de ${itens.filter((item) => item.linkDrive).length} produto(s) enviados para o banco.`}
                 {concluido.comFoto > 0 && ` ${concluido.comFoto} item(ns) com avaria sem foto aguardam a foto em Lançar Orçamentos.`}
-                {concluido.fotosNaoEnviadas > 0 && ` Não foi possível enviar as fotos de ${concluido.fotosNaoEnviadas} produto(s) ao Drive (${concluido.erroDrive}); os itens foram salvos mesmo assim.`}
+                {concluido.fotosNaoEnviadas > 0 && ` Não foi possível enviar as fotos de ${concluido.fotosNaoEnviadas} produto(s) para o banco (${concluido.erroDrive}); os itens foram salvos mesmo assim.`}
                 {itens.some((item) => item.serialGerado) && ` ${itens.filter((item) => item.serialGerado).length} peça(s) sem serial receberam identificador: baixe a lista e etiquete as peças.`}
                 {' '}Finalize o lote em Meus Envios para mandar para aprovação.
               </span>

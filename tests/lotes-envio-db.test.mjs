@@ -114,6 +114,96 @@ test('aprova contraproposta de negociacao do lote sem incluir o item que ja esta
   } finally {await db.close();}
 });
 
+test('item reprovado durante a contraproposta sai do acordo e os demais sao aprovados', {skip:!process.env.PGLITE_TEST_MODULE}, async()=>{
+  const {PGlite}=await import(pathToFileURL(process.env.PGLITE_TEST_MODULE).href);
+  const db=new PGlite();
+  try {
+    const {cnpj,a,b,c}=await prepararLoteMisto(db,'M3');
+    await db.query("UPDATE orcamentos_finalizados SET status=7,status_text='EM_NEGOCIACAO' WHERE id=$1",[a]);
+    // Lote de 600 (100+200+300): AT propos 400, posto contrapropos 450; AT reprova A (100) e aprova B e C.
+    await db.query("INSERT INTO orcamento_negociacoes(protocolo,cnpj,negotiation_scope,item_ids,valor_original,valor_proposto_at,valor_contraproposta_posto,status) VALUES('M3',$1,'LOTE',$2::jsonb,600,400,450,'CONTRAPROPOSTA_POSTO')",[cnpj,JSON.stringify([a,b,c])]);
+    await db.query("UPDATE orcamentos_finalizados SET status=10,status_text='REPROVADO' WHERE id=$1",[a]);
+    const r=(await db.query("SELECT aprovar_negociacao_lote('M3',$1,'ANALISTA') AS r",[[b,c]])).rows[0].r;
+    assert.deepEqual(r.items.map(i=>String(i.id)).sort(),[b,c].sort());
+    const t=await totais(db,'M3');
+    // 450 x (500/600) = 375 para B e C.
+    assert.equal(Math.round((t[b].total+t[c].total)*100),37500);
+    assert.equal(t[a].total,100);
+    const n=(await db.query("SELECT status,observacao_at FROM orcamento_negociacoes WHERE protocolo='M3'")).rows[0];
+    assert.equal(n.status,'ACEITA_POSTO');
+    assert.match(n.observacao_at,/saíram do acordo: R\$ 375/);
+    // Rodar de novo nao muda valor nem duplica a observacao.
+    await db.query("SELECT aprovar_negociacao_lote('M3',$1,'ANALISTA')",[[b,c]]);
+    const t2=await totais(db,'M3');
+    assert.equal(Math.round((t2[b].total+t2[c].total)*100),37500);
+    assert.equal((await db.query("SELECT observacao_at FROM orcamento_negociacoes WHERE protocolo='M3'")).rows[0].observacao_at.match(/saíram do acordo/g).length,1);
+  } finally {await db.close();}
+});
+
+test('retificacao: devolucao/sem reoperacao mudam a classificacao; reaprovar volta o item com valor novo', {skip:!process.env.PGLITE_TEST_MODULE}, async()=>{
+  const {PGlite}=await import(pathToFileURL(process.env.PGLITE_TEST_MODULE).href);
+  const db=new PGlite();
+  try {
+    await db.exec('CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;');
+    const rms=new URL('../../rms-utils-react/magalog-system/src/pages/OrcamentoAT/docs/',import.meta.url);
+    await db.exec(await readFile(new URL('supabase.sql',rms),'utf8'));
+    await db.exec(await readFile(new URL('migracao-pagamento-lote.sql',rms),'utf8'));
+    const ret=await readFile(new URL('migracao-retificacao.sql',rms),'utf8');
+    await db.exec(ret); await db.exec(ret); // reexecucao segura
+    const inserir=async(status_text)=>(await db.query("INSERT INTO orcamentos_finalizados(protocolo,cnpj,status,status_text,tipo_orc,total_orcamento,val_pecas,val_mao_obra) VALUES('R1','1',10,$1,'SALDO A',100,60,40) RETURNING id",[status_text])).rows[0].id;
+    const [dev,semOp,rep]=[await inserir('APROVADO'),await inserir('APROVADO'),await inserir('REPROVADO')];
+    const item=async(id)=>(await db.query('SELECT * FROM orcamentos_finalizados WHERE id=$1',[id])).rows[0];
+    const retificar=(ids,motivo,valores=null)=>db.query("SELECT retificar_orcamento_at('R1',$1::bigint[],$2,'ANALISTA',$3::jsonb)",[ids,motivo,valores&&JSON.stringify(valores)]);
+
+    await retificar([dev],'DEVOLUCAO');
+    await retificar([semOp],'DESCONSIDERAR_REPARO');
+    assert.deepEqual([(await item(dev)).status_text,(await item(dev)).tipo_orc,Number((await item(dev)).total_orcamento)],['RETIFICADO','DEVOLUCAO',0]);
+    assert.equal((await item(semOp)).tipo_orc,'SEM REOPERACAO');
+    await assert.rejects(db.query("UPDATE orcamentos_finalizados SET total_orcamento=5 WHERE id=$1",[dev]),/bloqueada/);
+    await assert.rejects(retificar([dev],'DESCONSIDERAR_REPARO'),/já retificado/);
+
+    // Reaprovar: so item reprovado/retificado, com valor.
+    await assert.rejects(retificar([rep],'REAPROVAR',{}),/valor aprovado/);
+    await retificar([rep,dev],'REAPROVAR',{[rep]:80,[dev]:50});
+    const r=await item(rep), d=await item(dev);
+    assert.deepEqual([r.status_text,Number(r.total_orcamento),Number(r.valor_produtos_aprovado),Number(r.valor_servicos_aprovado),r.retificacao.motivo],['APROVADO',80,48,32,'REAPROVADO']);
+    assert.deepEqual([d.status_text,d.tipo_orc,Number(d.total_orcamento),Number(d.val_pecas)],['APROVADO','SALDO A',50,60]);
+    assert.equal(d.retificacao.anterior.motivo,'DEVOLUCAO');
+    // Item reaprovado volta ao fluxo normal: o pagamento consegue gravar nele.
+    await db.query("UPDATE orcamentos_finalizados SET pagamento_status='EM_VALIDACAO' WHERE id=$1",[rep]);
+    await assert.rejects(retificar([semOp].concat([]),'REAPROVAR',{[semOp]:-1}),/valor aprovado/);
+  } finally { await db.close(); }
+});
+
+test('baixa de pagamento por planilha: nota + kirk + data + OC', {skip:!process.env.PGLITE_TEST_MODULE}, async()=>{
+  const {PGlite}=await import(pathToFileURL(process.env.PGLITE_TEST_MODULE).href);
+  const db=new PGlite();
+  try {
+    await db.exec('CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;');
+    const rms=new URL('../../rms-utils-react/magalog-system/src/pages/OrcamentoAT/docs/',import.meta.url);
+    await db.exec(await readFile(new URL('supabase.sql',rms),'utf8'));
+    await db.exec(await readFile(new URL('migracao-pagamento-lote.sql',rms),'utf8'));
+    const baixa=await readFile(new URL('migracao-baixa-pagamento.sql',rms),'utf8');
+    await db.exec(baixa); await db.exec(baixa);
+    const nota=(tipo,numero,valor)=>({tipo,numero,nome:`${numero}.pdf`,arquivo_id:`a${numero}`,valor});
+    // P1: peca (NF 001) + servico (NF 2); P2 tem uma nota com o mesmo numero 2 (outro posto).
+    await db.query("INSERT INTO orcamentos_finalizados(protocolo,cnpj,status,status_text,total_orcamento,val_pecas,val_mao_obra,pagamento_status,pagamento_referencia,notas_fiscais) VALUES('P1','1',10,'APROVADO',100,60,40,'PAGAMENTO_SOLICITADO','Peça: K-1 · Serviço: K-2',$1::jsonb),('P1','1',10,'APROVADO',100,60,40,'PAGAMENTO_SOLICITADO','Peça: K-1 · Serviço: K-2',$1::jsonb),('P2','2',10,'APROVADO',50,50,0,'EM_VALIDACAO','K-9',$2::jsonb)",
+      [JSON.stringify([nota('PRODUTO','001',120),nota('SERVICO','2',80)]),JSON.stringify([nota('PRODUTO','2',50)])]);
+    const baixar=async(linhas,aplicar)=>(await db.query("SELECT baixar_pagamentos_por_nota($1::jsonb,'ANALISTA',$2) AS r",[JSON.stringify(linhas),aplicar])).rows[0].r;
+    const linhas=[{nota:'1',data:'2026-11-20',oc:'OC-10',kirk:''},{nota:'2',data:'2026-11-21',oc:'OC-11',kirk:''},{nota:'2',data:'2026-11-21',oc:'OC-11',kirk:'K-2'},{nota:'999',data:'2026-11-21'},{nota:'1',data:'xx'}];
+    const previa=await baixar(linhas,false);
+    assert.deepEqual(previa.linhas.map(l=>l.resultado),['PARCIAL','AMBIGUA','PAGO','NAO_ENCONTRADA','INVALIDA']);
+    assert.equal((await db.query("SELECT count(*)::int n FROM orcamentos_finalizados WHERE pagamento_status='PAGO'")).rows[0].n,0,'previa nao grava');
+    const r=await baixar(linhas,true);
+    assert.deepEqual(r.linhas.map(l=>l.resultado),['PARCIAL','AMBIGUA','PAGO','NAO_ENCONTRADA','INVALIDA']);
+    const p1=(await db.query("SELECT pagamento_status,pagamento_validacao_status,pagamento_data::text,pagamento_oc,notas_fiscais FROM orcamentos_finalizados WHERE protocolo='P1'")).rows;
+    assert.ok(p1.every(x=>x.pagamento_status==='PAGO' && x.pagamento_validacao_status==='VALIDADO' && x.pagamento_data==='2026-11-21' && x.pagamento_oc==='OC-10 · OC-11'));
+    assert.deepEqual(p1[0].notas_fiscais.map(n=>[n.numero,n.pago_em,n.oc]),[['001','2026-11-20','OC-10'],['2','2026-11-21','OC-11']]);
+    // Lote ainda em validacao nao recebe baixa.
+    assert.equal((await baixar([{nota:'2',data:'2026-11-21',kirk:'K-9'}],true)).linhas[0].resultado,'SEM_SOLICITACAO');
+  } finally { await db.close(); }
+});
+
 test('nota fiscal parcial respeita o saldo separado de produto e servico', {skip:!process.env.PGLITE_TEST_MODULE}, async()=>{
   const {PGlite}=await import(pathToFileURL(process.env.PGLITE_TEST_MODULE).href);
   const db=new PGlite();

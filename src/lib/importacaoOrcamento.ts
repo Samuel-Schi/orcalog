@@ -28,6 +28,7 @@ type Campo =
   | 'defeitoEncontrado'
   | 'defeitoFuncional'
   | 'garantia'
+  | 'avariaEstetica'
   | 'tipoOrc'
   | 'pecas'
   | 'acessorios'
@@ -44,6 +45,7 @@ const COLUNAS: Record<Campo, { rotulo: string; aliases: string[]; largura: numbe
   defeitoEncontrado: { rotulo: 'Defeito encontrado', aliases: ['defeito'], largura: 30 },
   defeitoFuncional: { rotulo: 'Defeito funcional (SIM/NAO)', aliases: ['defeitofuncional', 'possuidefeitofuncional'], largura: 24 },
   garantia: { rotulo: 'Garantia (SIM/NAO)', aliases: ['garantia', 'dentrodagarantia', 'dentrodoprazodegarantia'], largura: 18 },
+  avariaEstetica: { rotulo: 'Avaria estética (SIM/NAO)', aliases: ['avariaestetica', 'avaria', 'possuiavariaestetica', 'temavariaestetica'], largura: 24 },
   tipoOrc: { rotulo: 'Tipo Orc.', aliases: ['tipoorcamento', 'tipodeorcamento'], largura: 12 },
   pecas: { rotulo: 'Peças (nome: valor; nome: valor)', aliases: ['pecas', 'peca'], largura: 40 },
   acessorios: { rotulo: 'Acessórios (nome: valor; nome: valor)', aliases: ['acessorios', 'acessorio'], largura: 34 },
@@ -53,6 +55,9 @@ const COLUNAS: Record<Campo, { rotulo: string; aliases: string[]; largura: numbe
 };
 
 const CAMPOS = Object.keys(COLUNAS) as Campo[];
+// Avaria estetica e opcional no cabecalho: planilha antiga (sem a coluna) continua valendo e
+// a avaria e deduzida pelo texto do defeito, como antes.
+const CAMPOS_OBRIGATORIOS = CAMPOS.filter((campo) => campo !== 'avariaEstetica');
 const CAMPOS_ITEM: CampoItem[] = ['codigo', 'defeitoEncontrado', 'defeitoFuncional', 'garantia', 'tipoOrc'];
 const CAMPOS_TEXTO_MODELO: Campo[] = ['serial', 'notaFiscal', 'codigo'];
 
@@ -73,7 +78,7 @@ export type ItemComValor = {
 };
 
 export type Pendencia = {
-  campo: CampoItem | 'serial' | 'notaFiscal' | 'valores' | 'padrao';
+  campo: CampoItem | 'serial' | 'notaFiscal' | 'valores' | 'padrao' | 'avariaEstetica';
   mensagem: string;
   // Pendencia que bloqueia o envio; as demais sao apenas avisos.
   bloqueia: boolean;
@@ -103,7 +108,10 @@ export type ItemOrcamentoPlanilha = {
   valEmb: number;
   valHig: number;
   total: number;
+  /** true = exige foto da avaria. */
   avaria: boolean;
+  /** Coluna "Avaria estética": SIM = foto obrigatória (bloqueia o envio), NAO = foto opcional. Ausente = planilha antiga. */
+  avariaEstetica?: 'SIM' | 'NAO';
   produto: ProdutoApi | null;
   pendencias: Pendencia[];
   /** Fotos e videos anexados na conferencia (vao para o Drive no envio). */
@@ -127,13 +135,20 @@ export const serialExibido = (item: Pick<ItemOrcamentoPlanilha, 'serial' | 'seri
   item.serial || (item.serialGerado ? 'Gerado no envio' : '');
 
 export const AVISO_AVARIA_SEM_FOTO = 'Avaria sem foto: anexe em Evidências. Sem foto, vai como rascunho.';
+export const AVISO_AVARIA_FOTO_OBRIGATORIA = 'Avaria estética: foto obrigatória. Anexe em Evidências.';
 
-/** Troca as evidencias do item; o aviso de avaria some quando ha ao menos uma foto ou video. */
+/** Pendencia de foto da avaria: obrigatoria (bloqueia) quando o posto marcou SIM; senao, so aviso (rascunho). */
+const pendenciaFotoAvaria = (item: Pick<ItemOrcamentoPlanilha, 'avariaEstetica'>): Pendencia =>
+  item.avariaEstetica === 'SIM'
+    ? { campo: 'avariaEstetica', mensagem: AVISO_AVARIA_FOTO_OBRIGATORIA, bloqueia: true }
+    : { campo: 'defeitoEncontrado', mensagem: AVISO_AVARIA_SEM_FOTO, bloqueia: false };
+
+/** Troca as evidencias do item; a pendencia de foto da avaria some quando ha ao menos uma foto ou video. */
 export const definirEvidencias = (item: ItemOrcamentoPlanilha, arquivos: File[]) => {
   item.evidencias = arquivos;
   item.linkDrive = undefined;
-  item.pendencias = item.pendencias.filter((p) => p.mensagem !== AVISO_AVARIA_SEM_FOTO);
-  if (item.avaria && !arquivos.length) item.pendencias.push({ campo: 'defeitoEncontrado', mensagem: AVISO_AVARIA_SEM_FOTO, bloqueia: false });
+  item.pendencias = item.pendencias.filter((p) => p.mensagem !== AVISO_AVARIA_SEM_FOTO && p.mensagem !== AVISO_AVARIA_FOTO_OBRIGATORIA);
+  if (item.avaria && !arquivos.length) item.pendencias.push(pendenciaFotoAvaria(item));
   return item;
 };
 
@@ -213,7 +228,7 @@ export const interpretarPlanilhaOrcamento = (rows: unknown[][], primeiraLinha = 
     if (Object.keys(indices).length === CAMPOS.length) break;
   }
 
-  const faltando = CAMPOS.filter((campo) => melhor.indices[campo] === undefined);
+  const faltando = CAMPOS_OBRIGATORIOS.filter((campo) => melhor.indices[campo] === undefined);
   if (faltando.length) {
     throw new ErroImportacao(`Coluna(s) não encontrada(s): ${faltando.map(rotuloCampo).join(', ')}. Baixe o modelo e preencha sem alterar o cabeçalho.`);
   }
@@ -222,7 +237,9 @@ export const interpretarPlanilhaOrcamento = (rows: unknown[][], primeiraLinha = 
   const errosLinha: ErroLinhaOrcamento[] = [];
   const corpo = rows.slice(melhor.posicao + 1);
   const numeroLinha = (index: number) => primeiraLinha + melhor.posicao + 1 + index;
-  const celulaTexto = (row: unknown[] | undefined, campo: Campo) => textoCelula((row || [])[melhor.indices[campo] as number]);
+  const celulaTexto = (row: unknown[] | undefined, campo: Campo) =>
+    melhor.indices[campo] === undefined ? '' : textoCelula((row || [])[melhor.indices[campo] as number]);
+  const temColunaAvaria = melhor.indices.avariaEstetica !== undefined;
 
   // Duplicidade so dentro da planilha: o mesmo serial nao pode aparecer duas vezes no arquivo.
   // TODAS as ocorrencias ficam de fora (nao da para saber qual linha e a certa).
@@ -286,14 +303,22 @@ export const interpretarPlanilhaOrcamento = (rows: unknown[][], primeiraLinha = 
     const valEmb = valorColuna('embalagem');
     const valHig = valorColuna('higienizacao');
     const total = centavos(valPecas + valAcess + valMaoObra + valEmb + valHig);
-    const avaria = exigeFotoAvaria(campos.defeitoEncontrado);
+    // Com a coluna "Avaria estética", vale o que o posto marcou: SIM = foto obrigatoria, NAO = opcional.
+    // Sem a coluna (planilha antiga), a avaria e deduzida pelo defeito e a falta de foto so vira rascunho.
+    let avariaEstetica: 'SIM' | 'NAO' | undefined;
+    if (temColunaAvaria) {
+      const textoAvaria = texto('avariaEstetica');
+      const valor = SIM_NAO[chaveOpcao(textoAvaria)] as 'SIM' | 'NAO' | undefined;
+      if (valor) avariaEstetica = valor;
+      else pendencias.push({ campo: 'avariaEstetica', bloqueia: true,
+        mensagem: textoAvaria ? `Avaria estética "${textoAvaria}" não é aceita: use SIM ou NAO.` : 'Avaria estética em branco: use SIM ou NAO.' });
+    }
+    const avaria = temColunaAvaria ? avariaEstetica === 'SIM' : exigeFotoAvaria(campos.defeitoEncontrado);
 
     if (!total && !pendencias.some((p) => p.campo === 'valores')) {
       pendencias.push({ campo: 'valores', mensagem: 'Sem valores: total R$ 0,00.', bloqueia: false });
     }
-    if (avaria) {
-      pendencias.push({ campo: 'defeitoEncontrado', mensagem: AVISO_AVARIA_SEM_FOTO, bloqueia: false });
-    }
+    if (avaria) pendencias.push(pendenciaFotoAvaria({ avariaEstetica }));
 
     itens.push({
       serial,
@@ -311,6 +336,7 @@ export const interpretarPlanilhaOrcamento = (rows: unknown[][], primeiraLinha = 
       valHig,
       total,
       avaria,
+      ...(avariaEstetica ? { avariaEstetica } : {}),
       produto: null,
       pendencias
     });
@@ -381,11 +407,13 @@ export const baixarModeloOrcamento = async () => {
     ['Mão de obra, embalagem e higienização: só o valor. Em branco vale zero.'],
     ['Não altere o cabeçalho da aba Orçamento.'],
     ['Nota fiscal é obrigatória em todas as linhas (identifica o item).'],
+    ['Avaria estética: SIM = foto da avaria obrigatória (o lote não é enviado sem ela). NAO = foto opcional.'],
     [],
     ['Campo', 'Valores aceitos'],
     [rotuloCampo('notaFiscal'), 'Número da nota fiscal (texto). Obrigatório.'],
     [rotuloCampo('defeitoFuncional'), 'SIM ou NAO'],
     [rotuloCampo('garantia'), 'SIM ou NAO'],
+    [rotuloCampo('avariaEstetica'), 'SIM (foto obrigatória) ou NAO (foto opcional)'],
     [rotuloCampo('tipoOrc'), TIPOS_ORC.join(', ')],
     [rotuloCampo('pecas'), 'Display: 300,00; Flex: 50'],
     [rotuloCampo('acessorios'), 'Controle remoto: 35'],
@@ -393,8 +421,8 @@ export const baixarModeloOrcamento = async () => {
     [],
     ['Exemplo'],
     CAMPOS.map(rotuloCampo),
-    ['ABC123456', '000123', '123456', 'Tela quebrada', 'SIM', 'NAO', 'NOVO', 'Display: 300; Flex: 50', '', 80, '', ''],
-    ['XYZ987654', '000456', '7891234567890', 'Não liga', 'SIM', 'NAO', 'SALDO A', 'Placa principal: 120,50', 'Controle remoto: 35', 60, 10, 15]
+    ['ABC123456', '000123', '123456', 'Tela quebrada', 'SIM', 'NAO', 'SIM', 'NOVO', 'Display: 300; Flex: 50', '', 80, '', ''],
+    ['XYZ987654', '000456', '7891234567890', 'Não liga', 'SIM', 'NAO', 'NAO', 'SALDO A', 'Placa principal: 120,50', 'Controle remoto: 35', 60, 10, 15]
   ]);
   instrucoes['!cols'] = [{ wch: 36 }, { wch: 60 }, ...CAMPOS.slice(2).map(() => ({ wch: 18 }))];
   utils.book_append_sheet(workbook, instrucoes, 'Instruções');
@@ -469,7 +497,7 @@ export const seriaisDuplicados = (itens: Pick<ItemOrcamentoPlanilha, 'serial'>[]
 
 const ROTULO_INCONSISTENCIA: Record<Pendencia['campo'], string> = {
   serial: 'Serial', notaFiscal: 'Nota fiscal', codigo: 'Produto (Gemco / EAN)', defeitoEncontrado: 'Defeito encontrado',
-  defeitoFuncional: 'Defeito funcional', garantia: 'Garantia', tipoOrc: 'Tipo Orc.', valores: 'Peças e valores',
+  defeitoFuncional: 'Defeito funcional', garantia: 'Garantia', avariaEstetica: 'Avaria estética', tipoOrc: 'Tipo Orc.', valores: 'Peças e valores',
   padrao: 'Peça sem padrão no catálogo'
 };
 

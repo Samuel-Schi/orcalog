@@ -9,7 +9,12 @@ import { oracleApi, ORACLE_ENDPOINTS } from './oracle';
 
 export const MAX_ARQUIVOS_EVIDENCIA = 20;
 export const MAX_VIDEO_MB = 100;
-const MAX_LOTE_FOTOS_BASE64 = 4_000_000;
+// Grupos menores (~1,5 MB) para cada chamada terminar bem antes do limite de tempo da Function (10 s no Netlify):
+// com internet lenta no posto, grupos de 4 MB estouravam o tempo e a foto "não subia".
+const MAX_LOTE_FOTOS_BASE64 = 1_500_000;
+// Foto sozinha pode passar do grupo (até o limite do corpo da Function).
+const MAX_FOTO_BASE64 = 4_000_000;
+const ESPERAS_NOVA_TENTATIVA_MS = [1500, 4000];
 // Multiplo de 256 KB, exigido pelo Drive em todas as partes menos a ultima.
 export const PARTE_VIDEO_BYTES = 3 * 1024 * 1024;
 
@@ -87,6 +92,46 @@ type Postar = (body: Record<string, unknown>) => Promise<any>;
 const postarPadrao: Postar = async (body) =>
   (await oracleApi.post(ORACLE_ENDPOINTS.uploadFotoDrive, body, { headers: { 'Content-Type': 'application/json' }, timeout: 55000 })).data;
 
+// Timeout, queda de rede e erro 5xx/429 são passageiros: tenta de novo. Erro de dados (4xx) não adianta repetir.
+export const erroPassageiro = (error: any) => {
+  const status = Number(error?.response?.status);
+  if (!status) return true;
+  return status === 408 || status === 429 || status >= 500;
+};
+const esperar = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+export const comNovaTentativa = async <T>(acao: () => Promise<T>, esperas: number[] = ESPERAS_NOVA_TENTATIVA_MS): Promise<T> => {
+  for (let tentativa = 0; ; tentativa += 1) {
+    try {
+      return await acao();
+    } catch (error) {
+      if (tentativa >= esperas.length || !erroPassageiro(error)) throw error;
+      await esperar(esperas[tentativa]);
+    }
+  }
+};
+
+/**
+ * Envia um arquivo grande (vídeo ou PDF de nota) em partes de 3 MB pela sessão resumable do Drive.
+ * Cada chamada fica pequena: não esbarra no limite de corpo (~6 MB) nem de tempo da Function.
+ */
+export const enviarArquivoEmPartes = async (
+  file: Blob, nome: string, mimeType: string, destino: Record<string, unknown>,
+  postarUmaVez: Postar = postarPadrao, esperas: number[] = ESPERAS_NOVA_TENTATIVA_MS
+) => {
+  const postar: Postar = (body) => comNovaTentativa(() => postarUmaVez(body), esperas);
+  const inicio = await postar({ acao: 'iniciar_video', ...destino, name: nome.replace(/\s+/g, '_'), mimeType, tamanho: file.size });
+  if (!inicio?.sessao || !inicio?.folderId || !inicio?.folderLink) throw new Error(`Não foi possível iniciar o envio de ${nome}.`);
+  for (let pos = 0; pos < file.size; pos += PARTE_VIDEO_BYTES) {
+    const parte = file.slice(pos, Math.min(pos + PARTE_VIDEO_BYTES, file.size));
+    const data = await postar({ acao: 'parte_video', sessao: inicio.sessao, inicio: pos, total: file.size, base64: await paraBase64(parte) });
+    if (data?.concluido === true) {
+      if (!data?.file?.id) break;
+      return { folderId: String(inicio.folderId), folderLink: String(inicio.folderLink), fileId: String(data.file.id) };
+    }
+  }
+  throw new Error(`O servidor não confirmou o arquivo ${nome}.`);
+};
+
 /**
  * Envia as evidencias de um produto e devolve o link da pasta no Drive.
  * Todos os arquivos ficam na mesma pasta (a primeira chamada cria; as seguintes reaproveitam pelo folderId).
@@ -95,8 +140,10 @@ export const enviarEvidenciasDrive = async (
   arquivos: File[],
   pasta: PastaDestino,
   onProgresso?: (enviados: number, total: number) => void,
-  postar: Postar = postarPadrao
+  postarUmaVez: Postar = postarPadrao,
+  esperas: number[] = ESPERAS_NOVA_TENTATIVA_MS
 ) => {
+  const postar: Postar = (body) => comNovaTentativa(() => postarUmaVez(body), esperas);
   if (!arquivos.length) throw new Error('Nenhuma evidência para enviar.');
   // String = pasta propria do produto (formato antigo); objeto = pasta do protocolo, reaproveitada pelo nome.
   const porProtocolo = typeof pasta !== 'string';
@@ -107,7 +154,7 @@ export const enviarEvidenciasDrive = async (
   let enviados = 0;
   const destino = () => (folderId ? { folderId } : { folderName: nomePasta, ...(porProtocolo ? { reusarPorNome: true } : {}) });
   const guardarPasta = (data: any) => {
-    if (!data?.folderId || !data?.folderLink) throw new Error('O Drive não confirmou a pasta das evidências.');
+    if (!data?.folderId || !data?.folderLink) throw new Error('O servidor não confirmou a pasta das evidências.');
     folderId = String(data.folderId);
     folderLink = String(data.folderLink);
   };
@@ -118,7 +165,7 @@ export const enviarEvidenciasDrive = async (
   const enviarGrupo = async () => {
     if (!grupo.length) return;
     const data = await postar({ ...destino(), files: grupo });
-    if (data?.files?.length !== grupo.length || data.files.some((f: { id?: string }) => !f?.id)) throw new Error('O Drive não confirmou todas as fotos.');
+    if (data?.files?.length !== grupo.length || data.files.some((f: { id?: string }) => !f?.id)) throw new Error('O servidor não confirmou todas as fotos.');
     guardarPasta(data);
     enviados += grupo.length;
     onProgresso?.(enviados, arquivos.length);
@@ -127,7 +174,7 @@ export const enviarEvidenciasDrive = async (
   for (const [indice, file] of fotos.entries()) {
     const { blob, nome } = await prepararFoto(file);
     const base64 = await paraBase64(blob);
-    if (base64.length > MAX_LOTE_FOTOS_BASE64) throw new Error(`A foto ${file.name} é grande demais para enviar.`);
+    if (base64.length > MAX_FOTO_BASE64) throw new Error(`A foto ${file.name} é grande demais para enviar.`);
     if (grupo.reduce((t, f) => t + f.base64.length, 0) + base64.length > MAX_LOTE_FOTOS_BASE64) await enviarGrupo();
     grupo.push({ name: `${prefixo}Evidencia_${indice + 1}_${nome}`.replace(/\s+/g, '_'), mimeType: blob.type || 'image/jpeg', base64 });
   }
@@ -135,17 +182,13 @@ export const enviarEvidenciasDrive = async (
 
   // Videos: sessao resumable no Drive e partes de 3 MB.
   for (const [indice, file] of arquivos.filter((f) => tipoEvidencia(f) === 'video').entries()) {
-    const inicio = await postar({ acao: 'iniciar_video', ...destino(), name: `${prefixo}Video_${indice + 1}_${file.name}`.replace(/\s+/g, '_'), mimeType: file.type, tamanho: file.size });
-    if (!inicio?.sessao) throw new Error(`Não foi possível iniciar o envio do vídeo ${file.name}.`);
-    guardarPasta(inicio);
-    let concluido = false;
-    for (let pos = 0; pos < file.size && !concluido; pos += PARTE_VIDEO_BYTES) {
-      const parte = file.slice(pos, Math.min(pos + PARTE_VIDEO_BYTES, file.size));
-      const data = await postar({ acao: 'parte_video', sessao: inicio.sessao, inicio: pos, total: file.size, base64: await paraBase64(parte) });
-      concluido = data?.concluido === true;
-      if (concluido && !data?.file?.id) throw new Error(`O Drive não confirmou o vídeo ${file.name}.`);
+    try {
+      guardarPasta(await enviarArquivoEmPartes(file, `${prefixo}Video_${indice + 1}_${file.name}`, file.type, destino(), postarUmaVez, esperas));
+    } catch (error) {
+      if (error instanceof Error && /iniciar o envio/.test(error.message)) throw new Error(`Não foi possível iniciar o envio do vídeo ${file.name}.`);
+      if (error instanceof Error && /não confirmou o arquivo/.test(error.message)) throw new Error(`O servidor não confirmou o vídeo ${file.name}.`);
+      throw error;
     }
-    if (!concluido) throw new Error(`O Drive não confirmou o vídeo ${file.name}.`);
     enviados += 1;
     onProgresso?.(enviados, arquivos.length);
   }

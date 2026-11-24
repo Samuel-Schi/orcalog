@@ -22,7 +22,16 @@ export const resultadoItem = (item: ItemResultado) => {
   return 'Aguardando análise';
 };
 
-export const valorAceito = (negociacao: NegociacaoResultado): number | null => {
+// Motivo da retificação feita pela AT, como o posto deve ler (no lugar de "Retificado").
+export const rotuloRetificacao = (motivo?: string | null) => {
+  const chave = String(motivo || '').trim().toUpperCase();
+  if (chave === 'DEVOLUCAO') return 'Devolução';
+  if (chave === 'DESCONSIDERAR_REPARO' || chave === 'SEM_REOPERACAO') return 'Sem reoperação';
+  if (chave === 'REAPROVADO') return 'Reaprovado';
+  return 'Retificado';
+};
+
+export const valorAceito =(negociacao: NegociacaoResultado): number | null => {
   // Uma contraproposta enviada ainda nao representa um acordo fechado.
   const status = String(negociacao.status || '').trim().toUpperCase();
   const raw = status === 'ACEITA_POSTO' ? negociacao.valor_proposto_at : null;

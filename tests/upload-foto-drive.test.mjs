@@ -32,6 +32,7 @@ test('envia PDF com a configuracao local e preserva bytes e tipo do documento', 
   globalThis.fetch = async (url, init) => {
     calls.push(String(url));
     if (String(url).includes('oauth2.googleapis.com')) return Response.json({ access_token: 'local-token' });
+    if (String(url).includes('/pdf-folder/permissions')) return Response.json({ id: 'anyoneWithLink' });
     if (String(url).includes('upload/drive')) {
       assert.ok(init.body.includes(pdf));
       assert.ok(init.body.includes(Buffer.from('Content-Type: application/pdf')));
@@ -49,7 +50,10 @@ test('envia PDF com a configuracao local e preserva bytes e tipo do documento', 
     }), isBase64Encoded: false });
     assert.equal(response.statusCode, 200);
     assert.equal(JSON.parse(response.body).folderLink, 'https://drive.google.com/drive/folders/pdf-folder');
-    assert.equal(calls.length, 3);
+    assert.equal(calls.length, 4);
+    // Pasta nova ja sai aberta para quem tem o link, sem precisar pedir.
+    assert.ok(calls.some((c) => c.includes('/pdf-folder/permissions')));
+    assert.equal(JSON.parse(response.body).folderPublic, true);
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -73,7 +77,7 @@ test('reaproveita a pasta do protocolo e a deixa aberta para quem tiver o link',
     calls.push(`${init.method || 'GET'} ${target}`);
     if (target.includes('oauth2')) return Response.json({ access_token: 't' });
     if (target.includes('/permissions')) {
-      assert.deepEqual(JSON.parse(init.body), { type: 'anyone', role: 'reader' });
+      assert.deepEqual(JSON.parse(init.body), { type: 'domain', domain: 'magazineluiza.com.br', role: 'reader', allowFileDiscovery: false });
       return Response.json({ id: 'anyoneWithLink' });
     }
     if (target.includes('upload/drive')) {
@@ -86,13 +90,18 @@ test('reaproveita a pasta do protocolo e a deixa aberta para quem tiver o link',
     throw new Error('Não deveria criar nova pasta: ' + target);
   };
   try {
+    // Nota fiscal (publicFolder): pasta reaproveitada é compartilhada mesmo assim (pode ser pasta antiga fechada).
     const response = await comCredenciais()({ httpMethod: 'POST', body: pdfBody({ folderId: 'pastaExistente01', publicFolder: true }) });
     const body = JSON.parse(response.body);
     assert.equal(response.statusCode, 200);
     assert.equal(body.folderId, 'pastaExistente01');
     assert.equal(body.folderReused, true);
     assert.equal(body.folderPublic, true);
-    assert.ok(calls.some((c) => c.includes('/permissions')));
+    assert.equal(calls.filter((c) => c.includes('/permissions')).length, 1);
+    // Fotos do mesmo envio (folderId sem publicFolder): a pasta já foi compartilhada na 1a chamada, não repete.
+    calls.length = 0;
+    await comCredenciais()({ httpMethod: 'POST', body: pdfBody({ folderId: 'pastaExistente01' }) });
+    assert.ok(!calls.some((c) => c.includes('/permissions')));
   } finally { globalThis.fetch = originalFetch; }
 });
 

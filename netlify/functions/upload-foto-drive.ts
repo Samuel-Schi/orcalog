@@ -68,7 +68,19 @@ const getGoogleDriveConfig = (env: UploadEnv) => {
   return { email, privateKey, parentFolderId };
 };
 
+// Token reaproveitado enquanto a Function estiver quente (vale 1 h; renova 5 min antes): economiza uma ida ao
+// Google em cada lote de fotos, o que ajuda a chamada a terminar dentro do limite de tempo.
+const tokenCache = new Map<string, { token: string; expira: number }>();
 const getGoogleAccessToken = async (env: UploadEnv) => {
+  const chaveCache = getGoogleDriveConfig(env).email;
+  const emCache = tokenCache.get(chaveCache);
+  if (emCache && emCache.expira > Date.now()) return emCache.token;
+  const token = await pedirTokenGoogle(env);
+  tokenCache.set(chaveCache, { token, expira: Date.now() + 55 * 60 * 1000 });
+  return token;
+};
+
+const pedirTokenGoogle = async (env: UploadEnv) => {
   const { email: serviceAccountEmail, privateKey: configuredPrivateKey } = getGoogleDriveConfig(env);
   const privateKey = configuredPrivateKey.replace(/\\n/g, '\n');
   const now = Math.floor(Date.now() / 1000);
@@ -191,16 +203,18 @@ const buscarPastaPorNome = async (token: string, folderName: string, env: Upload
     : null;
 };
 
-const compartilharComQualquerUm = async (token: string, folderId: string) => {
+// Pasta aberta como leitor para quem e da Magalu (dominio), sem pedir acesso. Fora do dominio continua fechada.
+export const DOMINIO_LEITURA_DRIVE = 'magazineluiza.com.br';
+const compartilharComDominio = async (token: string, folderId: string) => {
   try {
-    const response = await fetch(`${DRIVE_FILES_URL}/${folderId}/permissions?supportsAllDrives=true`, {
+    const response = await fetch(`${DRIVE_FILES_URL}/${folderId}/permissions?supportsAllDrives=true&sendNotificationEmail=false`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({ type: 'anyone', role: 'reader' })
+      body: JSON.stringify({ type: 'domain', domain: DOMINIO_LEITURA_DRIVE, role: 'reader', allowFileDiscovery: false })
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      console.warn('[upload-foto-drive]', JSON.stringify({ operacao: 'compartilhar pasta (anyone/reader)', id: folderId, status: response.status, detalhe: data.error?.message }));
+      console.warn('[upload-foto-drive]', JSON.stringify({ operacao: `compartilhar pasta (dominio ${DOMINIO_LEITURA_DRIVE}/reader)`, id: folderId, status: response.status, detalhe: data.error?.message }));
     }
     return response.ok;
   } catch {
@@ -259,10 +273,12 @@ const uploadArquivoDrive = async (
 // --- Video em partes (upload resumable do Drive) ---
 // O Netlify aceita ~6 MB por chamada; o video vai em partes de ate 3 MB pela mesma funcao.
 export const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+// PDF da nota fiscal acima de ~3 MB também vai em partes (mesma sessão resumable do vídeo).
+export const MAX_PDF_BYTES = 20 * 1024 * 1024;
 const PARTE_VIDEO_MULTIPLO = 256 * 1024;
 
 type VideoBody = {
-  acao?: string; folderName?: string; folderId?: string; reusarPorNome?: boolean; name?: string; mimeType?: string; tamanho?: number;
+  acao?: string; folderName?: string; folderId?: string; reusarPorNome?: boolean; publicFolder?: boolean; name?: string; mimeType?: string; tamanho?: number;
   sessao?: string; inicio?: number; total?: number; base64?: string;
 };
 
@@ -280,8 +296,10 @@ const sessaoValida = (valor: unknown) => {
 const iniciarVideo = async (env: UploadEnv, body: VideoBody) => {
   const mimeType = trimText(body.mimeType, 120);
   const tamanho = Number(body.tamanho);
-  if (!mimeType.startsWith('video/')) return jsonResponse(400, { error: 'Envie apenas arquivos de video.' });
+  const pdf = mimeType === 'application/pdf';
+  if (!mimeType.startsWith('video/') && !pdf) return jsonResponse(400, { error: 'Envie apenas arquivos de video.' });
   if (!Number.isInteger(tamanho) || tamanho <= 0) return jsonResponse(400, { error: 'Tamanho do video invalido.' });
+  if (pdf && tamanho > MAX_PDF_BYTES) return jsonResponse(413, { error: `PDF maior que ${MAX_PDF_BYTES / 1024 / 1024} MB.` });
   if (tamanho > MAX_VIDEO_BYTES) return jsonResponse(413, { error: `Video maior que ${MAX_VIDEO_BYTES / 1024 / 1024} MB.` });
 
   const token = await getGoogleAccessToken(env);
@@ -289,6 +307,9 @@ const iniciarVideo = async (env: UploadEnv, body: VideoBody) => {
   const existente = (body.folderId ? await buscarPastaExistente(token, String(body.folderId).trim(), env) : null)
     || (body.reusarPorNome === true ? await buscarPastaPorNome(token, nomePasta, env) : null);
   const folder = existente || await criarPastaDrive(token, nomePasta, env);
+  // Pasta aberta para quem e da Magalu (a AT abre sem pedir acesso). Com folderId ela já foi compartilhada,
+  // menos na nota fiscal (publicFolder), que pode reaproveitar pasta antiga ainda fechada.
+  if (!body.folderId || body.publicFolder === true) await compartilharComDominio(token, folder.id);
   const response = await fetch(`${DRIVE_UPLOAD_URL}?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink`, {
     method: 'POST',
     headers: {
@@ -345,6 +366,7 @@ export const createUploadHandler = (env: UploadEnv): Handler => async (event) =>
     if (acao === 'iniciar_video') return await iniciarVideo(env, parsedBody.value as VideoBody);
     if (acao === 'parte_video') return await enviarParteVideo(parsedBody.value as VideoBody);
 
+    // publicFolder ficou por compatibilidade: toda pasta do portal agora e aberta para o dominio da Magalu.
     const body = parsedBody.value as { folderName?: string; folderId?: string; reusarPorNome?: boolean; publicFolder?: boolean; files?: DriveUploadFile[] };
     const files = Array.isArray(body.files) ? body.files : [];
     const validFiles = files
@@ -364,7 +386,10 @@ export const createUploadHandler = (env: UploadEnv): Handler => async (event) =>
     const existente = (body.folderId ? await buscarPastaExistente(token, String(body.folderId).trim(), env) : null)
       || (body.reusarPorNome === true ? await buscarPastaPorNome(token, folderName, env) : null);
     const folder = existente || await criarPastaDrive(token, folderName, env);
-    const folderPublic = body.publicFolder === true ? await compartilharComQualquerUm(token, folder.id) : false;
+    // Fotos de evidencia e notas: a pasta fica aberta para quem e da Magalu (a AT abre sem pedir acesso).
+    // Só na primeira chamada do envio (sem folderId): as seguintes já usam a pasta compartilhada e ficam mais rápidas.
+    // publicFolder (nota fiscal do Pagamentos) pode reaproveitar pasta antiga ainda fechada: compartilha sempre.
+    const folderPublic = body.folderId && body.publicFolder !== true ? true : await compartilharComDominio(token, folder.id);
     const uploadedFiles = await Promise.all(
       validFiles.map((file, index) => uploadArquivoDrive(token, folder.id, file, index, env))
     );

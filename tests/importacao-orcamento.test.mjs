@@ -195,7 +195,7 @@ test('lancamento manual usa as mesmas regras da planilha (sem UUID)', () => {
   const { interpretarItemManual } = compiled.exports;
   const { item } = interpretarItemManual({
     serial: 'abc12345', notaFiscal: 'NF-9', codigo: '123456', defeitoEncontrado: 'Nao liga',
-    defeitoFuncional: 'SIM', garantia: 'NAO', tipoOrc: 'NOVO',
+    defeitoFuncional: 'SIM', garantia: 'NAO', avariaEstetica: 'NAO', tipoOrc: 'NOVO',
     pecas: 'Display: 300,50; Flex: 50', acessorios: '', maoObra: '20', embalagem: '', higienizacao: ''
   }, 3);
   assert.equal(item.serial, 'ABC1-2345');
@@ -209,9 +209,46 @@ test('lancamento manual usa as mesmas regras da planilha (sem UUID)', () => {
   assert.ok(semNf.pendencias.some((p) => p.campo === 'notaFiscal'));
   assert.ok(semNf.pendencias.some((p) => /sem valor/.test(p.mensagem)));
 
-  const semSerial = interpretarItemManual({ notaFiscal: 'NF', codigo: '1', defeitoEncontrado: 'a', defeitoFuncional: 'SIM', garantia: 'SIM', tipoOrc: 'NOVO' }).item;
+  const semSerial = interpretarItemManual({ notaFiscal: 'NF', codigo: '1', defeitoEncontrado: 'a', defeitoFuncional: 'SIM', garantia: 'SIM', avariaEstetica: 'NAO', tipoOrc: 'NOVO' }).item;
   assert.equal(semSerial.serial, '');
   assert.equal(semSerial.serialGerado, true);
   assert.equal(itemBloqueado(semSerial), false);
   assert.ok(interpretarItemManual({}).erro);
+
+  // No lancamento manual a avaria estetica e obrigatoria (mesma regra da planilha nova).
+  const semAvaria = interpretarItemManual({ serial: 'x2', notaFiscal: 'NF', codigo: '1', defeitoEncontrado: 'a', defeitoFuncional: 'SIM', garantia: 'SIM', tipoOrc: 'NOVO' }).item;
+  assert.ok(semAvaria.pendencias.some((p) => p.campo === 'avariaEstetica' && p.bloqueia));
+});
+
+test('coluna Avaria estetica: SIM exige foto (bloqueia), NAO deixa a foto opcional', () => {
+  const { definirEvidencias, AVISO_AVARIA_FOTO_OBRIGATORIA } = compiled.exports;
+  const CAB = [...CABECALHO.slice(0, 6), 'Avaria estética (SIM/NAO)', ...CABECALHO.slice(6)];
+  const linha = (serial, defeito, avaria) => [serial, 'NF', '10', defeito, 'SIM', 'NAO', avaria, 'NOVO', 'Tampa: 10', '', '', '', ''];
+  const { itens } = interpretarPlanilhaOrcamento([CAB,
+    linha('S1', 'Não liga', 'SIM'), linha('S2', 'Tela quebrada', 'NAO'), linha('S3', 'x', ''), linha('S4', 'x', 'talvez'), linha('S5', 'x', 'n')]);
+  const [sim, nao, branco, invalido, abreviado] = itens;
+
+  assert.deepEqual([sim.avaria, sim.avariaEstetica], [true, 'SIM']);
+  assert.equal(itemBloqueado(sim), true);
+  assert.ok(sim.pendencias.some((p) => p.mensagem === AVISO_AVARIA_FOTO_OBRIGATORIA && p.bloqueia));
+  // Com foto, libera; tirando a foto, volta a bloquear.
+  definirEvidencias(sim, [{ name: 'f.jpg' }]);
+  assert.equal(itemBloqueado(sim), false);
+  definirEvidencias(sim, []);
+  assert.equal(itemBloqueado(sim), true);
+
+  // NAO vale mesmo com "quebrada" no defeito: o posto informou que nao ha avaria estetica.
+  assert.deepEqual([nao.avaria, nao.avariaEstetica, itemBloqueado(nao)], [false, 'NAO', false]);
+  assert.deepEqual(nao.pendencias, []);
+  assert.ok(branco.pendencias.some((p) => p.campo === 'avariaEstetica' && p.bloqueia && /em branco/.test(p.mensagem)));
+  assert.ok(invalido.pendencias.some((p) => p.campo === 'avariaEstetica' && /"talvez"/.test(p.mensagem)));
+  assert.equal(abreviado.avariaEstetica, 'NAO');
+  assert.deepEqual(inconsistenciasDoLote(itens).map((i) => [i.titulo, i.linhas]), [['Avaria estética', [2, 4, 5]]]);
+});
+
+test('planilha antiga (sem a coluna Avaria estetica) continua: avaria pelo defeito, sem foto so avisa', () => {
+  const { itens } = interpretarPlanilhaOrcamento([CABECALHO, ['S1', 'NF', '10', 'Tela quebrada', 'SIM', 'NAO', 'NOVO', 'Tela: 10', '', '', '', '']]);
+  assert.equal(itens[0].avaria, true);
+  assert.equal(itens[0].avariaEstetica, undefined);
+  assert.equal(itemBloqueado(itens[0]), false);
 });

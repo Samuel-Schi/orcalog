@@ -104,7 +104,8 @@ const EvidenciasItem = ({ arquivos, recomendado, linkDrive, desabilitado = false
   };
 
   if (linkDrive) {
-    return <a className="ev-drive" href={linkDrive} target="_blank" rel="noopener noreferrer"><i className="material-icons" aria-hidden="true">cloud_done</i>Ver no Drive</a>;
+    // A pasta é aberta só para a Magalu: para o posto basta saber que as fotos chegaram.
+    return <span className="ev-drive" title="Fotos e vídeos enviados para o banco"><i className="material-icons" aria-hidden="true">cloud_done</i>Fotos enviadas</span>;
   }
 
   const resumo = resumoEvidencias(arquivos);

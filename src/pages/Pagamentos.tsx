@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { oracleApi, ORACLE_ENDPOINTS } from '../lib/oracle';
+import { enviarArquivoEmPartes } from '../lib/evidenciasDrive';
 import '../styles/pagamentos.css';
+
+// Até 3 MB vai numa chamada só; acima disso, em partes. Limite da nota: 20 MB.
+const PDF_DE_UMA_VEZ = 3_000_000;
+const MAX_PDF_NOTA = 20 * 1024 * 1024;
 
 type Pagamento = {
   oracle_item_id: number | null; protocolo: string; cod_gemco?: string; descricao?: string; serial?: string;
@@ -90,8 +95,8 @@ export default function Pagamentos() {
     if (!file.name.toLowerCase().endsWith('.pdf') || (file.type && file.type !== 'application/pdf')) {
       setAviso({ tipo: 'error', texto: 'Selecione uma nota fiscal em PDF.' }); return;
     }
-    if (!file.size || file.size > 3_000_000) {
-      setAviso({ tipo: 'error', texto: 'Selecione um PDF de até 3 MB que não esteja vazio.' }); return;
+    if (!file.size || file.size > MAX_PDF_NOTA) {
+      setAviso({ tipo: 'error', texto: 'Selecione um PDF de até 20 MB que não esteja vazio.' }); return;
     }
     uploadedRef.current = null; setArquivo(file); setAviso(null);
   };
@@ -113,16 +118,21 @@ export default function Pagamentos() {
       let pastaId = uploadedRef.current?.file === arquivo && uploadedRef.current.protocolo === selected.protocolo ? uploadedRef.current.pastaId : '';
       if (!link) {
         setEtapa('Enviando PDF…');
-        const base64 = await toBase64(arquivo);
-        const upload = await oracleApi.post<UploadResponse>(ORACLE_ENDPOINTS.uploadFotoDrive, {
-          folderName: 'Pagamento_' + referencia,
-          folderId: pastaDoProtocolo(selected) || undefined,
-          publicFolder: true,
-          files: [{ name: 'NF_' + tipoNota + '_' + referencia + '_' + arquivo.name, mimeType: 'application/pdf', base64 }]
-        }, { timeout: 55000 });
-        link = driveLink(upload.data?.folderLink);
-        arquivoId = String(upload.data?.files?.[0]?.id || '');
-        pastaId = String(upload.data?.folderId || '');
+        const destino = { folderName: 'Pagamento_' + referencia, folderId: pastaDoProtocolo(selected) || undefined, publicFolder: true };
+        const nomeArquivo = 'NF_' + tipoNota + '_' + referencia + '_' + arquivo.name;
+        if (arquivo.size > PDF_DE_UMA_VEZ) {
+          // PDF grande: vai em partes de 3 MB (a Function aceita ~6 MB por chamada).
+          const enviado = await enviarArquivoEmPartes(arquivo, nomeArquivo, 'application/pdf', destino);
+          link = driveLink(enviado.folderLink); arquivoId = enviado.fileId; pastaId = enviado.folderId;
+        } else {
+          const base64 = await toBase64(arquivo);
+          const upload = await oracleApi.post<UploadResponse>(ORACLE_ENDPOINTS.uploadFotoDrive, {
+            ...destino, files: [{ name: nomeArquivo, mimeType: 'application/pdf', base64 }]
+          }, { timeout: 55000 });
+          link = driveLink(upload.data?.folderLink);
+          arquivoId = String(upload.data?.files?.[0]?.id || '');
+          pastaId = String(upload.data?.folderId || '');
+        }
         if (!link || !arquivoId) throw new Error('O envio do PDF não foi confirmado.');
         uploadedRef.current = { file: arquivo, protocolo: selected.protocolo, link, arquivoId, pastaId };
       }
@@ -290,7 +300,7 @@ export default function Pagamentos() {
                 <i className="material-icons" aria-hidden="true">{arquivo ? 'picture_as_pdf' : 'upload_file'}</i>
                 <div className="pg-file-texto">
                   <strong>{arquivo ? arquivo.name : 'Arraste o PDF da nota aqui'}</strong>
-                  <small>{arquivo ? (arquivo.size / 1024).toFixed(0) + ' KB' : 'PDF de até 3 MB'}</small>
+                  <small>{arquivo ? (arquivo.size / 1024).toFixed(0) + ' KB' : 'PDF de até 20 MB'}</small>
                 </div>
                 <button className="pg-btn pg-btn-sm" type="button" onClick={() => inputRef.current?.click()}>{arquivo ? 'Trocar' : 'Selecionar'}</button>
                 <input ref={inputRef} type="file" accept="application/pdf,.pdf" hidden aria-label="Anexar nota fiscal em PDF" onChange={(e) => { anexar(e.target.files?.[0]); e.currentTarget.value = ''; }} />

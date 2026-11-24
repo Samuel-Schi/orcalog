@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getStatusLabel, isLoteFinalizado } from '../lib/statusMap';
 import AcaoLotePosto from '../components/AcaoLotePosto';
-import { resultadoItem, valorFinalItem, valorAceito } from '../lib/resultadoOrcamento';
+import { resultadoItem, rotuloRetificacao, valorFinalItem, valorAceito } from '../lib/resultadoOrcamento';
 import { oracleApi, ORACLE_ENDPOINTS, parseMaybeJson } from '../lib/oracle';
 
 type ItemEnvio = {
@@ -94,6 +94,11 @@ const estiloMeusEnvios = `
 .me-btn .material-icons { font-size: 17px; }
 .me-btn-sm { height: 28px; padding: 0 9px; font-size: .78rem; }
 .me-btn-sm .material-icons { font-size: 15px; }
+.me-btn-corrigir { border-color: #fca5a5; background: #fef2f2; color: #b91c1c; font-weight: 600; }
+.me-btn-corrigir:hover:not(:disabled) { border-color: #ef4444; background: #fee2e2; }
+.me-linha-corrigir td { background: #fffafa; }
+.me-linha-corrigir td.me-editar { box-shadow: inset 3px 0 0 #ef4444; }
+.me-editar-vazio { color: var(--me-muted); }
 .me-girando { animation: me-girar .9s linear infinite; }
 
 .me-busca { position: relative; display: flex; align-items: center; margin-bottom: 12px; max-width: 420px; }
@@ -184,6 +189,11 @@ const hasNegociacaoPendente = (item: Partial<ItemEnvio>) => Number(item.status |
 // está na fila da análise orçamentária.
 const isItemEmMontagem = (item: Partial<ItemEnvio>) =>
   Number(item.status) === 8 || String(item.statusText || '').trim().toUpperCase() === 'MONTAGEM';
+
+// Item em montagem que ainda trava o "Finalizar lote" (ex.: avaria sem foto) ou que o posto cancelou.
+const precisaCorrigir = (item: Partial<ItemEnvio>) =>
+  isItemEmMontagem(item) && item.envioFinalizado !== true
+  && (item.orcamentoPronto === false || String(item.statusText || '').trim().toUpperCase() === 'CANCELADO_POSTO');
 
 const isItemEmEnvio = (item: Partial<ItemEnvio>) =>
   Boolean(
@@ -692,7 +702,7 @@ const MeusEnvios = () => {
             + itens.filter((item) => isItemEmMontagem(item) && item.orcamentoPronto === false).length;
           const bloqueioFinalizar = !podeFinalizar && itensSemOrcamento > 0
             && itens.every((item) => isItemEmMontagem(item) && item.envioFinalizado !== true)
-            ? `Para finalizar: ${itensSemOrcamento} item(ns) sem orçamento lançado (avaria aguardando foto ou envio interrompido). Termine em Lançar Orçamentos.`
+            ? `Para finalizar: ${itensSemOrcamento} item(ns) sem orçamento lançado (avaria aguardando foto ou envio interrompido). Abra o lote e clique em "Corrigir" (primeira coluna, em vermelho).`
             : '';
           const idsLote = idsLotePorProtocolo[normalizeProtocolKey(protocolo)] || itens
             .map((item) => item.dbId == null ? '' : String(item.dbId))
@@ -969,6 +979,7 @@ const MeusEnvios = () => {
                   <table className="tabela-horizontal me-tabela">
                     <thead>
                       <tr>
+                        <th>Editar</th>
                         <th>Produto</th>
                         <th>Serial</th>
                         <th>Cód. barras</th>
@@ -984,7 +995,6 @@ const MeusEnvios = () => {
                         <th className="me-num">Valor final aprovado</th>
                         <th>Resultado</th>
                         <th>Status</th>
-                        <th>Ações</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -993,7 +1003,21 @@ const MeusEnvios = () => {
                         const moeda = (v?: number) => (v != null ? formatCurrency(v) : '-');
                         const resultado = resultadoItem(item);
                         return (
-                        <tr key={item.id}>
+                        <tr key={item.id} className={precisaCorrigir(item) ? 'me-linha-corrigir' : undefined}>
+                          {/* Primeira coluna: o posto vê logo o que precisa editar (em vermelho o que trava o lote). */}
+                          <td className="me-editar">
+                            {isItemEmMontagem(item) && item.envioFinalizado !== true ? (
+                              <button
+                                className={`me-btn me-btn-sm${precisaCorrigir(item) ? ' me-btn-corrigir' : ''}`}
+                                type="button"
+                                onClick={() => navigate('/lancar-orcamentos', { state: { item } })}
+                                title={precisaCorrigir(item) ? 'Falta informação (ex.: foto da avaria). Clique para corrigir.' : 'Editar os valores deste produto'}
+                              >
+                                <i className="material-icons">{precisaCorrigir(item) ? 'error_outline' : 'edit'}</i>
+                                {precisaCorrigir(item) ? 'Corrigir' : 'Editar'}
+                              </button>
+                            ) : <span className="me-editar-vazio">—</span>}
+                          </td>
                           <td className="me-produto">
                             <strong>{item.codGemco || '-'}</strong>
                             <span title={item.descricao}>{item.descricao || '-'}</span>
@@ -1011,28 +1035,18 @@ const MeusEnvios = () => {
                           <td className="me-num">{moeda(item.totalOrcamento)}</td>
                           <td className="me-num"><strong>{valorFinal != null ? formatCurrency(valorFinal) : '-'}</strong></td>
                           <td>
-                            <span className={`me-resultado me-resultado-${String(resultado).normalize('NFD').replace(/[^\w]/g, '').toLowerCase()}`}>{resultado}</span>
+                            <span className={`me-resultado me-resultado-${String(resultado).normalize('NFD').replace(/[^\w]/g, '').toLowerCase()}`}>
+                              {resultado === 'Retificado' && item.retificacao ? rotuloRetificacao(item.retificacao.motivo) : resultado}
+                            </span>
                             {item.retificacao && (
                               <div className="me-retificacao">
-                                <span>{item.retificacao.motivo === 'DEVOLUCAO' ? 'Devolução' : 'Desconsiderar reparo'}</span>
-                                <span>Valor anterior: {formatCurrency(item.retificacao.original?.total_orcamento ?? 0)} · Valor atual: {formatCurrency(0)}</span>
+                                <span>Retificado pela AT: {rotuloRetificacao(item.retificacao.motivo)}</span>
+                                <span>Valor anterior: {formatCurrency(item.retificacao.original?.total_orcamento ?? 0)} · Valor atual: {formatCurrency(item.retificacao.motivo === 'REAPROVADO' ? item.totalOrcamento ?? 0 : 0)}</span>
                                 <span>{item.retificacao.responsavel} · {new Date(item.retificacao.data).toLocaleString('pt-BR')}</span>
                               </div>
                             )}
                           </td>
                           <td className="me-status-item">{item.statusText === 'CANCELADO_POSTO' ? 'Cancelado pelo posto — editar para relançar' : getStatusLabel(item.status)}</td>
-                          <td>
-                            {isItemEmMontagem(item) && item.envioFinalizado !== true && (
-                              <button
-                                className="me-btn me-btn-sm"
-                                type="button"
-                                onClick={() => navigate('/lancar-orcamentos', { state: { item } })}
-                              >
-                                <i className="material-icons">edit</i>
-                                Editar valores
-                              </button>
-                            )}
-                          </td>
                         </tr>
                         );
                       })}

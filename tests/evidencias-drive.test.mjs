@@ -52,6 +52,54 @@ test('nao confirma evidencia sem resposta do Drive', async () => {
     b.acao === 'iniciar_video' ? { folderId: 'x', folderLink: 'y', sessao: 's' } : { concluido: false }), /não confirmou o vídeo/);
 });
 
+test('timeout ou queda de rede: tenta de novo; erro de dados (4xx) nao repete', async () => {
+  let chamadas = 0;
+  const instavel = async (body) => {
+    chamadas += 1;
+    if (chamadas === 1) throw Object.assign(new Error('timeout of 55000ms exceeded'), { code: 'ECONNABORTED' });
+    if (chamadas === 2) throw Object.assign(new Error('Bad gateway'), { response: { status: 502 } });
+    return { folderId: 'p', folderLink: 'l', files: body.files.map((_, i) => ({ id: `f${i}` })) };
+  };
+  assert.equal(await lib.enviarEvidenciasDrive([arquivo('a.jpg', 'image/jpeg', 10)], 'P', undefined, instavel, [0, 0]), 'l');
+  assert.equal(chamadas, 3);
+
+  let tentativas = 0;
+  await assert.rejects(lib.enviarEvidenciasDrive([arquivo('a.jpg', 'image/jpeg', 10)], 'P', undefined, async () => {
+    tentativas += 1; throw Object.assign(new Error('invalido'), { response: { status: 400 } });
+  }, [0, 0]), /invalido/);
+  assert.equal(tentativas, 1);
+});
+
+test('fotos vao em grupos pequenos para nao estourar o tempo da Function', async () => {
+  const grupos = [];
+  await lib.enviarEvidenciasDrive([0, 1, 2].map((i) => arquivo(`f${i}.jpg`, 'image/jpeg', 700_000, i)), 'P', undefined, async (body) => {
+    grupos.push(body.files.length);
+    return { folderId: 'p', folderLink: 'l', files: body.files.map((_, i) => ({ id: `f${i}` })) };
+  });
+  // 700 KB vira ~930 KB em base64: cabe uma foto por chamada no grupo de ~1,5 MB.
+  assert.deepEqual(grupos, [1, 1, 1]);
+});
+
+test('PDF grande da nota vai em partes de 3 MB e devolve pasta e arquivo', async () => {
+  const chamadas = [];
+  const r = await lib.enviarArquivoEmPartes(arquivo('nf.pdf', 'application/pdf', 7 * MB), 'NF PRODUTO P1 nf.pdf', 'application/pdf', { folderName: 'Pagamento_P1', publicFolder: true }, async (body) => {
+    chamadas.push(body);
+    if (body.acao === 'iniciar_video') return { folderId: 'pasta', folderLink: 'link', sessao: 's' };
+    return body.inicio + Buffer.from(body.base64, 'base64').length >= body.total ? { concluido: true, file: { id: 'pdf1' } } : { concluido: false };
+  }, [0]);
+  assert.deepEqual(r, { folderId: 'pasta', folderLink: 'link', fileId: 'pdf1' });
+  assert.deepEqual([chamadas[0].mimeType, chamadas[0].name, chamadas[0].publicFolder], ['application/pdf', 'NF_PRODUTO_P1_nf.pdf', true]);
+  assert.equal(chamadas.filter((c) => c.acao === 'parte_video').length, 3);
+});
+
+test('funcao: aceita PDF em partes ate 20 MB', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error('nao deveria chamar a rede'); };
+  try {
+    assert.equal((await chamar(handler(), { acao: 'iniciar_video', mimeType: 'application/pdf', tamanho: 21 * MB })).statusCode, 413);
+  } finally { globalThis.fetch = original; }
+});
+
 test('aceita so foto e video, sem repetir e dentro do limite', () => {
   const atual = arquivo('a.jpg', 'image/jpeg', 10);
   const { aceitos, avisos } = lib.filtrarEvidencias([atual], [
@@ -129,7 +177,7 @@ test('funcao: recusa sessao de outro endereco, parte fora do tamanho e arquivo q
     assert.equal((await chamar(h, { acao: 'parte_video', sessao: 'https://evil.example.com/upload/drive/v3/files?upload_id=1', inicio: 0, total: 10, base64 })).statusCode, 400);
     // Parte do meio precisa ser multiplo de 256 KB.
     assert.equal((await chamar(h, { acao: 'parte_video', sessao: SESSAO, inicio: 0, total: 100, base64 })).statusCode, 400);
-    assert.equal((await chamar(h, { acao: 'iniciar_video', mimeType: 'application/pdf', tamanho: 10 })).statusCode, 400);
+    assert.equal((await chamar(h, { acao: 'iniciar_video', mimeType: 'application/zip', tamanho: 10 })).statusCode, 400);
     assert.equal((await chamar(h, { acao: 'iniciar_video', mimeType: 'video/mp4', tamanho: 101 * MB })).statusCode, 413);
   } finally { globalThis.fetch = original; }
 });

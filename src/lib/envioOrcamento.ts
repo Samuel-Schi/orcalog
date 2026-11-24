@@ -193,7 +193,7 @@ export type ResultadoEnvio = { status: 'ok'; salvos: number; comFoto: number; fo
 const mensagemErroDrive = (error: unknown) => {
   const resposta = (error as { response?: { data?: { error?: unknown } } })?.response?.data?.error;
   if (typeof resposta === 'string') return resposta;
-  return error instanceof Error ? error.message : 'Falha ao enviar ao Google Drive.';
+  return error instanceof Error ? error.message : 'Falha ao enviar as fotos para o banco.';
 };
 
 type PostarSerial = (body: Record<string, unknown>) => Promise<{ itens?: { chave?: string; codigo?: string }[] }>;
@@ -293,13 +293,13 @@ export const enviarLoteOrcamento = async (
   let fotosNaoEnviadas = 0;
   let erroDrive = '';
   for (const [indice, { item }] of comEvidencia.entries()) {
-    onEtapa(`Enviando fotos e vídeos ao Drive: produto ${indice + 1} de ${comEvidencia.length}...`);
+    onEtapa(`Enviando fotos e vídeos para o banco: produto ${indice + 1} de ${comEvidencia.length}...`);
     const cadastro = cadastros.get(item);
     try {
       // Todas as evidencias do lote na mesma pasta do protocolo; o nome do arquivo diz o produto.
       item.linkDrive = await envioEvidencias(item.evidencias || [],
         { nome: nomePastaProtocolo(protocolo), prefixoArquivo: prefixoArquivoProduto(item.serial, cadastro?.codGemco || '') },
-        (enviados, total) => onEtapa(`Enviando fotos e vídeos ao Drive: produto ${indice + 1} de ${comEvidencia.length} (${enviados}/${total} arquivos)...`));
+        (enviados, total) => onEtapa(`Enviando fotos e vídeos para o banco: produto ${indice + 1} de ${comEvidencia.length} (${enviados}/${total} arquivos)...`));
     } catch (error) {
       fotosNaoEnviadas += 1;
       erroDrive ||= mensagemErroDrive(error);

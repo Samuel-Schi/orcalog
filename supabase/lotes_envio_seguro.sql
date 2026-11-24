@@ -126,7 +126,7 @@ BEGIN
 END; $$;
 CREATE OR REPLACE FUNCTION public.aprovar_negociacao_lote(p_protocolo text,p_ids text[],p_responsavel text) RETURNS jsonb
 LANGUAGE plpgsql SECURITY INVOKER SET search_path=public AS $$
-DECLARE n public.orcamento_negociacoes%ROWTYPE; ids bigint[]; base numeric; acumulado numeric:=0; anterior numeric:=0; parcela numeric; produto_base numeric; servico_base numeric; produto_aprovado numeric; r record; resultado jsonb;
+DECLARE n public.orcamento_negociacoes%ROWTYPE; ids bigint[]; base numeric; removido numeric; acordo numeric; nota text; acumulado numeric:=0; anterior numeric:=0; parcela numeric; produto_base numeric; servico_base numeric; produto_aprovado numeric; r record; resultado jsonb;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended(p_protocolo,0));
   SELECT * INTO n FROM public.orcamento_negociacoes WHERE protocolo=p_protocolo FOR UPDATE;
@@ -134,8 +134,16 @@ BEGIN
   PERFORM 1 FROM public.orcamentos_finalizados WHERE protocolo=p_protocolo ORDER BY id FOR UPDATE;
   -- Itens da negociação: os ids gravados nela. Negociação de lote antiga (sem ids) cobre os itens ainda em aberto
   -- ou já consolidados por ela, nunca um item que a AT aprovou ou reprovou antes de negociar.
-  SELECT array_agg(o.id ORDER BY o.id),sum(coalesce(o.valor_original_aprovacao,o.total_orcamento)) INTO ids,base
-    FROM public.orcamentos_finalizados o WHERE o.protocolo=p_protocolo
+  -- Item reprovado (ou retificado) DURANTE a negociação sai dela: antes ele travava a aprovação dos demais
+  -- ("Aprove todos os itens..." / "Lote ... reprovado") e o lote negociado nunca mais era aprovado.
+  -- O valor acordado cai na mesma proporção do valor original do item que saiu (removido).
+  SELECT array_agg(o.id ORDER BY o.id) FILTER (WHERE NOT x.fora),
+         sum(coalesce(o.valor_original_aprovacao,o.total_orcamento)) FILTER (WHERE NOT x.fora),
+         coalesce(sum(coalesce(o.valor_original_aprovacao,o.total_orcamento)) FILTER (WHERE x.fora),0)
+    INTO ids,base,removido
+    FROM public.orcamentos_finalizados o
+    CROSS JOIN LATERAL (SELECT o.retificacao IS NOT NULL OR upper(coalesce(o.status_text,'')) IN ('REPROVADO','RECUSADO','DEVOLUCAO') AS fora) x
+    WHERE o.protocolo=p_protocolo
     AND CASE
       WHEN jsonb_array_length(coalesce(n.item_ids,'[]'::jsonb))>0 THEN n.item_ids @> jsonb_build_array(o.id::text) OR n.item_ids @> jsonb_build_array(o.id)
       WHEN n.negotiation_scope='LOTE' THEN coalesce(o.negociacao_aplicada,false) OR upper(coalesce(o.status_text,'')) NOT IN ('APROVADO','REPROVADO','RECUSADO','DEVOLUCAO','FINALIZADO')
@@ -169,9 +177,17 @@ BEGIN
     RAISE EXCEPTION 'Lote incompleto, retificado, reprovado ou com pagamento iniciado. Revise a negociação.';
   END IF;
   IF base IS NULL OR base<=0 THEN RAISE EXCEPTION 'Total original inválido; não é possível ratear o acordo.'; END IF;
+  acordo := n.valor_proposto_at;
+  IF removido>0 THEN
+    acordo := round(n.valor_proposto_at * base / (base+removido),2);
+    nota := format('Itens reprovados durante a negociação saíram do acordo: R$ %s (de R$ %s) aplicado aos itens restantes.',acordo,n.valor_proposto_at);
+    IF position(nota IN coalesce(n.observacao_at,''))=0 THEN
+      UPDATE public.orcamento_negociacoes SET observacao_at=concat_ws(E'\n',nullif(observacao_at,''),nota),updated_at=now() WHERE id=n.id;
+    END IF;
+  END IF;
   FOR r IN SELECT * FROM public.orcamentos_finalizados WHERE id=ANY(ids) ORDER BY id LOOP
     acumulado := acumulado + coalesce(r.valor_original_aprovacao,r.total_orcamento);
-    parcela := round(n.valor_proposto_at * acumulado / base,2) - anterior;
+    parcela := round(acordo * acumulado / base,2) - anterior;
     anterior := anterior + parcela;
     produto_base:=greatest(0,coalesce(r.val_pecas,0)+coalesce(r.val_access,0)+coalesce(r.val_emb,0));
     servico_base:=greatest(0,coalesce(r.val_mao_obra,0)+coalesce(r.val_hig,0));

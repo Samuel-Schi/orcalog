@@ -650,9 +650,9 @@ const ImportarOrcamento = () => {
                 <strong>Lote {concluido.protocolo} criado</strong>
                 <span>
                   {concluido.salvos} orçamento(s) salvo(s).
-                  {itens.some((item) => item.linkDrive) && ` Fotos e vídeos de ${itens.filter((item) => item.linkDrive).length} produto(s) enviados ao Drive.`}
+                  {itens.some((item) => item.linkDrive) && ` Fotos e vídeos de ${itens.filter((item) => item.linkDrive).length} produto(s) enviados para o banco.`}
                   {concluido.comFoto > 0 && ` ${concluido.comFoto} item(ns) com avaria sem foto aguardam a foto em Lançar Orçamentos.`}
-                  {concluido.fotosNaoEnviadas > 0 && ` Não foi possível enviar as fotos de ${concluido.fotosNaoEnviadas} produto(s) ao Drive (${concluido.erroDrive}); os itens foram salvos mesmo assim.`}
+                  {concluido.fotosNaoEnviadas > 0 && ` Não foi possível enviar as fotos de ${concluido.fotosNaoEnviadas} produto(s) para o banco (${concluido.erroDrive}); os itens foram salvos mesmo assim.`}
                   {itens.some((item) => item.serialGerado) && ` ${itens.filter((item) => item.serialGerado).length} peça(s) sem serial receberam identificador: baixe a lista e etiquete as peças.`}
                   {' '}Finalize o lote em Meus Envios para mandar para aprovação.
                 </span>

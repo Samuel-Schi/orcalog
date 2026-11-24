@@ -111,7 +111,7 @@ const FotosProduto = ({ fotos, obrigatorio, linkDriveAtual, enviando = false, on
 
       <div className="fotos-produto-rodape" aria-live="polite">
         {enviando && fotos.length > 0
-          ? <><span className="novo-orcamento-spinner" aria-hidden="true" /> Enviando {fotos.length} {fotos.length === 1 ? 'foto' : 'fotos'} para o Google Drive...</>
+          ? <><span className="novo-orcamento-spinner" aria-hidden="true" /> Enviando {fotos.length} {fotos.length === 1 ? 'foto' : 'fotos'} para o banco...</>
           : aviso || 'Toque para fotografar ou escolher da galeria. No computador, também dá para arrastar as imagens até aqui.'}
       </div>
 
