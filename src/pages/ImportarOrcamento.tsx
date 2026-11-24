@@ -133,7 +133,7 @@ export const estiloImportar = `
 .imp-pill.aviso { background: #fff4d6; color: #8a5a00; }
 .imp-pill.erro { background: #fdecea; color: #8a1c24; }
 .imp-total { font-weight: 600; white-space: nowrap; }
-.imp-obs { min-width: 200px; max-width: 280px; }
+.imp-tabela td.imp-obs { min-width: 240px; max-width: 320px; white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
 .imp-obs .importacao-orc-msg-erro:first-child, .imp-obs .importacao-orc-msg-aviso:first-child { margin-top: 0; }
 .imp-obs-ok { color: var(--imp-muted); }
 
