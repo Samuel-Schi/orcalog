@@ -683,6 +683,7 @@ const NovoOrcamento = () => {
               <thead>
                 <tr>
                   <th>Situação</th>
+                  <th>Observações</th>
                   <th>#</th>
                   <th>Serial</th>
                   <th>Nota fiscal</th>
@@ -695,7 +696,6 @@ const NovoOrcamento = () => {
                   <th>Peças e valores</th>
                   <th>Total</th>
                   <th>Evidências</th>
-                  <th>Observações</th>
                   <th>Ações</th>
                 </tr>
               </thead>
@@ -712,6 +712,12 @@ const NovoOrcamento = () => {
                   return (
                     <tr key={item.chaveItem || item.serial || indice} className={itemBloqueado(item) ? 'resultado-erro' : item.pendencias.length ? 'resultado-atualizado' : 'resultado-importado'}>
                       <td><span className={`imp-pill ${situacao.tipo}`}>{situacao.texto}</span></td>
+                      <td className="imp-obs">
+                        {item.pendencias.length === 0 && <span className="imp-obs-ok">—</span>}
+                        {item.pendencias.map((p) => (
+                          <div key={p.mensagem} className={p.bloqueia ? 'importacao-orc-msg-erro' : 'importacao-orc-msg-aviso'}>{p.mensagem}</div>
+                        ))}
+                      </td>
                       <td>{indice + 1}</td>
                       {campoCelula(item, 'serial', serialExibido(item))}
                       {campoCelula(item, 'notaFiscal', item.notaFiscal)}
@@ -726,12 +732,6 @@ const NovoOrcamento = () => {
                       <td>
                         <EvidenciasItem arquivos={item.evidencias || []} recomendado={item.avaria} linkDrive={item.linkDrive} serial={item.serial || `sem serial (item ${indice + 1})`}
                           desabilitado={bloqueado} onChange={(arquivos) => anexarEvidencias(indice, arquivos)} />
-                      </td>
-                      <td className="imp-obs">
-                        {item.pendencias.length === 0 && <span className="imp-obs-ok">—</span>}
-                        {item.pendencias.map((p) => (
-                          <div key={p.mensagem} className={p.bloqueia ? 'importacao-orc-msg-erro' : 'importacao-orc-msg-aviso'}>{p.mensagem}</div>
-                        ))}
                       </td>
                       <td>
                         <div className="man-tabela-acoes">

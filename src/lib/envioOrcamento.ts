@@ -53,9 +53,9 @@ export const consultarCadastroProduto = async ({ item }: { item: string }) => {
 };
 
 const avisoTrocada = (original: string, canonico: string) =>
-  `Peça "${original}" padronizada automaticamente como "${canonico}".`;
+  `Peça "${original}" padronizada como "${canonico}".`;
 const avisoSemPadrao = (original: string) =>
-  `Peça "${original}" não está no catálogo: vai com o nome original e o pedido de padrão novo é registrado no envio.`;
+  `Peça "${original}" fora do catálogo: vai com o nome original.`;
 
 // Padroniza o nome de cada peca pelo catalogo canonico, escopado pela linha do produto (vinda do gemco).
 // Nada aqui trava o envio (decisao do usuario em 13/11):
@@ -72,7 +72,7 @@ export const aplicarPadraoPecas = (itens: ItemOrcamentoPlanilha[], catalogo: Cat
       const r = padronizarPeca(peca.nome, catalogo, linhaProduto);
       const linhaErrada = (canonico: string) => item.pendencias.push({
         campo: 'valores',
-        mensagem: `Peça "${canonico}" não consta na linha ${linhaProduto || '—'} do catálogo. Confira a linha do produto.`,
+        mensagem: `Peça "${canonico}" não é da linha ${linhaProduto || '—'}. Confira o produto.`,
         bloqueia: false
       });
       if (r.status === 'padronizada' && r.canonico) {
@@ -218,7 +218,7 @@ export const gerarIdentificadoresPeca = async (itens: ItemOrcamentoPlanilha[], b
     if (!/^SSAT\d{8,}$/.test(codigo)) throw new Error('O banco não devolveu o identificador de todas as peças sem serial.');
     item.serial = formatSerialValue(codigo);
     item.pendencias = item.pendencias.filter((p) => p.mensagem !== AVISO_SEM_SERIAL);
-    item.pendencias.push({ campo: 'serial', mensagem: `Identificador gerado: ${item.serial}. Etiquete a peça com ele.`, bloqueia: false });
+    item.pendencias.push({ campo: 'serial', mensagem: `Serial gerado: ${item.serial}. Etiquete a peça.`, bloqueia: false });
   }
 };
 

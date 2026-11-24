@@ -45,7 +45,7 @@ test('padronizacao automatica: parecida troca sozinha, desconhecida vai com o or
   const trocadas = envio.gruposPadronizados(itens);
   assert.deepEqual(trocadas.map((g) => [g.original, g.canonico, g.desfeita, g.linhasPlanilha]), [['Placa principall', 'PLACA PRINCIPAL', false, [2, 4]]]);
   assert.deepEqual(envio.gruposSemPadrao(itens).map((g) => [g.original, g.linhasPlanilha]), [['Tampa traseira', [3]]]);
-  assert.ok(itens[0].pendencias.some((p) => !p.bloqueia && /padronizada automaticamente/.test(p.mensagem)));
+  assert.ok(itens[0].pendencias.some((p) => !p.bloqueia && /padronizada como/.test(p.mensagem)));
 
   // Desfazer vale para todos os produtos com a mesma descricao: volta ao digitado e vira "sem padrao".
   let lote = envio.alternarPadronizacao(itens, trocadas[0].chave, true);

@@ -116,7 +116,7 @@ export type ItemOrcamentoPlanilha = {
   pecasPadronizadas?: { chave: string; original: string; canonico: string; desfeita?: boolean }[];
 };
 
-export const AVISO_SEM_SERIAL = 'Sem serial: um identificador único (SSAT-…) é gerado no envio e passa a ser o serial da peça. Etiquete a peça com ele.';
+export const AVISO_SEM_SERIAL = 'Sem serial: um SSAT-… é gerado no envio. Etiquete a peça.';
 
 /** Chave fixa do item no lote; o identificador gerado para peca sem serial fica preso a ela. */
 export const novaChaveItem = () =>
@@ -126,7 +126,7 @@ export const novaChaveItem = () =>
 export const serialExibido = (item: Pick<ItemOrcamentoPlanilha, 'serial' | 'serialGerado'>) =>
   item.serial || (item.serialGerado ? 'Gerado no envio' : '');
 
-export const AVISO_AVARIA_SEM_FOTO = 'Avaria exige foto: anexe em "Evidências" nesta tela. Sem foto, o item entra no lote como rascunho e a foto pode ser anexada depois em Lançar Orçamentos.';
+export const AVISO_AVARIA_SEM_FOTO = 'Avaria sem foto: anexe em Evidências. Sem foto, vai como rascunho.';
 
 /** Troca as evidencias do item; o aviso de avaria some quando ha ao menos uma foto ou video. */
 export const definirEvidencias = (item: ItemOrcamentoPlanilha, arquivos: File[]) => {
@@ -289,7 +289,7 @@ export const interpretarPlanilhaOrcamento = (rows: unknown[][], primeiraLinha = 
     const avaria = exigeFotoAvaria(campos.defeitoEncontrado);
 
     if (!total && !pendencias.some((p) => p.campo === 'valores')) {
-      pendencias.push({ campo: 'valores', mensagem: 'Nenhum valor informado: o orçamento vai com total R$ 0,00.', bloqueia: false });
+      pendencias.push({ campo: 'valores', mensagem: 'Sem valores: total R$ 0,00.', bloqueia: false });
     }
     if (avaria) {
       pendencias.push({ campo: 'defeitoEncontrado', mensagem: AVISO_AVARIA_SEM_FOTO, bloqueia: false });

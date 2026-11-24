@@ -133,7 +133,7 @@ export const estiloImportar = `
 .imp-pill.aviso { background: #fff4d6; color: #8a5a00; }
 .imp-pill.erro { background: #fdecea; color: #8a1c24; }
 .imp-total { font-weight: 600; white-space: nowrap; }
-.imp-obs { min-width: 240px; }
+.imp-obs { min-width: 200px; max-width: 280px; }
 .imp-obs .importacao-orc-msg-erro:first-child, .imp-obs .importacao-orc-msg-aviso:first-child { margin-top: 0; }
 .imp-obs-ok { color: var(--imp-muted); }
 
@@ -728,6 +728,7 @@ const ImportarOrcamento = () => {
               <thead>
                 <tr>
                   <th>Situação</th>
+                  <th>Observações</th>
                   <th>Linha</th>
                   <th>Serial</th>
                   <th>Nota fiscal</th>
@@ -740,7 +741,6 @@ const ImportarOrcamento = () => {
                   <th>Peças e valores</th>
                   <th>Total</th>
                   <th>Evidências</th>
-                  <th>Observações</th>
                 </tr>
               </thead>
               <tbody>
@@ -757,6 +757,12 @@ const ImportarOrcamento = () => {
                   return (
                     <tr key={item.chaveItem || item.serial} className={bloqueado ? 'resultado-erro' : item.pendencias.length ? 'resultado-atualizado' : 'resultado-importado'}>
                       <td><span className={`imp-pill ${situacao.tipo}`}>{situacao.texto}</span></td>
+                      <td className="imp-obs">
+                        {item.pendencias.length === 0 && <span className="imp-obs-ok">—</span>}
+                        {item.pendencias.map((p) => (
+                          <div key={p.mensagem} className={p.bloqueia ? 'importacao-orc-msg-erro' : 'importacao-orc-msg-aviso'}>{p.mensagem}</div>
+                        ))}
+                      </td>
                       <td>{item.linha}</td>
                       {celula(item, 'serial', serialExibido(item))}
                       {celula(item, 'notaFiscal', item.notaFiscal)}
@@ -773,12 +779,6 @@ const ImportarOrcamento = () => {
                       <td>
                         <EvidenciasItem arquivos={item.evidencias || []} recomendado={item.avaria} linkDrive={item.linkDrive} serial={item.serial || `sem serial (linha ${item.linha})`}
                           desabilitado={enviando || Boolean(concluido)} onChange={(arquivos) => anexarEvidencias(item, arquivos)} />
-                      </td>
-                      <td className="imp-obs">
-                        {item.pendencias.length === 0 && <span className="imp-obs-ok">—</span>}
-                        {item.pendencias.map((p) => (
-                          <div key={p.mensagem} className={p.bloqueia ? 'importacao-orc-msg-erro' : 'importacao-orc-msg-aviso'}>{p.mensagem}</div>
-                        ))}
                       </td>
                     </tr>
                   );

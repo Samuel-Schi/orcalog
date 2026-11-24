@@ -49,7 +49,7 @@ test('peca sem serial recebe identificador unico, que vira o serial e nao muda a
   assert.deepEqual(itens.map((i) => i.serial), ['SSAT-0000-0001', 'ABC1-23', 'SSAT-0000-0002']);
   assert.deepEqual(banco.chamadas[0].itens.map((i) => i.notaFiscal), ['NF1', 'NF3']);
   assert.equal(banco.chamadas[0].cnpj, BASE.cnpj);
-  assert.ok(itens[0].pendencias.some((p) => /Identificador gerado: SSAT-0000-0001/.test(p.mensagem)));
+  assert.ok(itens[0].pendencias.some((p) => /Serial gerado: SSAT-0000-0001/.test(p.mensagem)));
   assert.ok(!itens[0].pendencias.some((p) => p.mensagem === importacao.AVISO_SEM_SERIAL));
 
   // "Tentar novamente": quem ja tem serial nao pede de novo.
