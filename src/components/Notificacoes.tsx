@@ -58,13 +58,13 @@ export default function Notificacoes() {
       <span className="pa-sr-only" role="status">{!carregando && !erro && `${avisos.length} notificações não lidas`}</span>
       {createPortal(<dialog ref={dialogo} id="pa-avisos-lista" className="pa-avisos-lista" aria-labelledby="pa-avisos-titulo" onCancel={() => setAberto(false)} onClose={() => setAberto(false)}>
         <header className="pa-avisos-header"><h3 id="pa-avisos-titulo">Notificações do posto</h3><button type="button" autoFocus onClick={() => setAberto(false)} aria-label="Fechar notificações">✕</button></header>
-        <p className="pa-avisos-ajuda">Propostas de negociação enviadas pelo AT. Os avisos são consultados ao entrar no sistema.</p>
+        <p className="pa-avisos-ajuda">Propostas e retificações do AT.</p>
         {erro && <p role="alert">{erro}</p>}
         {!cnpj && <p>Entre novamente para identificar seu posto.</p>}
         {cnpj && carregando && <p>Carregando notificações…</p>}
-        {cnpj && !carregando && !erro && !avisos.length && <p>Nenhuma notificação pendente. Você está em dia!</p>}
+        {cnpj && !carregando && !erro && !avisos.length && <p>Nenhuma notificação.</p>}
         {avisos.map((aviso) => <article key={aviso.id}>
-          <small className="pa-aviso-tipo">{aviso.tipo === 'NEGOCIACAO' ? 'Nova proposta de negociação' : 'Alteração de status'}</small>
+          <small className="pa-aviso-tipo">{aviso.tipo === 'NEGOCIACAO' ? 'Nova proposta' : aviso.tipo === 'RETIFICACAO' ? 'Itens retificados' : 'Alteração de status'}</small>
           <strong>Protocolo {aviso.protocolo}</strong>
           <p>{aviso.mensagem}</p>
           <small>{new Date(aviso.criado_em).toLocaleString('pt-BR')}</small>

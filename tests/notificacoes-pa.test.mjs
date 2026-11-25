@@ -19,13 +19,13 @@ const handler = compiled.exports.createNotificationsHandler({
 });
 const cnpj = '12345678000199';
 
-test('consulta somente avisos de negociação não lidos do CNPJ informado', async () => {
+test('consulta somente avisos de negociação e retificação não lidos do CNPJ informado', async () => {
   const original = globalThis.fetch;
   try {
     globalThis.fetch = async (url) => {
       const params = new URL(url).searchParams;
       assert.equal(params.get('cnpj'), 'eq.' + cnpj);
-      assert.equal(params.get('tipo'), 'eq.NEGOCIACAO');
+      assert.equal(params.get('tipo'), 'in.(NEGOCIACAO,RETIFICACAO)');
       assert.equal(params.get('lida_em'), 'is.null');
       assert.equal(params.get('limit'), '100');
       return new Response(JSON.stringify([{ id: 1, protocolo: 'P1' }]));

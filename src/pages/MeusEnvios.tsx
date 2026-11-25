@@ -136,6 +136,19 @@ const estiloMeusEnvios = `
 .me-status-ponto { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 
 .me-lote-corpo { background: #fff !important; padding: 14px 16px 16px !important; }
+.me-negociacao-resumo { margin: 0 0 12px; border: 1px solid var(--me-borda); border-radius: 8px; font-size: .85rem; }
+.me-negociacao-resumo > summary { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; color: var(--me-azul); font-weight: 600; list-style: none; }
+.me-negociacao-resumo > summary .material-icons { font-size: 18px; }
+.me-negociacao-resumo > summary small { margin-left: auto; color: var(--me-muted); font-weight: 400; }
+.me-negociacao-resumo > summary::-webkit-details-marker { display: none; }
+.me-negociacao-resumo > summary::after { content: '▾'; color: var(--me-muted); transition: transform .15s; }
+.me-negociacao-resumo[open] > summary::after { transform: rotate(180deg); }
+.me-negociacao-resumo[open] > summary { border-bottom: 1px solid var(--me-borda); }
+.me-negociacao-resumo > :not(summary) { margin: 8px 12px; }
+.me-negociacao-resumo > small { display: block; color: var(--me-muted); }
+.me-negociacao-mini { display: flex; flex-wrap: wrap; gap: 4px 24px; }
+.me-negociacao-mini dt { font-size: .75rem; color: var(--me-muted); }
+.me-negociacao-mini dd { margin: 0; font-weight: 600; }
 .me-resumo { display: flex; flex-wrap: wrap; gap: 8px 32px; margin: 0 0 14px; padding-bottom: 12px; border-bottom: 1px solid var(--me-borda); }
 .me-resumo dt { font-size: .76rem; color: var(--me-muted); }
 .me-resumo dd { margin: 1px 0 0; font-size: .95rem; font-weight: 600; color: var(--me-texto); }
@@ -702,7 +715,7 @@ const MeusEnvios = () => {
             + itens.filter((item) => isItemEmMontagem(item) && item.orcamentoPronto === false).length;
           const bloqueioFinalizar = !podeFinalizar && itensSemOrcamento > 0
             && itens.every((item) => isItemEmMontagem(item) && item.envioFinalizado !== true)
-            ? `Para finalizar: ${itensSemOrcamento} item(ns) sem orçamento lançado (avaria aguardando foto ou envio interrompido). Abra o lote e clique em "Corrigir" (primeira coluna, em vermelho).`
+            ? `${itensSemOrcamento} item(ns) sem orçamento. Abra o lote e clique em "Corrigir".`
             : '';
           const idsLote = idsLotePorProtocolo[normalizeProtocolKey(protocolo)] || itens
             .map((item) => item.dbId == null ? '' : String(item.dbId))
@@ -801,18 +814,38 @@ const MeusEnvios = () => {
                   </div>
                 </dl>
                 {negociacao && valorAceito(negociacao) != null && temRetificacao && (
-                  <p className="me-nota">Negociação anterior à retificação, preservada para consulta. Confira os itens retificados abaixo.</p>
+                  <p className="me-nota">Houve retificação depois da negociação: confira os itens abaixo.</p>
                 )}
                 {mostrarAvisoSemVinculo && (
                   <div className="me-alerta-amarelo">
-                    <strong>Negociação pendente de sincronização</strong>
-                    <span>
-                      Este lote tem item em negociação no Ravena, mas o registro da negociação ainda não apareceu no painel.
-                      Atualize a página em alguns instantes. Se continuar assim, vale conferir a gravação do protocolo no Supabase.
-                    </span>
+                    <strong>Negociação ainda sincronizando</strong>
+                    <span>Atualize a página em alguns instantes.</span>
                   </div>
                 )}
-                {negociacao && (
+                {/* Negociação encerrada (ou aguardando o AT) fica recolhida: o espelho dos itens vem logo
+                    abaixo do resumo. Só abre sozinha quando o posto precisa responder. */}
+                {negociacao && !aguardandoPosto && aviso && (
+                  <p className={`negociacao-aviso ${aviso.tipo}`} role={aviso.tipo === 'erro' ? 'alert' : 'status'}>{aviso.texto}</p>
+                )}
+                {negociacao && !aguardandoPosto && (
+                  <details className="me-negociacao-resumo">
+                    <summary>
+                      <i className="material-icons" aria-hidden="true">handshake</i>
+                      Ver detalhes da negociação
+                      <small>{getNegociacaoStatusLabel(negociacao.status)}</small>
+                    </summary>
+                    <dl className="me-negociacao-mini">
+                      <div><dt>Pedido</dt><dd>{formatCurrency(valorPedido)}</dd></div>
+                      <div><dt>Proposta do AT</dt><dd>{propostaAt != null ? formatCurrency(propostaAt) : '-'}</dd></div>
+                      {contraproposta != null && <div><dt>Sua contraproposta</dt><dd>{formatCurrency(contraproposta)}</dd></div>}
+                    </dl>
+                    {negociacao.observacao_at && <p><b>AT:</b> {negociacao.observacao_at}</p>}
+                    {negociacao.observacao_posto && <p><b>Você:</b> {negociacao.observacao_posto}</p>}
+                    {String(negociacao.acao_pendente_de || '').toUpperCase() === 'AT' && <p>Aguardando o AT.</p>}
+                    <small>Atualizado em {formatDateTime(negociacao.updated_at)}</small>
+                  </details>
+                )}
+                {negociacao && aguardandoPosto && (
                   <section className={`negociacao-card${aguardandoPosto ? ' aguardando-posto' : ''}`} aria-label="Negociação">
                     <header className="negociacao-topo">
                       <div>
@@ -822,11 +855,7 @@ const MeusEnvios = () => {
                       <span className="negociacao-status">{getNegociacaoStatusLabel(negociacao.status)}</span>
                     </header>
 
-                    {aguardandoPosto && (
-                      <p className="negociacao-chamada">
-                        O AT enviou uma proposta para este orçamento. Aceite, recuse ou faça uma contraproposta.
-                      </p>
-                    )}
+                    <p className="negociacao-chamada">Aceite, recuse ou faça uma contraproposta.</p>
 
                     <div className="negociacao-valores">
                       <div className="negociacao-valor-card">
@@ -856,19 +885,12 @@ const MeusEnvios = () => {
                         {negociacao.observacao_at}
                       </blockquote>
                     )}
-                    {!aguardandoPosto && negociacao.observacao_posto && (
-                      <blockquote className="negociacao-observacao">
-                        <span>Sua observação</span>
-                        {negociacao.observacao_posto}
-                      </blockquote>
-                    )}
 
                     {aviso && (
                       <p className={`negociacao-aviso ${aviso.tipo}`} role={aviso.tipo === 'erro' ? 'alert' : 'status'}>{aviso.texto}</p>
                     )}
 
-                    {aguardandoPosto ? (
-                      contraAberta[protocolo] ? (
+                    {contraAberta[protocolo] ? (
                         <form
                           className="negociacao-contraproposta"
                           onSubmit={(e) => { e.preventDefault(); void responderNegociacao(protocolo, 'CONTRAPROPOSTA'); }}
@@ -962,17 +984,7 @@ const MeusEnvios = () => {
                             Recusar proposta
                           </button>
                         </div>
-                      )
-                    ) : (
-                      <p className="negociacao-espera">
-                        <i className="material-icons" aria-hidden="true">
-                          {String(negociacao.acao_pendente_de || '').toUpperCase() === 'AT' ? 'hourglass_top' : 'info'}
-                        </i>
-                        {String(negociacao.acao_pendente_de || '').toUpperCase() === 'AT'
-                          ? 'Sua resposta foi enviada. Aguardando a análise do AT.'
-                          : 'Negociação acompanhada pelo sistema.'}
-                      </p>
-                    )}
+                      )}
                   </section>
                 )}
                 <div className="table-scroll me-tabela-wrap">
